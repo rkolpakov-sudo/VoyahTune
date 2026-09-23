@@ -43,35 +43,43 @@ public class SplitStore {
     static List<Preset> load(SharedPreferences p) {
         List<Preset> out = new ArrayList<>();
         boolean migratedIds = false;
+        boolean anyCorrupt = false;
         try {
             JSONArray a = new JSONArray(p.getString(KEY, "[]"));
             for (int i = 0; i < a.length(); i++) {
-                JSONObject o = a.getJSONObject(i);
-                Preset ps = new Preset();
-                String storedId = o.optString("id", "");
-                if (!storedId.isEmpty()) ps.id = storedId;
-                else migratedIds = true;
-                ps.l  = o.optString("l", "");
-                ps.ll = o.optString("ll", "");
-                ps.r  = o.optString("r", "");
-                ps.rl = o.optString("rl", "");
-                ps.ratio = o.optInt("ratio", 1);
-                ps.resizable = o.optBoolean("resizable", false);
-                ps.split = (float) o.optDouble("split", 0d);
-                out.add(ps);
+                try {
+                    JSONObject o = a.getJSONObject(i);
+                    Preset ps = new Preset();
+                    String storedId = o.optString("id", "");
+                    if (!storedId.isEmpty()) ps.id = storedId;
+                    else migratedIds = true;
+                    ps.l  = o.optString("l", "");
+                    ps.ll = o.optString("ll", "");
+                    ps.r  = o.optString("r", "");
+                    ps.rl = o.optString("rl", "");
+                    ps.ratio = o.optInt("ratio", 1);
+                    ps.resizable = o.optBoolean("resizable", false);
+                    ps.split = (float) o.optDouble("split", 0d);
+                    out.add(ps);
+                } catch (Exception badElement) {
+                    // Одна битая запись не должна обнулять остальные пресеты.
+                    anyCorrupt = true;
+                }
             }
         } catch (Exception ignored) {
+            // Файл/строка не JSON — пустой список, без автосейва.
+            return out;
         }
-        // Одноразовая миграция старых пресетов: id должен пережить следующий load, иначе Native
-        // вернёт результат resize уже в другой случайно сгенерированный id.
-        if (migratedIds) save(p, out);
+        // Миграция id или отбрасывание битых элементов: сохраняем очищенный список,
+        // но только если исходный JSON был валиден (иначе не затираем исходник).
+        if (migratedIds || anyCorrupt) save(p, out);
         return out;
     }
 
     static void save(SharedPreferences p, List<Preset> list) {
         JSONArray a = new JSONArray();
-        try {
-            for (Preset ps : list) {
+        for (Preset ps : list) {
+            try {
                 JSONObject o = new JSONObject();
                 o.put("id", ps.id);
                 o.put("l", ps.l);
@@ -82,8 +90,9 @@ public class SplitStore {
                 o.put("resizable", ps.resizable);
                 o.put("split", ps.split);
                 a.put(o);
+            } catch (Exception ignored) {
+                // Пропускаем элемент, который не сериализуется, — остальные сохраняем.
             }
-        } catch (Exception ignored) {
         }
         p.edit().putString(KEY, a.toString()).apply();
     }

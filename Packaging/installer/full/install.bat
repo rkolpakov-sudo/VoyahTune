@@ -137,6 +137,7 @@ if "%BOOT_HOOK_INSTALL_STATUS%"=="0" goto :boot_hooks_installed
 if "%BOOT_HOOK_INSTALL_STATUS%"=="1" call :handle_safe_boot_hook_failure
 if "%BOOT_HOOK_INSTALL_STATUS%"=="2" echo !!! RC rollback was not confirmed. Clean init.logcat.sh was kept to avoid a second boot hook.
 if "%BOOT_HOOK_INSTALL_STATUS%"=="2" echo     Do not reboot. Restore ADB and run the installer again.
+echo !!! Boot hook install failed ^(status %BOOT_HOOK_INSTALL_STATUS%^). Installation stopped.
 exit /b 1
 :boot_hooks_installed
 set "LEGACY_INIT_MIGRATED=0"
@@ -469,7 +470,7 @@ call :read_boot_hook_final_state
 if errorlevel 1 (
     echo !!! Could not verify RC after rollback. The legacy hook was not restored to avoid two boot paths.
     echo     Do not reboot. Restore ADB and run the installer again.
-    exit /b 0
+    exit /b 1
 )
 if "%BOOT_HOOK_FINAL_STATE%"=="READY" (
     echo   The previous complete RC set was preserved. Legacy init.logcat.sh was not restored.
@@ -478,10 +479,13 @@ if "%BOOT_HOOK_FINAL_STATE%"=="READY" (
 if "%BOOT_HOOK_FINAL_STATE%"=="PARTIAL" (
     echo !!! An incomplete RC set remains after rollback. The legacy hook was not restored to avoid two boot paths.
     echo     Do not reboot. Run the installer again.
-    exit /b 0
+    exit /b 1
 )
 call :rollback_legacy_init_logcat
-if errorlevel 1 echo !!! Neither the new RC nor legacy rollback was installed. Do not reboot; run the installer again.
+if errorlevel 1 (
+    echo !!! Neither the new RC nor legacy rollback was installed. Do not reboot; run the installer again.
+    exit /b 1
+)
 exit /b 0
 
 :boot_hook_snapshot

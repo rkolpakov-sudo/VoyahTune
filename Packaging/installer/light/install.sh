@@ -149,15 +149,29 @@ backup_pull /system/etc/permissions/privapp-permissions-ru.big.town.anative.xml 
 # Полная чистка протухшего состояния Native (лечение краха zygote "data_de/null") вынесена в remove.sh.
 echo "=== Native.apk в /system/priv-app (нужны привилегированные пермишены для CAN-функций) ==="
 # /system уже сделан записываемым выше (verity, overlay) — отдельный remount не нужен.
-adb shell mkdir -p /system/priv-app/Native
-adb shell chmod 755 /system/priv-app/Native
-adb push native.apk /system/priv-app/Native/Native.apk
+adb shell mkdir -p /system/priv-app/Native || exit 1
+adb shell chmod 755 /system/priv-app/Native || exit 1
+if ! adb push native.apk /system/priv-app/Native/Native.apk; then
+    echo "!!! Не удалось записать Native.apk в /system/priv-app — установка прервана."
+    adb shell "rm -f /system/priv-app/Native/Native.apk" >/dev/null 2>&1
+    exit 1
+fi
+adb shell "chown 0:0 /system/priv-app/Native/Native.apk && chmod 644 /system/priv-app/Native/Native.apk && restorecon /system/priv-app/Native/Native.apk && sync && test -f /system/priv-app/Native/Native.apk" || {
+    echo "!!! Native.apk не прошёл chown/chmod/restorecon — установка прервана."
+    exit 1
+}
 adb shell "ls -all /system/priv-app/Native"
 
 # Whitelist привилегированных пермишенов (нужен на enforce-ROM: FORCE_STOP/WRITE_SECURE_SETTINGS/…)
-adb shell "mkdir -p /system/etc/permissions"
-adb push privapp-permissions-ru.big.town.anative.xml /system/etc/permissions/privapp-permissions-ru.big.town.anative.xml
-adb shell "chmod 644 /system/etc/permissions/privapp-permissions-ru.big.town.anative.xml"
+adb shell "mkdir -p /system/etc/permissions" || exit 1
+if ! adb push privapp-permissions-ru.big.town.anative.xml /system/etc/permissions/privapp-permissions-ru.big.town.anative.xml; then
+    echo "!!! Не удалось записать whitelist привилегированных пермишенов — установка прервана."
+    exit 1
+fi
+adb shell "chown 0:0 /system/etc/permissions/privapp-permissions-ru.big.town.anative.xml && chmod 644 /system/etc/permissions/privapp-permissions-ru.big.town.anative.xml && restorecon /system/etc/permissions/privapp-permissions-ru.big.town.anative.xml && sync" || {
+    echo "!!! Whitelist не прошёл chown/chmod/restorecon — установка прервана."
+    exit 1
+}
 
 # Включить power hold (leave car), если опция выключена или отсутствует
 LEAVECAR=$(adb shell getprop persist.app.feature.leavecar | tr -d '\r')

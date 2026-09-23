@@ -17,9 +17,10 @@ import android.widget.TextView;
 
 import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.ContextCompat;
 
 /**
- * Экран «Логирование»: тумблер записи логов Native в файл (/sdcard/tmp), живая лента
+ * Экран «Логирование»: тумблер записи логов Native в файл (app-private files/), живая лента
  * (опрос снимка у Native раз в секунду) и «Выгрузить логи» (share файла из Native).
  * Управление и файл — на стороне Native (там всё логирование). См. SetModesService
  * MSG_LOGGING_ENABLE/SHARE + ACTION_REQUEST_LOG/LOG_UPDATE.
@@ -117,7 +118,8 @@ public class LoggingActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        registerReceiver(logReceiver, new IntentFilter(ACTION_LOG_UPDATE), RECEIVER_EXPORTED);
+        ContextCompat.registerReceiver(this, logReceiver, new IntentFilter(ACTION_LOG_UPDATE),
+                ContextCompat.RECEIVER_EXPORTED);
         uiHandler.removeCallbacks(poll);
         uiHandler.post(poll);
     }

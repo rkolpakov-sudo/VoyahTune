@@ -1,7 +1,6 @@
 package ru.big.town.anative;
 
 import android.content.Context;
-import android.os.Environment;
 import android.util.Log;
 
 import java.io.BufferedReader;
@@ -13,10 +12,10 @@ import java.util.ArrayDeque;
 /**
  * Захват ВСЕГО вывода процесса Native в файл + кольцевой буфер для живого просмотра.
  *
- * Механика: запускаем `logcat --pid=<наш pid> -v time` и построчно пишем в файл на
- * sdcard (по умолчанию /sdcard/tmp/voyah_native_log.txt) и в кольцевой буфер (последние
- * {@link #RING_MAX} строк) — RestoreMode опрашивает снимок буфера для «живой» ленты.
- * `--pid` ловит весь наш процесс (все сервисы Native в одном процессе), поэтому править
+ * Механика: запускаем `logcat --pid=<наш pid> -v time` и построчно пишем в файл в
+ * app-private {@link Context#getFilesDir()} (voyah_native_log.txt) и в кольцевой буфер
+ * (последние {@link #RING_MAX} строк) — RestoreMode опрашивает снимок буфера для «живой»
+ * ленты. `--pid` ловит весь наш процесс (все сервисы Native в одном процессе), поэтому править
  * каждый Log.* не нужно. Требует READ_LOGS (есть у priv-app по whitelist).
  *
  * Файл шарится через FileProvider (см. shareLogFile в SetModesService).
@@ -143,13 +142,16 @@ final class NativeLog {
         while (ring.size() > RING_MAX) ring.pollFirst();
     }
 
-    /** /sdcard/tmp/voyah_native_log.txt, при недоступности — app-specific external. */
+    /**
+     * App-private internal storage ({@link Context#getFilesDir()}) — не world-readable,
+     * в отличие от прежнего /sdcard/tmp. FileProvider отдаёт share-URI (см. file_paths.xml).
+     */
     private File resolveFile(Context ctx) {
-        File tmp = new File(Environment.getExternalStorageDirectory(), "tmp");
-        if (tmp.exists() || tmp.mkdirs()) {
-            return new File(tmp, FILE_NAME);
+        File dir = ctx.getFilesDir();
+        if (dir == null) {
+            File ext = ctx.getExternalFilesDir(null);
+            return new File(ext != null ? ext : new File("."), FILE_NAME);
         }
-        File ext = ctx.getExternalFilesDir(null);
-        return new File(ext, FILE_NAME);
+        return new File(dir, FILE_NAME);
     }
 }

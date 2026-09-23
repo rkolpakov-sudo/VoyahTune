@@ -11,26 +11,6 @@ import android.util.Log;
 
 public class RestoreModeContentProvider extends ContentProvider {
     private SharedPreferences sharedPreferences;
-    private String driveMode="INDIVIDUAL";
-    private String energy="SREV";
-    private  String recycle="LOW";
-    private  String customCommand="";
-    private  int customCommandCount=1;
-    private  boolean autoLight=false;
-    private  boolean driveEnabled=false;
-    private  boolean recycleEnabled=false;
-    private  boolean energyEnabled=false;
-    private  int lightSensorThreshold=3;
-    private  int lightSensorThresholdOff=5;
-    private  boolean disablePedestrianSound=false;
-    private  boolean forcedEv=false;
-    private  boolean debugMode=false;
-    private  boolean wiperColdMode=false;
-    private  String customCommandStarButton1="";
-    private  String customCommandStarButton2="";
-    private  boolean autoLaunchOnWake=false;
-    private  boolean batteryHeatAuto=false;
-    private  boolean pauseMediaOnDoor=false;
     public RestoreModeContentProvider() {
     }
 
@@ -61,26 +41,27 @@ public class RestoreModeContentProvider extends ContentProvider {
     public Cursor query(Uri uri, String[] projection, String selection,
                         String[] selectionArgs, String sortOrder) {
         Log.i("$$$", "QUERY1");
-        driveMode = sharedPreferences.getString("driveMode", "INDIVIDUAL");
-        energy = sharedPreferences.getString("energy", "SREV");
-        recycle = sharedPreferences.getString("recycle", "LOW");
-        customCommand = sharedPreferences.getString("customCommand", "");
-        customCommandCount = sharedPreferences.getInt("customCommandCount", 1);
-        autoLight = sharedPreferences.getBoolean("autoLight", false);
-        driveEnabled          = sharedPreferences.getBoolean("driveEnabled",          false);
-        recycleEnabled        = sharedPreferences.getBoolean("recycleEnabled",        false);
-        energyEnabled         = sharedPreferences.getBoolean("energyEnabled",         false);
-        lightSensorThreshold    = sharedPreferences.getInt("lightSensorThreshold",    3);
-        lightSensorThresholdOff = sharedPreferences.getInt("lightSensorThresholdOff", 5);
-        disablePedestrianSound  = sharedPreferences.getBoolean("disablePedestrianSound", false);
-        forcedEv                = sharedPreferences.getBoolean("forcedEv", false);
-        debugMode               = sharedPreferences.getBoolean("debugMode",              false);
-        wiperColdMode           = sharedPreferences.getBoolean("wiperColdMode",          false);
-        customCommandStarButton1 = sharedPreferences.getString("customCommandStarButton1", "");
-        customCommandStarButton2 = sharedPreferences.getString("customCommandStarButton2", "");
-        autoLaunchOnWake        = sharedPreferences.getBoolean("autoLaunchOnWake",         false);
-        batteryHeatAuto         = sharedPreferences.getBoolean("batteryHeatAuto",          false);
-        pauseMediaOnDoor        = sharedPreferences.getBoolean("pauseMediaOnDoor",         false);
+        // Только локальные переменные: поля-состояние между binder-потоками перемешивали колонки.
+        String driveMode = sharedPreferences.getString("driveMode", "INDIVIDUAL");
+        String energy = sharedPreferences.getString("energy", "SREV");
+        String recycle = sharedPreferences.getString("recycle", "LOW");
+        String customCommand = sharedPreferences.getString("customCommand", "");
+        int customCommandCount = sharedPreferences.getInt("customCommandCount", 1);
+        boolean autoLight = sharedPreferences.getBoolean("autoLight", false);
+        boolean driveEnabled          = sharedPreferences.getBoolean("driveEnabled",          false);
+        boolean recycleEnabled        = sharedPreferences.getBoolean("recycleEnabled",        false);
+        boolean energyEnabled         = sharedPreferences.getBoolean("energyEnabled",         false);
+        int lightSensorThreshold    = sharedPreferences.getInt("lightSensorThreshold",    3);
+        int lightSensorThresholdOff = sharedPreferences.getInt("lightSensorThresholdOff", 5);
+        boolean disablePedestrianSound  = sharedPreferences.getBoolean("disablePedestrianSound", false);
+        boolean forcedEv                = sharedPreferences.getBoolean("forcedEv", false);
+        boolean debugMode               = sharedPreferences.getBoolean("debugMode",              false);
+        boolean wiperColdMode           = sharedPreferences.getBoolean("wiperColdMode",          false);
+        String customCommandStarButton1 = sharedPreferences.getString("customCommandStarButton1", "");
+        String customCommandStarButton2 = sharedPreferences.getString("customCommandStarButton2", "");
+        boolean autoLaunchOnWake        = sharedPreferences.getBoolean("autoLaunchOnWake",         false);
+        boolean batteryHeatAuto         = sharedPreferences.getBoolean("batteryHeatAuto",          false);
+        boolean pauseMediaOnDoor        = sharedPreferences.getBoolean("pauseMediaOnDoor",         false);
 
         MatrixCursor cursor = new MatrixCursor(new String[]{
                 "driveMode",               // 0

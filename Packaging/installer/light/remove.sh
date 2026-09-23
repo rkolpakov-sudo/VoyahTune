@@ -29,6 +29,13 @@ adb root
 adb disable-verity >/dev/null 2>&1
 adb remount >/dev/null 2>&1
 adb shell 'mount -o rw,remount /system 2>/dev/null; mount -o rw,remount / 2>/dev/null'
+# RW-gate: не удалять файлы из read-only /system (иначе partial state без кода ошибки).
+if [ "$(adb shell 'touch /system/.ovw_rwtest 2>/dev/null && rm -f /system/.ovw_rwtest && echo RW || echo RO' | tr -d '\r')" != "RW" ]; then
+    echo "!!! /system read-only — удаление прервано (файлы не тронуты)."
+    echo "    Проверьте вручную: adb disable-verity ; adb reboot ; adb root ; adb remount."
+    echo "    Если /system не делается записываемым — сначала install.sh из этого же релиза."
+    exit 1
+fi
 
 echo "=== Откат DNS-overlay ==="
 if ! restore_yandex_dns; then

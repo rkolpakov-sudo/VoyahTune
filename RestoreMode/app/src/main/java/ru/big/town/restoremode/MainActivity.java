@@ -30,6 +30,7 @@ import android.widget.TextView;
 
 import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
@@ -294,7 +295,11 @@ public class MainActivity extends AppCompatActivity {
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQUEST_CODE && resultCode == RESULT_OK) {
-            Log.i("onActivityResult",String.format("requestCode - %d resultCode - %d data %s",requestCode,resultCode,data.toString()));
+            if (data == null) {
+                Log.w("onActivityResult", "RESULT_OK with null data — ignored");
+                return;
+            }
+            Log.i("onActivityResult",String.format("requestCode - %d resultCode - %d data %s",requestCode,resultCode,data));
 
             customCommand      = data.getStringExtra("customCommand");
             customCommandCount = data.getIntExtra("customCommandCount", 1);
@@ -644,15 +649,17 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        registerReceiver(tripReceiver, new IntentFilter(ACTION_TRIP_UPDATE), RECEIVER_EXPORTED);
+        ContextCompat.registerReceiver(this, tripReceiver, new IntentFilter(ACTION_TRIP_UPDATE),
+                ContextCompat.RECEIVER_EXPORTED);
         Intent req = new Intent(ACTION_REQUEST_TRIP_UPDATE);
         req.setPackage("ru.big.town.anative");
         sendBroadcast(req);
         uiHandler.removeCallbacks(tripTick);
         uiHandler.post(tripTick);
-        registerReceiver(batteryHeatReceiver, new IntentFilter(ACTION_BATTERY_HEAT_UPDATE), RECEIVER_EXPORTED);
-        registerReceiver(settingSyncReceiver, new IntentFilter("ru.big.town.anative.SETTING_SYNCED"),
-                "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE", null, RECEIVER_EXPORTED);
+        ContextCompat.registerReceiver(this, batteryHeatReceiver, new IntentFilter(ACTION_BATTERY_HEAT_UPDATE),
+                ContextCompat.RECEIVER_EXPORTED);
+        ContextCompat.registerReceiver(this, settingSyncReceiver, new IntentFilter("ru.big.town.anative.SETTING_SYNCED"),
+                "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE", null, ContextCompat.RECEIVER_EXPORTED);
         Intent bhReq = new Intent(ACTION_REQUEST_BATTERY_HEAT);
         bhReq.setPackage("ru.big.town.anative");
         sendBroadcast(bhReq);

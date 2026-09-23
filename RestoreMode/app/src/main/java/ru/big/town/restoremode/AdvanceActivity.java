@@ -420,9 +420,11 @@ public class AdvanceActivity extends AppCompatActivity {
                 String input = s.toString().toLowerCase();
                 String filtered = input.replaceAll("[^0-9a-f,\n]", "");
                 String[] q;
-                q=filtered.split("\n");
+                q=filtered.split("\n", -1);
                 StringBuilder formatted = new StringBuilder();
-                for(String i: q){
+                for (int li = 0; li < q.length; li++) {
+                    String i = q[li];
+                    boolean endedWithNewline = false;
                     Log.i("LENGTH i",String.format("%s %d",i,i.length()));
                     for(int j=0; j<i.length(); j++){
                         if(j % 2 == 0){
@@ -431,7 +433,13 @@ public class AdvanceActivity extends AppCompatActivity {
                         formatted.append(i.charAt(j));
                         if(j >= 19){
                            formatted.append("\n");
+                           endedWithNewline = true;
                         }
+                    }
+                    // Сохраняем пользовательский перевод строки между логическими строками,
+                    // если авто-wrap (20 hex + пробелы) его уже не поставил.
+                    if (!endedWithNewline && li < q.length - 1) {
+                        formatted.append("\n");
                     }
                 }
                 Log.i("$$$ LENGTH formatted.length $$$ ",String.format("%d",formatted.length()));
@@ -2089,13 +2097,14 @@ public class AdvanceActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         IntentFilter filter = new IntentFilter("ru.big.town.anative.LUX_UPDATE");
-        registerReceiver(luxReceiver, filter, RECEIVER_EXPORTED);
-        registerReceiver(modeSyncReceiver, new IntentFilter("ru.big.town.anative.MODE_SYNCED"), RECEIVER_EXPORTED);
-        registerReceiver(settingSyncReceiver, new IntentFilter("ru.big.town.anative.SETTING_SYNCED"),
-                "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE", null, RECEIVER_EXPORTED);
+        ContextCompat.registerReceiver(this, luxReceiver, filter, ContextCompat.RECEIVER_EXPORTED);
+        ContextCompat.registerReceiver(this, modeSyncReceiver, new IntentFilter("ru.big.town.anative.MODE_SYNCED"),
+                ContextCompat.RECEIVER_EXPORTED);
+        ContextCompat.registerReceiver(this, settingSyncReceiver, new IntentFilter("ru.big.town.anative.SETTING_SYNCED"),
+                "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE", null, ContextCompat.RECEIVER_EXPORTED);
         if (BuildConfig.HAS_DIRECT_APOLLO) {
-            registerReceiver(apolloReceiver, new IntentFilter(ACTION_APOLLO_TLC_UPDATE),
-                    NATIVE_BIND_PERMISSION, null, RECEIVER_EXPORTED);
+            ContextCompat.registerReceiver(this, apolloReceiver, new IntentFilter(ACTION_APOLLO_TLC_UPDATE),
+                    NATIVE_BIND_PERMISSION, null, ContextCompat.RECEIVER_EXPORTED);
         }
         Intent req = new Intent("ru.big.town.anative.REQUEST_LUX_UPDATE");
         req.setPackage("ru.big.town.anative");

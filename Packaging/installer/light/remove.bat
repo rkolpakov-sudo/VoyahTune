@@ -18,6 +18,18 @@ adb.exe root
 adb.exe disable-verity >nul 2>nul
 adb.exe remount >nul 2>nul
 adb.exe shell "mount -o rw,remount /system 2>/dev/null; mount -o rw,remount / 2>/dev/null"
+echo rwtest> "%TEMP%\_ovw_rwtest.tmp"
+set "RWSTATE=RO"
+adb.exe push "%TEMP%\_ovw_rwtest.tmp" /system/_ovw_rwtest >nul 2>nul
+if not errorlevel 1 set "RWSTATE=RW"
+adb.exe shell "rm -f /system/_ovw_rwtest" >nul 2>nul
+del "%TEMP%\_ovw_rwtest.tmp" >nul 2>nul
+if not "%RWSTATE%"=="RW" (
+    echo !!! /system is read-only. Removal stopped without changing system files.
+    echo     Try manually: adb disable-verity, adb reboot, adb root, adb remount.
+    echo     If /system cannot be made writable, run install.sh from this same release first.
+    exit /b 1
+)
 
 echo === Restoring the DNS overlay ===
 call "%YDNS_HELPER%" restore

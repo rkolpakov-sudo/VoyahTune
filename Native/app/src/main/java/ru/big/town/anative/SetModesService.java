@@ -81,9 +81,10 @@ public class SetModesService extends Service {
                     break;
                 case MSG_APPLY_DRIVE_MODES_STAR_BUTTON:
                     clientMessenger = msg.replyTo;
-                    worker(1, 100, MSG_APPLY_DRIVE_MODES_STAR_BUTTON, msg.arg1);
+                    // MSG_RESULT — только ПОСЛЕ отправки CAN в ApplyEngine (иначе кнопка
+                    // разблокируется раньше кадров). replyTo может быть null (внешний вызов worker).
+                    worker(1, 100, MSG_APPLY_DRIVE_MODES_STAR_BUTTON, msg.arg1, msg.replyTo);
                     Log.i(TAG, "handleMessage() MSG_APPLY_DRIVE_MODES_STAR_BUTTON");
-                    notifyApplyDone(msg.replyTo);
                     break;
 
                 case MSG_AUTO_LIGHT_ENABLE:
@@ -1045,16 +1046,24 @@ public class SetModesService extends Service {
      * общий с worker'ом применения — сохраняем ту же гарантию, но без сырых потоков).
      */
     static public void worker(int repeat, int pause, int mode, int msg_arg1) {
+        worker(repeat, pause, mode, msg_arg1, null);
+    }
+
+    static public void worker(int repeat, int pause, int mode, int msg_arg1, Messenger replyTo) {
         Log.i(TAG, " Call worker" +
                 String.format(" repeat: %d, pause: %d, mode %d, msg_arg1: %d",
                         repeat, pause, mode, msg_arg1));
-        if (GlobalVars.SAVE_CONTEXT == null || mode != MSG_APPLY_DRIVE_MODES_STAR_BUTTON) return;
+        if (GlobalVars.SAVE_CONTEXT == null || mode != MSG_APPLY_DRIVE_MODES_STAR_BUTTON) {
+            notifyApplyDone(replyTo);
+            return;
+        }
 
         ApplyEngine.postUserCommand("star button " + msg_arg1, () -> {
             MainActivity.loadModes(GlobalVars.SAVE_CONTEXT);
             Log.i(TAG, " Run customCommandStarButton");
             if (msg_arg1 == 1) MainActivity.setCanValues(1, MainActivity.getCustomCommandStarButton1(), "star button command 1");
             if (msg_arg1 == 2) MainActivity.setCanValues(1, MainActivity.getCustomCommandStarButton2(), "star button command 2");
+            notifyApplyDone(replyTo);
         });
     }
 }

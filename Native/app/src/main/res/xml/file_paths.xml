@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
-    <!-- /sdcard/tmp/... (основное расположение лог-файла) -->
-    <external-path name="ext_tmp" path="tmp/" />
-    <!-- запасное расположение: app-specific external -->
+    <!-- Основное расположение: app-private internal (files/) -->
+    <files-path name="int_files" path="." />
+    <!-- Запасное: app-specific external -->
     <external-files-path name="ext_files" path="." />
+    <!-- Legacy: /sdcard/tmp/... (старые логи до смены path) -->
+    <external-path name="ext_tmp" path="tmp/" />
 </paths>

@@ -16,20 +16,20 @@ import android.view.View;
 import ru.big.town.anative.databinding.ActivityMainBinding;
 
 public class MainActivity extends AppCompatActivity {
-    public static String driveMode = "INDIVIDUAL";
-    private static String energy = "SREV";
-    private static String recycle = "LOW";
-    private static String customCommand = "";
-    public static int customCommandCount = 1;
-    public static String customCommandStarButton1 = "";
-    public static String customCommandStarButton2 = "";
+    public static volatile String driveMode = "INDIVIDUAL";
+    private static volatile String energy = "SREV";
+    private static volatile String recycle = "LOW";
+    private static volatile String customCommand = "";
+    public static volatile int customCommandCount = 1;
+    public static volatile String customCommandStarButton1 = "";
+    public static volatile String customCommandStarButton2 = "";
 
-    private static boolean driveEnabled   = false;
-    private static boolean recycleEnabled = false;
-    private static boolean energyEnabled  = false;
-    private static boolean disablePedestrianSound = false;
+    private static volatile boolean driveEnabled   = false;
+    private static volatile boolean recycleEnabled = false;
+    private static volatile boolean energyEnabled  = false;
+    private static volatile boolean disablePedestrianSound = false;
     /** Форсированный электрорежим (колонка 19 провайдера RestoreMode). */
-    private static boolean forcedEv = false;
+    private static volatile boolean forcedEv = false;
 
     //-------------- Вспомогательная шляпа не паримся ---------------------
     public static void printBytesArrayToLog(String TAG, byte[][] bytes) {

@@ -85,13 +85,39 @@ call :backup_pull /system/etc/permissions/privapp-permissions-ru.big.town.anativ
 
 echo === Native.apk in /system/priv-app ^(privileged permissions required for CAN features^) ===
 adb.exe shell mkdir -p /system/priv-app/Native
+if errorlevel 1 (
+    echo !!! Could not create /system/priv-app/Native. Installation stopped.
+    exit /b 1
+)
 adb.exe shell chmod 755 /system/priv-app/Native
 adb.exe push native.apk /system/priv-app/Native/Native.apk
+if errorlevel 1 (
+    echo !!! Failed to write Native.apk to /system/priv-app. Installation stopped.
+    adb.exe shell "rm -f /system/priv-app/Native/Native.apk" >nul 2>nul
+    exit /b 1
+)
+adb.exe shell "chown 0:0 /system/priv-app/Native/Native.apk && chmod 644 /system/priv-app/Native/Native.apk && restorecon /system/priv-app/Native/Native.apk && sync && test -f /system/priv-app/Native/Native.apk"
+if errorlevel 1 (
+    echo !!! Native.apk chown/chmod/restorecon failed. Installation stopped.
+    exit /b 1
+)
 adb.exe shell "ls -all /system/priv-app/Native"
 
 adb.exe shell "mkdir -p /system/etc/permissions"
+if errorlevel 1 (
+    echo !!! Could not create /system/etc/permissions. Installation stopped.
+    exit /b 1
+)
 adb.exe push privapp-permissions-ru.big.town.anative.xml /system/etc/permissions/privapp-permissions-ru.big.town.anative.xml
-adb.exe shell "chmod 644 /system/etc/permissions/privapp-permissions-ru.big.town.anative.xml"
+if errorlevel 1 (
+    echo !!! Failed to write privapp whitelist. Installation stopped.
+    exit /b 1
+)
+adb.exe shell "chown 0:0 /system/etc/permissions/privapp-permissions-ru.big.town.anative.xml && chmod 644 /system/etc/permissions/privapp-permissions-ru.big.town.anative.xml && restorecon /system/etc/permissions/privapp-permissions-ru.big.town.anative.xml && sync"
+if errorlevel 1 (
+    echo !!! Privapp whitelist chown/chmod/restorecon failed. Installation stopped.
+    exit /b 1
+)
 
 set LEAVECAR=
 for /f "delims=" %%i in ('adb.exe shell getprop persist.app.feature.leavecar') do set LEAVECAR=%%i

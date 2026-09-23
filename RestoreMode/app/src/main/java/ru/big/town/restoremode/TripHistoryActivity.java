@@ -15,6 +15,7 @@ import android.widget.TextView;
 
 import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
@@ -90,7 +91,8 @@ public class TripHistoryActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        registerReceiver(tripReceiver, new IntentFilter(MainActivity.ACTION_TRIP_UPDATE), RECEIVER_EXPORTED);
+        ContextCompat.registerReceiver(this, tripReceiver, new IntentFilter(MainActivity.ACTION_TRIP_UPDATE),
+                ContextCompat.RECEIVER_EXPORTED);
         Intent req = new Intent(MainActivity.ACTION_REQUEST_TRIP_UPDATE);
         req.setPackage("ru.big.town.anative");
         sendBroadcast(req);
