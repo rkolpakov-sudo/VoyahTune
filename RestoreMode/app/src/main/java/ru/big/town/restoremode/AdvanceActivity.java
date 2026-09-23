@@ -251,7 +251,12 @@ public class AdvanceActivity extends AppCompatActivity {
     }
 
     private void finishWithCustomCommands() {
-        if (!saveCustomCommands()) return;
+        if (!saveCustomCommands()) {
+            // Невалидный формат: не сохраняем, но НЕ запираем пользователя (иначе back-ловушка).
+            Log.w("$$$ Advance commands $$$", "Неверный формат — выход без сохранения");
+            finish();
+            return;
+        }
         Intent intent = new Intent();
         intent.putExtra("customCommand", canCommandsEditor.getText().toString());
         intent.putExtra("customCommandCount", pickerCustomCommandCount.getValue());
@@ -847,16 +852,17 @@ public class AdvanceActivity extends AppCompatActivity {
     }
 
     /** Выбор сплита, открываемого долгим нажатием на слот дока. Список — только «готовые» пресеты
-     *  (оба приложения выбраны). «Нет» снимает назначение. Индекс пресета хранится в dockOverride&lt;slot&gt;Split. */
+     *  (оба приложения выбраны). «Нет» снимает назначение. Хранится стабильный id пресета
+     *  (dockOverride&lt;slot&gt;SplitId); legacy int-индекс dockOverride&lt;slot&gt;Split мигрирует. */
     private void pickDockSplit(int slot) {
         final java.util.List<SplitStore.Preset> all = SplitStore.load(prefs);
-        final java.util.List<Integer> readyIdx = new java.util.ArrayList<>();
+        final java.util.List<String> readyId = new java.util.ArrayList<>();
         final java.util.List<CharSequence> labels = new java.util.ArrayList<>();
         labels.add("Нет (только открыть приложение)");
         for (int i = 0; i < all.size(); i++) {
             SplitStore.Preset ps = all.get(i);
             if (ps.ready()) {
-                readyIdx.add(i);
+                readyId.add(ps.id);
                 labels.add((ps.ll.isEmpty() ? ps.l : ps.ll) + "  /  " + (ps.rl.isEmpty() ? ps.r : ps.rl));
             }
         }
@@ -865,10 +871,11 @@ public class AdvanceActivity extends AppCompatActivity {
                 .setItems(labels.toArray(new CharSequence[0]), (d, which) -> {
                     if (which == 0) {
                         prefs.edit().remove("dockOverride" + slot + "Split")
+                                    .remove("dockOverride" + slot + "SplitId")
                                     .remove("dockOverride" + slot + "SplitLabel").apply();
                     } else {
-                        int idx = readyIdx.get(which - 1);
-                        prefs.edit().putInt("dockOverride" + slot + "Split", idx)
+                        prefs.edit().remove("dockOverride" + slot + "Split")
+                                    .putString("dockOverride" + slot + "SplitId", readyId.get(which - 1))
                                     .putString("dockOverride" + slot + "SplitLabel", labels.get(which).toString()).apply();
                     }
                     refreshDockButtons();
@@ -881,7 +888,9 @@ public class AdvanceActivity extends AppCompatActivity {
     private void clearDockApp(int slot) {
         // Слот сброшен → назначение сплита на этот слот теряет смысл, чистим и его.
         prefs.edit().remove("dockOverride" + slot).remove("dockOverride" + slot + "Label")
-                    .remove("dockOverride" + slot + "Split").remove("dockOverride" + slot + "SplitLabel").apply();
+                    .remove("dockOverride" + slot + "Split")
+                    .remove("dockOverride" + slot + "SplitId")
+                    .remove("dockOverride" + slot + "SplitLabel").apply();
         refreshDockButtons();
         pushDockConfig();
         com.google.android.material.snackbar.Snackbar.make(findViewById(R.id.main),
@@ -1518,8 +1527,9 @@ public class AdvanceActivity extends AppCompatActivity {
         }
 
         if (buttonApolloForceOff != null) {
-            buttonApolloForceOff.setVisibility(View.GONE);
-            buttonApolloForceOff.setEnabled(false);
+            boolean canForceOff = canForceApolloMasterOff();
+            buttonApolloForceOff.setVisibility(canForceOff ? View.VISIBLE : View.GONE);
+            buttonApolloForceOff.setEnabled(canForceOff);
         }
         if (apolloGreenSoundContainer != null) {
             apolloGreenSoundContainer.setAlpha(
@@ -1831,19 +1841,19 @@ public class AdvanceActivity extends AppCompatActivity {
                 .show();
     }
 
-    /** Под-пикер «Открыть сплит»: список готовых пресетов → id «split:&lt;index&gt;». */
+    /** Под-пикер «Открыть сплит»: список готовых пресетов → id «splitid:&lt;uuid&gt;» (legacy «split:N» принимается). */
     private void pickSteerSplit(String key, Button btn) {
         final java.util.List<SplitStore.Preset> all = SplitStore.load(prefs);
-        final java.util.List<Integer> readyIdx = new java.util.ArrayList<>();
+        final java.util.List<String> readyId = new java.util.ArrayList<>();
         final java.util.List<CharSequence> labels = new java.util.ArrayList<>();
         for (int i = 0; i < all.size(); i++) {
             SplitStore.Preset ps = all.get(i);
             if (ps.ready()) {
-                readyIdx.add(i);
+                readyId.add(ps.id);
                 labels.add((ps.ll.isEmpty() ? ps.l : ps.ll) + "  /  " + (ps.rl.isEmpty() ? ps.r : ps.rl));
             }
         }
-        if (readyIdx.isEmpty()) {
+        if (readyId.isEmpty()) {
             com.google.android.material.snackbar.Snackbar.make(findViewById(R.id.main),
                     "Нет готовых сплитов — сначала настройте сплит в «Приложения и разделение экрана»",
                     com.google.android.material.snackbar.Snackbar.LENGTH_LONG).show();
@@ -1852,7 +1862,7 @@ public class AdvanceActivity extends AppCompatActivity {
         new com.google.android.material.dialog.MaterialAlertDialogBuilder(this, R.style.DarkDialog)
                 .setTitle("Открыть сплит")
                 .setItems(labels.toArray(new CharSequence[0]), (d, which) -> {
-                    prefs.edit().putString(key, "split:" + readyIdx.get(which)).apply();
+                    prefs.edit().putString(key, "splitid:" + readyId.get(which)).apply();
                     setSteerButtonText(btn, key);
                     pushSteerConfig();
                 })
@@ -1885,12 +1895,20 @@ public class AdvanceActivity extends AppCompatActivity {
         b.setText(steerActionLabel(prefs.getString(key, "none")));
     }
 
-    /** Человекочитаемая подпись действия: статические — из STEER_ACTIONS; «split:N» — из пресета сплита;
+    /** Человекочитаемая подпись действия: статические — из STEER_ACTIONS; «splitid:uuid» / legacy «split:N» — пресет;
      *  «app:pkg» — имя приложения. */
     private String steerActionLabel(String id) {
         if (id == null || id.isEmpty()) return "Не менять";
         for (String[] a : STEER_ACTIONS) if (a[0].equals(id)) return a[1];
+        if (id.startsWith("splitid:")) {
+            SplitStore.Preset ps = SplitStore.findById(prefs, id.substring("splitid:".length()));
+            if (ps != null) {
+                return "Сплит: " + (ps.ll.isEmpty() ? ps.l : ps.ll) + " / " + (ps.rl.isEmpty() ? ps.r : ps.rl);
+            }
+            return "Сплит (не найден)";
+        }
         if (id.startsWith("split:")) {
+            // Legacy индекс — принимаем, при следующем выборе перепишем на splitid.
             try {
                 int n = Integer.parseInt(id.substring("split:".length()));
                 java.util.List<SplitStore.Preset> all = SplitStore.load(prefs);
@@ -2097,18 +2115,19 @@ public class AdvanceActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         IntentFilter filter = new IntentFilter("ru.big.town.anative.LUX_UPDATE");
-        ContextCompat.registerReceiver(this, luxReceiver, filter, ContextCompat.RECEIVER_EXPORTED);
+        ContextCompat.registerReceiver(this, luxReceiver, filter,
+                NATIVE_BIND_PERMISSION, null, ContextCompat.RECEIVER_EXPORTED);
         ContextCompat.registerReceiver(this, modeSyncReceiver, new IntentFilter("ru.big.town.anative.MODE_SYNCED"),
-                ContextCompat.RECEIVER_EXPORTED);
+                NATIVE_BIND_PERMISSION, null, ContextCompat.RECEIVER_EXPORTED);
         ContextCompat.registerReceiver(this, settingSyncReceiver, new IntentFilter("ru.big.town.anative.SETTING_SYNCED"),
-                "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE", null, ContextCompat.RECEIVER_EXPORTED);
+                NATIVE_BIND_PERMISSION, null, ContextCompat.RECEIVER_EXPORTED);
         if (BuildConfig.HAS_DIRECT_APOLLO) {
             ContextCompat.registerReceiver(this, apolloReceiver, new IntentFilter(ACTION_APOLLO_TLC_UPDATE),
                     NATIVE_BIND_PERMISSION, null, ContextCompat.RECEIVER_EXPORTED);
         }
         Intent req = new Intent("ru.big.town.anative.REQUEST_LUX_UPDATE");
         req.setPackage("ru.big.town.anative");
-        sendBroadcast(req);
+        sendBroadcast(req, NATIVE_BIND_PERMISSION);
         if (currentSection == 3) requestApolloState();
     }
 

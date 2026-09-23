@@ -18,7 +18,7 @@ if errorlevel 1 (
 
 adb.exe root
 if errorlevel 1 goto :adb_failed
-adb.exe wait-for-device
+call :wait_adb_device 60
 if errorlevel 1 goto :adb_failed
 adb.exe root
 if errorlevel 1 goto :adb_failed
@@ -72,3 +72,21 @@ exit /b 1
 del "%YDNS_STATUS_FILE%" >nul 2>nul
 echo !!! ADB could not connect to the device with root access.
 exit /b 1
+
+:wait_adb_device
+set /a _awt=0
+:wait_adb_device_loop
+for /f "delims=" %%i in ('adb.exe get-state 2^>nul') do set "_awt_state=%%i"
+if "%_awt_state%"=="device" (
+    set "_awt_state="
+    exit /b 0
+)
+set "_awt_state="
+set /a _awt+=1
+if %_awt% GEQ %~1 (
+    echo !!! Device did not reach state=device within %~1 seconds.
+    echo     Check USB Type-A cable, USB debugging; try adb kill-server / start-server.
+    exit /b 1
+)
+timeout /t 1 /nobreak >nul
+goto wait_adb_device_loop

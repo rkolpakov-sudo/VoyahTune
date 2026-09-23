@@ -76,6 +76,26 @@ public class SplitStore {
         return out;
     }
 
+    /** Поиск пресета по стабильному id (для splitid:/dock SplitId). null — не найден. */
+    static Preset findById(SharedPreferences p, String id) {
+        if (id == null || id.isEmpty()) return null;
+        for (Preset ps : load(p)) {
+            if (id.equals(ps.id)) return ps;
+        }
+        return null;
+    }
+
+    /** Разрешение сохранённого выбора сплита: splitid:uuid | legacy split:N | legacy int-индекс. */
+    static Preset resolveAssigned(SharedPreferences p, String splitIdPref, int legacyIdx) {
+        String sid = p.getString(splitIdPref, "");
+        if (!sid.isEmpty()) return findById(p, sid);
+        if (legacyIdx >= 0) {
+            List<Preset> all = load(p);
+            if (legacyIdx < all.size()) return all.get(legacyIdx);
+        }
+        return null;
+    }
+
     static void save(SharedPreferences p, List<Preset> list) {
         JSONArray a = new JSONArray();
         for (Preset ps : list) {

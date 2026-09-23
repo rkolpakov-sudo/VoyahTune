@@ -43,12 +43,24 @@ public class LoggingActivity extends AppCompatActivity {
 
     private String lastContent = "";
     private boolean firstLoad = true;
+    private boolean syncingSwitch = false;
 
     private final BroadcastReceiver logReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             String log = intent.getStringExtra("log");
             String path = intent.getStringExtra("path");
+            // running — источник истины Native; синхронизируем switch, если prefs разошлись
+            // (например, Native упал и перезапустился без нас, или broadcast потерялся).
+            if (intent.hasExtra("running")) {
+                boolean running = intent.getBooleanExtra("running", false);
+                if (running != prefs.getBoolean("loggingEnabled", false)) {
+                    prefs.edit().putBoolean("loggingEnabled", running).apply();
+                    syncingSwitch = true;
+                    switchLogging.setChecked(running);
+                    syncingSwitch = false;
+                }
+            }
             if (path != null) textLogPath.setText("Файл: " + path);
             if (log == null || log.equals(lastContent)) return; // нет изменений — не трогаем скролл
 
@@ -93,10 +105,11 @@ public class LoggingActivity extends AppCompatActivity {
 
         switchLogging.setChecked(prefs.getBoolean("loggingEnabled", false));
         switchLogging.setOnCheckedChangeListener((b, checked) -> {
+            if (syncingSwitch) return;
             prefs.edit().putBoolean("loggingEnabled", checked).apply();
             Intent i = new Intent(ACTION_LOGGING_SET).setPackage(NATIVE_PKG);
             i.putExtra("on", checked);
-            sendBroadcast(i);
+            sendBroadcast(i, "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE");
         });
     }
 
@@ -104,7 +117,8 @@ public class LoggingActivity extends AppCompatActivity {
 
     /** «Выгрузить логи» → Native открывает share-чузер с лог-файлом. */
     public void onButtonShareLog(View v) {
-        sendBroadcast(new Intent(ACTION_LOGGING_SHARE).setPackage(NATIVE_PKG));
+        sendBroadcast(new Intent(ACTION_LOGGING_SHARE).setPackage(NATIVE_PKG),
+                "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE");
     }
 
     private int dp(int v) { return Math.round(v * getResources().getDisplayMetrics().density); }
@@ -112,14 +126,14 @@ public class LoggingActivity extends AppCompatActivity {
     private void requestSnapshot() {
         Intent i = new Intent(ACTION_REQUEST_LOG);
         i.setPackage("ru.big.town.anative");
-        sendBroadcast(i);
+        sendBroadcast(i, "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE");
     }
 
     @Override
     protected void onResume() {
         super.onResume();
         ContextCompat.registerReceiver(this, logReceiver, new IntentFilter(ACTION_LOG_UPDATE),
-                ContextCompat.RECEIVER_EXPORTED);
+                "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE", null, ContextCompat.RECEIVER_EXPORTED);
         uiHandler.removeCallbacks(poll);
         uiHandler.post(poll);
     }

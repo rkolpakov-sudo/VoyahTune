@@ -30,6 +30,7 @@ Releases/dist/*.zip
 - [ ] `Packaging/tests/test_apollo_direct_only.sh` — PASS.
 - [ ] APK собраны: `full` и/или `light` (если не `--no-build`).
 - [ ] В full: TUI-файлы в `required` (`make_release.sh` / `verify_release_payload`).
+- [ ] `MANIFEST.sha256` сгенерирован (`write_manifest`) и не пуст; `sha256sum -c MANIFEST.sha256` — OK.
 - [ ] `README.txt` упоминает `install-tui`, **две перезагрузки**, кабель Type-A↔A.
 - [ ] Версия в `hownews.md` / архиве совпадает.
 - [ ] Живой smoke на Sport+ 2026 для hot-path изменений (иначе явная пометка).

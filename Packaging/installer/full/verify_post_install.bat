@@ -1,8 +1,17 @@
 @echo off
 setlocal EnableExtensions
-rem verify_post_install.bat - read-only Windows checks after full install (ASCII/CRLF).
+rem verify_post_install.bat - read-only Windows checks after install (ASCII/CRLF).
 rem No mutations. Exit 0 = required OK; 1 = fail; 2 = no adb/device.
+rem Usage: verify_post_install.bat [--light]  |  set VERIFY_LIGHT=1
 cd /d "%~dp0" || exit /b 1
+
+set "VERIFY_LIGHT=%VERIFY_LIGHT%"
+:parse_args
+if "%~1"=="" goto :args_done
+if /i "%~1"=="--light" set "VERIFY_LIGHT=1"
+shift
+goto :parse_args
+:args_done
 
 if not exist "adb.exe" (
     echo [!!!] adb.exe missing. Cannot verify.
@@ -18,7 +27,11 @@ if errorlevel 1 (
 set FAILS=0
 
 echo ============================================================
-echo  Open Voyah verify (read-only) @VERSION@
+if "%VERIFY_LIGHT%"=="1" (
+    echo  Open Voyah verify light (read-only) @VERSION@
+) else (
+    echo  Open Voyah verify (read-only) @VERSION@
+)
 echo ============================================================
 
 adb.exe shell pm path ru.big.town.anative 2>nul | findstr /b /c:"package:" >nul
@@ -55,7 +68,11 @@ if errorlevel 1 (
 
 adb.exe shell "test -e /system/etc/init/voyahtune.load.sh" 2>nul
 if errorlevel 1 (
-    echo [! ] voyahtune.load.sh absent - light kit or incomplete full install
+    if "%VERIFY_LIGHT%"=="1" (
+        echo   [OK] boot-hook absent - expected for light kit
+    ) else (
+        echo [! ] voyahtune.load.sh absent - light kit ^(--light^) or incomplete full install
+    )
 ) else (
     adb.exe shell "if [ -x /system/etc/init/voyahtune.load.sh ] && grep -qF '/data/local/bin/load.bin' /system/etc/init/voyahtune.load.sh 2>/dev/null && [ -r /system/etc/init/voyahtune.load.rc ] && grep -qF 'service voyahtune_load' /system/etc/init/voyahtune.load.rc 2>/dev/null; then echo READY; else echo BROKEN; fi" 2>nul | findstr /c:"READY" >nul
     if errorlevel 1 (

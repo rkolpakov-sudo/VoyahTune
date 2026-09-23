@@ -91,11 +91,12 @@ public class TripHistoryActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        final String bindPerm = "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE";
         ContextCompat.registerReceiver(this, tripReceiver, new IntentFilter(MainActivity.ACTION_TRIP_UPDATE),
-                ContextCompat.RECEIVER_EXPORTED);
+                bindPerm, null, ContextCompat.RECEIVER_EXPORTED);
         Intent req = new Intent(MainActivity.ACTION_REQUEST_TRIP_UPDATE);
         req.setPackage("ru.big.town.anative");
-        sendBroadcast(req);
+        sendBroadcast(req, bindPerm);
     }
 
     @Override
@@ -120,16 +121,20 @@ public class TripHistoryActivity extends AppCompatActivity {
             }
             LayoutInflater inf = LayoutInflater.from(this);
             for (int i = 0; i < arr.length(); i++) {
-                JSONObject t = arr.getJSONObject(i);
-                final long start = t.getLong("start");
-                View row = inf.inflate(R.layout.item_trip, tripLogContainer, false);
-                ((TextView) row.findViewById(R.id.tripDate))
-                        .setText(dateFmt.format(new Date(start)));
-                ((TextView) row.findViewById(R.id.tripDuration))
-                        .setText(fmtDurationShort(t.getLong("durationMs")));
-                ImageButton del = row.findViewById(R.id.tripDelete);
-                if (del != null) del.setOnClickListener(v -> confirmDelete(start));
-                tripLogContainer.addView(row);
+                try {
+                    JSONObject t = arr.getJSONObject(i);
+                    final long start = t.getLong("start");
+                    View row = inf.inflate(R.layout.item_trip, tripLogContainer, false);
+                    ((TextView) row.findViewById(R.id.tripDate))
+                            .setText(dateFmt.format(new Date(start)));
+                    ((TextView) row.findViewById(R.id.tripDuration))
+                            .setText(fmtDurationShort(t.getLong("durationMs")));
+                    ImageButton del = row.findViewById(R.id.tripDelete);
+                    if (del != null) del.setOnClickListener(v -> confirmDelete(start));
+                    tripLogContainer.addView(row);
+                } catch (Exception itemEx) {
+                    Log.w(TAG, "renderTripLog item " + i + ": " + itemEx.getMessage());
+                }
             }
         } catch (Exception e) {
             Log.w(TAG, "renderTripLog: " + e.getMessage());
@@ -145,7 +150,7 @@ public class TripHistoryActivity extends AppCompatActivity {
                     Intent i = new Intent(ACTION_TRIP_DELETE);
                     i.setPackage("ru.big.town.anative");
                     i.putExtra("deleteStart", start);
-                    sendBroadcast(i);
+                    sendBroadcast(i, "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE");
                     Log.i(TAG, "TRIP_DELETE отправлен start=" + start);
                 })
                 .setNegativeButton("Отмена", null)

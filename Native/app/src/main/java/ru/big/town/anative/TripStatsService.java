@@ -499,7 +499,8 @@ public class TripStatsService extends Service {
         i.putExtra(EXTRA_ACCUM_MS, accumMs);
         i.putExtra(EXTRA_DRIVE_START, driveStartElapsed);
         i.putExtra(EXTRA_TRIPS_JSON, tripsJson());
-        sendBroadcast(i);
+        i.setPackage("ru.big.town.restoremode");
+        sendBroadcast(i, "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE");
     }
 
     private final BroadcastReceiver requestReceiver = new BroadcastReceiver() {
@@ -638,7 +639,8 @@ public class TripStatsService extends Service {
         reqFilter.addAction(ACTION_TRIP_RESET);
         reqFilter.addAction(ACTION_TRIP_DELETE);
         reqFilter.addAction(ACTION_TRIP_HISTORY);
-        registerReceiver(requestReceiver, reqFilter, RECEIVER_EXPORTED);
+        registerReceiver(requestReceiver, reqFilter,
+                "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE", null, RECEIVER_EXPORTED);
 
         ensureCanBusBound();
         timerHandler.postDelayed(safetyRunnable, 2_000L);

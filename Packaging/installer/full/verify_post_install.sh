@@ -1,12 +1,24 @@
 #!/bin/sh
-# verify_post_install.sh — read-only чек-лист после успешной full install.
+# verify_post_install.sh — read-only чек-лист после успешной install (full или light).
 # Ничего не пишет в ГУ. Коды: 0 = все обязательные OK; 1 = есть fail; 2 = нет ADB/устройства.
-# Запуск: ./verify_post_install.sh
+# Запуск: ./verify_post_install.sh [--light]
+#   --light / VERIFY_LIGHT=1 — light-профиль: boot-hook отсутствует = OK (не warn).
 
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR" || exit 1
+
+VERIFY_LIGHT="${VERIFY_LIGHT:-0}"
+for arg in "$@"; do
+    case "$arg" in
+        --light) VERIFY_LIGHT=1 ;;
+        -h|--help)
+            sed -n '2,6p' "$0"
+            exit 0
+            ;;
+    esac
+done
 
 if [ -f "$SCRIPT_DIR/tui-lib.sh" ]; then
     # shellcheck source=tui-lib.sh
@@ -27,7 +39,11 @@ else
     }
 fi
 
-tui_title "Open Voyah — verify (read-only) @VERSION@"
+if [ "$VERIFY_LIGHT" = 1 ]; then
+    tui_title "Open Voyah — verify light (read-only) @VERSION@"
+else
+    tui_title "Open Voyah — verify (read-only) @VERSION@"
+fi
 
 if ! tui_find_adb; then
     tui_err "adb не найден — проверить установку нельзя."
@@ -107,14 +123,16 @@ if "$TUI_ADB" shell "test -e /system/etc/init/voyahtune.load.sh" 2>/dev/null; th
         tui_err "boot-hook BROKEN — не перезагружайте «вслепую»; повторите install.sh из папки релиза"
         fails=$((fails + 1))
     fi
+elif [ "$VERIFY_LIGHT" = 1 ]; then
+    tui_ok "boot-hook отсутствует — ожидание для light-комплекта"
 else
-    tui_warn "voyahtune.load.sh отсутствует (возможен light-комплект или не полная установка)"
+    tui_warn "voyahtune.load.sh отсутствует (возможен light — запустите с --light, или неполная установка full)"
     warns=$((warns + 1))
 fi
 
 tui_title "Итог verify"
 if [ "$fails" -eq 0 ]; then
-    if [ "$warns" -eq 0 ]; then
+    if [ "$warns" = 0 ]; then
         tui_ok "все обязательные проверки пройдены"
     else
         tui_warn "обязательные OK, предупреждений: $warns"

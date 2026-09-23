@@ -593,7 +593,7 @@ public class MainActivity extends AppCompatActivity {
             bi.putExtra("isEnergy", "energy".equals(modeKey));
             bi.putExtra("modeKey", modeKey);
             bi.putExtra("mode", mode);
-            context.sendBroadcast(bi);
+            context.sendBroadcast(bi, "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE");
         } catch (Exception ignored) {}
         if (written) {
             // Провайдер (источник истины) записан → синхронно освежаем кэш, чтобы «глухое» пробуждение
@@ -661,7 +661,7 @@ public class MainActivity extends AppCompatActivity {
             bi.setPackage("ru.big.town.restoremode");
             bi.putExtra("key", key);
             bi.putExtra("value", value);
-            context.sendBroadcast(bi);
+            context.sendBroadcast(bi, "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE");
         } catch (Exception ignored) {}
         if (written) {
             try {

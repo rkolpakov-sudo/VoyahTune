@@ -33,7 +33,7 @@
 | Кнопки руля / док / сплиты (Frida) | ✅ | ❌ | Inject scripts |
 | Direct Apollo (Binder, без Frida) | ✅ | ✅ | `HAS_DIRECT_APOLLO=true` оба флейвора |
 | Запись в `/system` (Native.apk + whitelist) | ✅ | ✅ | install.sh Фаза 8 |
-| Владелец `WRITE_CANBUS` = anative | ✅ (sh: abort) | ✅ (sh: abort) | Фаза 2; **.bat: warn+continue (расхождение R12)** |
+| Владелец `WRITE_CANBUS` = anative | ✅ (sh: abort) | ✅ (sh: abort) | Фаза 2; **.bat: fail-closed abort (сверено с fix-all; R12 закрыт)** |
 | Yandex DNS RRO overlay | опц. (меню/отдельный .bat) | опц. | dns-overlay helpers |
 | Наличие `/vendor/overlay/config/config.xml` | → DNS отклоняется | то же | dns-overlay-device.sh |
 | Наличие чужого overlay config | → DNS external/broken → keep | то же | dns-overlay |

@@ -7,7 +7,8 @@ for %%F in (adb.exe AdbWinApi.dll AdbWinUsbApi.dll native.apk restore_mode.apk p
 )
 
 adb.exe root
-adb.exe wait-for-device
+call :wait_adb_device 60
+if errorlevel 1 exit /b 1
 adb.exe root
 
 echo === Preflight direct-only Apollo ^(VehicleSetting hook OFF^) ===
@@ -35,10 +36,9 @@ if "%CANBUS_PERMISSION_PRESENT%"=="1" for /f "tokens=2 delims==" %%i in ('adb.ex
 if "%CANBUS_PERMISSION_PRESENT%"=="0" goto :canbus_permission_ok
 if "%CANBUS_PERMISSION_OWNER%"=="ru.big.town.anative" goto :canbus_permission_ok
 if "%CANBUS_PERMISSION_OWNER%"=="" (
-    echo   WARNING: this firmware does not report the owner of com.qinggan.permission.WRITE_CANBUS.
-    echo   Continuing. Android PackageManager will still reject a real duplicate permission.
-    set CANBUS_PERMISSION_PRESENT=2
-    goto :canbus_permission_ok
+    echo !!! Owner of com.qinggan.permission.WRITE_CANBUS is unknown. Installation stopped before writing to /system.
+    echo     Same as install.sh: fail-closed when the owner cannot be confirmed.
+    exit /b 1
 )
 echo !!! com.qinggan.permission.WRITE_CANBUS already belongs to %CANBUS_PERMISSION_OWNER%.
 echo     Remove the incompatible package and repeat light install. /system is still unchanged.
@@ -53,7 +53,8 @@ call :ensure_rw
 if "%RWSTATE%"=="RW" goto :sys_rw_ok
 echo   /system is read-only. Rebooting once to apply disable-verity...
 adb.exe reboot
-adb.exe wait-for-device
+call :wait_adb_device 120
+if errorlevel 1 exit /b 1
 set /a _bi=0
 :wait_boot_ovw
 adb.exe shell getprop sys.boot_completed 2>nul | findstr /b "1" >nul
@@ -65,7 +66,8 @@ goto :wait_boot_ovw
 :booted_ovw
 timeout /t 3 /nobreak >nul
 adb.exe root
-adb.exe wait-for-device
+call :wait_adb_device 60
+if errorlevel 1 exit /b 1
 adb.exe root
 call :ensure_rw
 if "%RWSTATE%"=="RW" goto :sys_rw_ok
@@ -77,11 +79,19 @@ exit /b 1
 echo   /system is writable. Continuing.
 
 set BACKUP_DIR=backup
-if not exist "%BACKUP_DIR%" mkdir "%BACKUP_DIR%"
+if not exist "%BACKUP_DIR%" (
+    mkdir "%BACKUP_DIR%"
+    if errorlevel 1 (
+        echo !!! Could not prepare %BACKUP_DIR%. Installation stopped before replacing files.
+        exit /b 1
+    )
+)
 
 echo === Backing up files to %BACKUP_DIR%\ ===
 call :backup_pull /system/priv-app/Native/Native.apk     Native.apk
+if errorlevel 1 exit /b 1
 call :backup_pull /system/etc/permissions/privapp-permissions-ru.big.town.anative.xml privapp-permissions-ru.big.town.anative.xml
+if errorlevel 1 exit /b 1
 
 echo === Native.apk in /system/priv-app ^(privileged permissions required for CAN features^) ===
 adb.exe shell mkdir -p /system/priv-app/Native
@@ -90,15 +100,16 @@ if errorlevel 1 (
     exit /b 1
 )
 adb.exe shell chmod 755 /system/priv-app/Native
-adb.exe push native.apk /system/priv-app/Native/Native.apk
+adb.exe push native.apk /system/priv-app/.Native.apk.voyahtune.new
 if errorlevel 1 (
-    echo !!! Failed to write Native.apk to /system/priv-app. Installation stopped.
-    adb.exe shell "rm -f /system/priv-app/Native/Native.apk" >nul 2>nul
+    echo !!! Failed to stage Native.apk. Installation stopped.
+    adb.exe shell "rm -f /system/priv-app/.Native.apk.voyahtune.new" >nul 2>nul
     exit /b 1
 )
-adb.exe shell "chown 0:0 /system/priv-app/Native/Native.apk && chmod 644 /system/priv-app/Native/Native.apk && restorecon /system/priv-app/Native/Native.apk && sync && test -f /system/priv-app/Native/Native.apk"
+adb.exe shell "chown 0:0 /system/priv-app/.Native.apk.voyahtune.new && chmod 644 /system/priv-app/.Native.apk.voyahtune.new && restorecon /system/priv-app/.Native.apk.voyahtune.new && mv -f /system/priv-app/.Native.apk.voyahtune.new /system/priv-app/Native/Native.apk && restorecon /system/priv-app/Native/Native.apk && sync && test -f /system/priv-app/Native/Native.apk"
 if errorlevel 1 (
-    echo !!! Native.apk chown/chmod/restorecon failed. Installation stopped.
+    echo !!! Native.apk atomic install failed. Installation stopped.
+    adb.exe shell "rm -f /system/priv-app/.Native.apk.voyahtune.new" >nul 2>nul
     exit /b 1
 )
 adb.exe shell "ls -all /system/priv-app/Native"
@@ -108,14 +119,16 @@ if errorlevel 1 (
     echo !!! Could not create /system/etc/permissions. Installation stopped.
     exit /b 1
 )
-adb.exe push privapp-permissions-ru.big.town.anative.xml /system/etc/permissions/privapp-permissions-ru.big.town.anative.xml
+adb.exe push privapp-permissions-ru.big.town.anative.xml /system/etc/.privapp-permissions-ru.big.town.anative.xml.voyahtune.new
 if errorlevel 1 (
-    echo !!! Failed to write privapp whitelist. Installation stopped.
+    echo !!! Failed to stage privapp whitelist. Installation stopped.
+    adb.exe shell "rm -f /system/etc/.privapp-permissions-ru.big.town.anative.xml.voyahtune.new" >nul 2>nul
     exit /b 1
 )
-adb.exe shell "chown 0:0 /system/etc/permissions/privapp-permissions-ru.big.town.anative.xml && chmod 644 /system/etc/permissions/privapp-permissions-ru.big.town.anative.xml && restorecon /system/etc/permissions/privapp-permissions-ru.big.town.anative.xml && sync"
+adb.exe shell "chown 0:0 /system/etc/.privapp-permissions-ru.big.town.anative.xml.voyahtune.new && chmod 644 /system/etc/.privapp-permissions-ru.big.town.anative.xml.voyahtune.new && restorecon /system/etc/.privapp-permissions-ru.big.town.anative.xml.voyahtune.new && mv -f /system/etc/.privapp-permissions-ru.big.town.anative.xml.voyahtune.new /system/etc/permissions/privapp-permissions-ru.big.town.anative.xml && restorecon /system/etc/permissions/privapp-permissions-ru.big.town.anative.xml && sync && test -f /system/etc/permissions/privapp-permissions-ru.big.town.anative.xml"
 if errorlevel 1 (
-    echo !!! Privapp whitelist chown/chmod/restorecon failed. Installation stopped.
+    echo !!! Privapp whitelist atomic install failed. Installation stopped.
+    adb.exe shell "rm -f /system/etc/.privapp-permissions-ru.big.town.anative.xml.voyahtune.new" >nul 2>nul
     exit /b 1
 )
 
@@ -166,15 +179,53 @@ adb.exe shell "rm -f /system/_ovw_rwtest" >nul 2>nul
 del "%TEMP%\_ovw_rwtest.tmp" >nul 2>nul
 exit /b 0
 
+:wait_adb_device
+set /a _awt=0
+:wait_adb_device_loop
+for /f "delims=" %%i in ('adb.exe get-state 2^>nul') do set "_awt_state=%%i"
+if "%_awt_state%"=="device" (
+    set "_awt_state="
+    exit /b 0
+)
+set "_awt_state="
+set /a _awt+=1
+if %_awt% GEQ %~1 (
+    echo !!! Device did not reach state=device within %~1 seconds.
+    echo     Check USB Type-A cable, USB debugging; try adb kill-server / start-server.
+    exit /b 1
+)
+timeout /t 1 /nobreak >nul
+goto wait_adb_device_loop
+
 :backup_pull
 if exist "%BACKUP_DIR%\%~2" (
+    for %%A in ("%BACKUP_DIR%\%~2") do if %%~zA LEQ 0 (
+        echo !!! Existing backup %BACKUP_DIR%\%~2 is empty or is not a file.
+        exit /b 1
+    )
     echo Backup: %BACKUP_DIR%\%~2 already exists - keeping the original
     exit /b 0
 )
-adb.exe pull %1 "%BACKUP_DIR%\%~2" 1>nul 2>nul
-if errorlevel 1 (
+set "BACKUP_REMOTE_STATE="
+for /f "delims=" %%i in ('adb.exe shell "if [ -f %1 ]; then echo PRESENT; elif [ -e %1 ]; then echo ERROR; else echo ABSENT; fi" 2^>nul') do set "BACKUP_REMOTE_STATE=%%i"
+if "%BACKUP_REMOTE_STATE%"=="ABSENT" (
     echo Backup: %1 does not exist - skipped
-) else (
-    echo Backup: %1 -^> %BACKUP_DIR%\%~2
+    exit /b 0
 )
+if not "%BACKUP_REMOTE_STATE%"=="PRESENT" (
+    echo !!! Could not safely read %1 before backup.
+    exit /b 1
+)
+del "%BACKUP_DIR%\%~2.new" 1>nul 2>nul
+adb.exe pull %1 "%BACKUP_DIR%\%~2.new" 1>nul 2>nul
+if errorlevel 1 goto :backup_pull_failed
+for %%A in ("%BACKUP_DIR%\%~2.new") do if %%~zA LEQ 0 goto :backup_pull_failed
+move /y "%BACKUP_DIR%\%~2.new" "%BACKUP_DIR%\%~2" 1>nul 2>nul
+if errorlevel 1 goto :backup_pull_failed
+echo Backup: %1 -^> %BACKUP_DIR%\%~2
 exit /b 0
+
+:backup_pull_failed
+del "%BACKUP_DIR%\%~2.new" 1>nul 2>nul
+echo !!! Could not save existing %1. Installation stopped.
+exit /b 1

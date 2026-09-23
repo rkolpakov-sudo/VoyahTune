@@ -1,5 +1,6 @@
 #!/bin/sh
 # Удаление Open Voyah v@VERSION@ — полный откат к состоянию ДО установки нашего приложения.
+cd "$(dirname "$0")" || exit 1
 if [ ! -f ./dns-overlay.sh ]; then
     echo "!!! Не найден ./dns-overlay.sh — удаление прервано до изменения устройства."
     exit 1
@@ -168,7 +169,7 @@ stop_voyahtune_service() {
         return 1
     fi
     VOYAHTUNE_STOP_WAIT=0
-    while [ "$VOYAHTUNE_STOP_WAIT" -lt 10 ]; do
+    while [ "$VOYAHTUNE_STOP_WAIT" -lt 20 ]; do
         VOYAHTUNE_SERVICE_STATE=$(adb shell getprop init.svc.voyahtune_load 2>/dev/null) || return 1
         VOYAHTUNE_SERVICE_STATE=$(printf '%s' "$VOYAHTUNE_SERVICE_STATE" | tr -d '\r')
         case "$VOYAHTUNE_SERVICE_STATE" in
@@ -185,7 +186,7 @@ stop_voyahtune_service() {
 }
 
 adb root
-adb wait-for-device
+wait_adb_device || exit 1
 adb root
 # /system записываемым: снимаем verity (идемпотентно) + overlay-remount + сырой remount. Полный
 # ребут-цикл здесь не нужен (после install verity уже снята; если её вернул OTA — сначала прогнать

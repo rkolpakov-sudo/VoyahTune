@@ -122,7 +122,8 @@ public class NowPlayingService extends Service {
             return;
         }
         try {
-            registerReceiver(requestReceiver, new IntentFilter(ACTION_REQUEST_NOW_PLAYING), RECEIVER_EXPORTED);
+            registerReceiver(requestReceiver, new IntentFilter(ACTION_REQUEST_NOW_PLAYING),
+                    "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE", null, RECEIVER_EXPORTED);
         } catch (Exception e) {
             Log.w(TAG, "onCreate registerReceiver: " + e.getMessage());
         }

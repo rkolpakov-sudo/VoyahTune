@@ -114,12 +114,12 @@ Java ~70% · shell/bat ~17% · Frida JS ~12% · Gradle full/light · minSdk 30 �
 | **TUI D2 (обёртка)** | «Continue» + Q | ✅ | ✅ **новые файлы** | движок install **не тронут** |
 | **Фаза 1 — документирование** | план | ✅ docs/user+tech+dev, FAQ/README | — | каркас готов; matrix живыми тестами позже |
 | **Фаза 2 — тесты + matrix** | план | черновик matrix | `verify_post_install` partial | **нет живых тестов на авто** |
-| **Фаза 3 — безопасность install** | план | design D3–D6 | ✅ **D3 I19 + D4 I04/I05** | D6 MANIFEST нет; live D2/D3/D4 не гонялись |
+| **Фаза 3 — безопасность install** | план | design D3–D6 | ✅ **D3 I19 + D4 I04/I05 + D6 MANIFEST** | live D2/D3/D4/D6 не гонялись на авто |
 | **Фаза 4 — баги поведения** | план + deep-review | каталог есть | ✅ **C1 + C2 partial + N02** | R3/R4/N01 = отдельный гейт |
 | **Фаза 5 — UX/UI feedback** | deep-review | каталог есть | ❌ | после live-тестов Ф4 |
 | **Фаза 6 — новые функции** | план | — | ❌ | опционально, в конце |
 | **Security IPC (R3/R4…)** | audit | risk-assessment | **нет** | отдельный гейт + живой тест |
-| **Light TUI / D4 / MANIFEST** | design | design | **нет** | после D2 на авто |
+| **Light TUI / D4 / MANIFEST** | design | design | **D6 ✅** (light TUI / подпись — нет) | light TUI после D2 на авто |
 
 **Согласованных изменений «горячего» кода (CAN/бут/install-фаз):** **0**  
 (2026-09-23 «Приступай» = да на Ф1+D3+D4+C1/C2/N02; **N05** — только порядок `MSG_RESULT`, байты CAN не менялись; R3/R4/N01 — отдельный гейт.)  
@@ -286,7 +286,7 @@ TR-C  SECURITY / BUGS      →  (согласование R3/R4/R9/…) →  м�
 | D3 | fix **BUG-I19** exit-code в bat | ⏳ ждёт «делай D3» |
 | D4 | **I05** light push rc, **I04** RW-gate remove | ⏳ |
 | D5 | маркеры `[N/12]` в движке | ❌ **отклонено** (Q2) |
-| D6 | `MANIFEST.sha256` + G1 в TUI | ⏳ |
+| D6 | `MANIFEST.sha256` + G1 в TUI | ✅ код (live не гонялся) |
 | D7 | PowerShell TUI | ⏳ опц. |
 | Live | прогон install-tui на Sport+ 2026 | ❌ |
 
@@ -399,10 +399,10 @@ bash Packaging/tests/test_apollo_direct_only.sh   # PASS
 
 ## 10. Следующие шаги
 
-- **Готово (документация):** Ф1 docs + INSTALL_GUIDE (`docs/user/INSTALL_GUIDE.md`) + FAQ/README.
-- **Готово (код):** D2 TUI, D3 I19 exit codes, D4 light push/rc/RW-gate, C1 (R06/R07/R12/N03/N04/N05), C2 partial (R01 receivers + R03 null), C3 partial (N02 logs).
-- **Публикация:** форк GitHub — https://github.com/rkolpakov-sudo/VoyahTune (parent nexron171/VoyahTune).
-- **Дальше по приоритету:** live-тест на Sport+ 2026 (TUI, installer, star-button, share лога, Advance) → R3/R4/N01 (отдельный security-гейт + IPC-тест) → остальной UX-feedback (R02, R09, R10) → I03/I08 sh↔bat drift → заполнение compatibility-matrix живыми тестами.
+- **Готово (документация):** Ф1 docs + INSTALL_GUIDE (`Docs/user/INSTALL_GUIDE.md`) + FAQ/README + **install-track I** (preflight §11.1b, light/TUI, case, matrix R12, README.txt PREFLIGHT).
+- **Готово (код):** D2 TUI, D3 I19, D4 light atomic/RW-gate, C1/C2/C3 partial, fix-all 2026-09-23 сессия 4, **install-track II Gate A** (verify `--light`, sh-TUI меню 5+dry, log-rotate, wait-hint), `.gitattributes` LF.
+- **Публикация:** форк — https://github.com/rkolpakov-sudo/VoyahTune.
+- **Дальше:** Фаза III остаток (B2–B5 по одному «да») → Gate B (bat-TUI preflight, TUI-default, MANIFEST) → **Фаза V live Sport+ 2026** → коммит/push по явной просьбе.
 
 ### Выполнено в сессии 2026-09-23 («Приступай»)
 
@@ -413,21 +413,45 @@ bash Packaging/tests/test_apollo_direct_only.sh   # PASS
 - ✅ C2 partial: R01 ContextCompat, R03 null data
 - ✅ C3 partial: N02 log → getFilesDir
 
-### Немедленно (ждут реплики)
+### Выполнено в сессии 4 (fix-all, 2026-09-23)
 
-1. **Live-тест** D2/D3/D4 + Java-фиксов на Sport+ 2026 (TUI, install/remove light, star-button MSG_RESULT, share лога, Advance CAN-редактор).
-2. **«делай R3/R4/N01»** — permission на provider/receivers (отдельный гейт + тест IPC).
-3. Остальной UX-feedback (R01-стайл Snackbar, R02 portrait layout, R09–R10) — по «да».
+- ✅ C1/R3-class: provider + все IPC register/send под `BIND_SET_MODES_SERVICE` (+ setPackage)
+- ✅ H3: allowBackup=false, мёртвые SMS/STORAGE/PHONE/GET_TASKS, queries self-package
+- ✅ H4 residual: SetModesReceiverDynamic — задокументирован
+- ✅ H5/H6/H7/H8 + back-ловушка + portrait Apply + presetId + Logging running + light remove settings
+- ✅ medium: versionCode, readme case, Packaging TUI note, TripHistory per-item, Apollo force-off
+
+### Выполнено в сессии 5 (install-track I+II Gate A + III-B1…B5 + II-B1, 2026-09-23)
+
+- ✅ I-A1…A6: LF gitattributes, INSTALL_GUIDE preflight/light/TUI/case, matrix R12, README.txt PREFLIGHT+wait
+- ✅ II-A1: verify `--light` / `VERIFY_LIGHT` + bat-TUI Full/Light
+- ✅ II-A2: sh-TUI меню Install/Verify/Remove/DNS/Dry-run (паритет bat)
+- ✅ II-A3: ротация `install.log` → `.1`
+- ✅ II-A4: wait-hint 30–60с в safety + preflight-fail
+- ✅ **III-B1**: success-эхо в `full/install.sh` + `light/install.sh` перед финальным `adb reboot`
+- ✅ **III-B2**: `cd "$(dirname "$0")" || exit 1` в 4 install/remove `.sh`
+- ✅ **III-B3**: `wait_adb_device` timeout helper в `dns-overlay.sh` + 5 `.bat` subroutines (60с/120с post-reboot, fail-closed)
+- ✅ **III-B4**: light backup_pull PRESENT/ABSENT/ERROR (паритет full); remove не трогали
+- ✅ **III-B5**: `mkdir BACKUP_DIR` fail-closed в light install.sh/.bat + full install/remove.bat
+- ✅ **II-B1**: `install-tui.bat` G1 bundle preflight (exit 3) + G2 `:preflight_device` перед Install/Verify/Remove/DNS
+- ✅ **II-B2**: TUI-default в `README.txt` / `INSTALL_GUIDE.md` / `installation.md`
+- ✅ **IV-D6**: `MANIFEST.sha256` — `write_manifest` в `make_release.sh` (full+light) + `tui_check_manifest` (`.sh`) + `:check_manifest` (`.bat`)
+- ✅ **III-B6**: exit-map (G5) в `tui_map_exit` — CANBUS/EROFS/загрузчик-сигнатуры → next-step; баннер ban приоритет; **движок не трогали**
+- ✅ **III-B7**: `ADB_SERIAL` в `tui_check_device` → export `ANDROID_SERIAL` для движка; без serial при >1 dev — fail-closed + подсказка; bat — только текст ошибки
+
+### Немедленно (в очереди «Выполняй по очереди»)
+
+1. ~~III-B6 exit-map, III-B7 adb-s~~ — ✅ выполнено 2026-09-23 (TUI-only, согласовано «да»).
+2. **Фаза V** live-матрица Sport+ 2026 → коммит/push **по явной просьбе**.
 
 ### Параллельно без кода
 
-4. Заполнить `compatibility-matrix.md` живыми тестами.
-5. Выгрузка полного списка 27 BUG-I — по запросу.
+5. Заполнить `compatibility-matrix.md` живыми тестами.
+6. Whitelist `CAR_MOCK_VEHICLE_HAL` — «да» + проверка CanBus.
 
 ### После тестов на авто
 
-6. Security R3/R4/N01 — гейт.  
-7. D6 MANIFEST + подпись релизов.  
+7. Подпись релизов (отдельно от D6).
 8. Light TUI / D7 — по необходимости.
 
 ### Открытые вопросы
@@ -466,7 +490,7 @@ bash Packaging/tests/test_apollo_direct_only.sh   # PASS
 | 0 | Аудит кода | ✅ | WP-0 |
 | 1 | Документирование | ✅ docs-каркас + FAQ | WP-A |
 | 2 | Тестовая инфраструктура | 🟡 verify + matrix draft | WP-B |
-| 3 | Безопасность install | 🟡 D2+D3+D4; manifest/sign нет | WP-D / D6 |
+| 3 | Безопасность install | 🟡 D2+D3+D4+D6; live нет; подпись нет | WP-D / подпись |
 | 4 | Исправление багов | 🟡 C1+C2 partial + N02; R3/R4 = гейт | WP-C |
 | 5 | Инкрементальные улучшения | 🟡 TUI = UX-вклад | WP-TUI / C5 |
 | 6 | Новые функции | ❌ | WP-E |

@@ -1,8 +1,9 @@
 #!/bin/sh
 # install-tui.sh — интерактивная обёртка над full/install.sh (D2).
 # НЕ меняет фазы/порядок движка: только preflight UX, confirm, tee-лог, карта exit-кода, verify.
-# Запуск из плоской папки релиза: ./install-tui.sh [--yes] [--non-interactive] [--dry-run]
+# Запуск из плоской папки релиза: ./install-tui.sh [--yes] [--non-interactive] [--dry-run] [--menu]
 # Non-interactive без --dry-run ≈ прямой запуск install.sh после быстрого preflight.
+# --menu (или интерактив без флагов): меню Install / Verify / Remove / DNS / Exit (паритет install-tui.bat).
 
 set -u
 
@@ -17,13 +18,15 @@ cd "$SCRIPT_DIR" || exit 1
 }
 
 TUI_DRY_RUN=0
+TUI_FORCE_MENU=0
 for arg in "$@"; do
     case "$arg" in
         --yes|-y)              TUI_YES=1 ;;
         --non-interactive)     TUI_NONINTERACTIVE=1 ;;
         --dry-run)             TUI_DRY_RUN=1 ;;
+        --menu)                TUI_FORCE_MENU=1 ;;
         -h|--help)
-            sed -n '2,6p' "$SCRIPT_DIR/$(basename "$TUI_SELF")"
+            sed -n '2,7p' "$SCRIPT_DIR/$(basename "$TUI_SELF")"
             exit 0
             ;;
         *)
@@ -34,6 +37,16 @@ for arg in "$@"; do
 done
 
 tui_init
+
+# Интерактивный режим без --yes/--non-interactive/--dry-run → меню (паритет bat-TUI).
+if [ "$TUI_FORCE_MENU" = 1 ]; then
+    tui_show_menu
+    exit $?
+fi
+if [ "${TUI_NONINTERACTIVE}" != 1 ] && [ "${TUI_YES}" != 1 ] && [ "$TUI_DRY_RUN" != 1 ] && [ -t 0 ]; then
+    tui_show_menu
+    exit $?
+fi
 
 tui_title "Open Voyah — установка (TUI) @VERSION@"
 tui_info "движок: install.sh · мутации выполняет только install.sh"
@@ -79,6 +92,7 @@ if [ "$TUI_DRY_RUN" != 1 ] && [ "$dev_rc" != 0 ]; then
     tui_title "Стоп до мутаций"
     tui_err "Preflight не пройден — install.sh НЕ запускался, /system не изменялась."
     printf '%s\n' "  → См. README.txt «ПРОВЕРКА ADB» / «ТИПОВЫЕ ОШИБКИ УСТАНОВКИ»."
+    printf '%s\n' "  → Если adb/wait-for-device «висит» >30–60 с: закройте окно, почините ADB, повторите."
     exit 3
 fi
 

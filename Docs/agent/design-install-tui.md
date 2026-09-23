@@ -124,7 +124,7 @@
 | A4 | Предупреждение R20: SDK &lt; 33 → «RestoreMode может падать при registerReceiver — подтвердите на вашей машине» | read-only | None |
 | A5 | Проверка **одного** устройства (без эмуляторов) | adb | None |
 | A6 | Лог `install.log` через tee/redirect + ротация при старте | Обёртка | None |
-| A7 | Единые exit codes 10–80 (из плана Фазы 3) — **обёртка мапит** код движка → экран Fail | Без правки движка на этапе 1 | None |
+| A7 | Единые exit codes 10–80 (из плана Фазы 3) — **обёртка мапит** код движка → экран Fail | Без правки движка на этапе 1 | Partial ✅ 2026-09-23: G5-сигнатуры CANBUS/EROFS в `tui_map_exit` (III-B6); коды 10–80 в движке — отдельный гейт |
 | A8 | Флаги: `--yes` (все confirm=yes), `--dry-run` (только preflight+plan, движок не трогает — **движок без dry-run пока: TUI не вызывает мутации**), `--non-interactive` (= текущий bat) | CLI обёртки | None |
 | A9 | Resume-подсказка: при запускe в папке, где уже есть `backup/` и state «was interrupted» → «Продолжение = тот же скрипт» | Только UI-состояние по файлам | None |
 | A10 | Post-install verify (read-only): пакети, leavecar, файлы boot-hook, props freeform, `pm path` Native | Новый `verify_post_install.sh` | None |
@@ -142,7 +142,7 @@
 | **G2 Device** | До root | 1 устройство, state, root OK, SDK, fingerprint |
 | **G3 Mutate gate** | Перед первой записью в device (Apollo settings / disable-верити) | Синопсис плана + «backup будет в ./backup» + require Enter (или `--yes`) |
 | **G4 Reboot gate** | Перед reboot №1 и №2 | Печать: сколько будет перезагрузок, что уже сделано, **Do not reboot / reboot сейчас** — единая строка |
-| **G5 Fail-safe banner** | Любой `exit` движка ≠0 | TUI ловит: **«Не перезагружайте ГУ»** ИЛИ **«Можно перезапустить тот же скрипт»** — по карте кодов фаз |
+| **G5 Fail-safe banner** | Любой `exit` движка ≠0 | TUI ловит: **«Не перезагружайте ГУ»** ИЛИ **«Можно перезапустить тот же скрипт»** — по карте кодов фаз ✅ (ban + CANBUS + EROFS-сигнатуры, III-B6) |
 | **G6 Verify** | После успеха | verify_post_install + чек-лист ручных пунктов (режимы до/после) |
 | **G7 Remove gate** | remove.* | Показать `ls backup/`, требование «та же папка релиза», двойной confirm |
 | **G8 Manifest** | Сборка релиза | `make_release.sh` пишет `MANIFEST.sha256` всех payload; TUI/G1 сверяет — защита от «подмешали js/apk» |
@@ -221,7 +221,7 @@ TUI смотрит наличие `vd_bypass.js`/`load.bin` → предлага
 | **D3** | Fix BUG-I19 + язык/итог в **bat** (минимум) | bat: exit code + echo | По строкам |
 | **D4** | light push `\|\| exit 1` (BUG-I05) + RW-gate remove (I04) | light sh | По строкам |
 | **D5** | Опциональные phase-маркеры `[N/12]` в движке (только echo) | full sh/bat | По строкам, прогон test_* |
-| **D6** | MANIFEST.sha256 в make_release + G1 в TUI | make_release + TUI | Сборка релиза |
+| **D6** | MANIFEST.sha256 в make_release + G1 в TUI | make_release + TUI | ✅ код 2026-09-23 (live нет) |
 | **D7** | Windows PowerShell TUI (если нужно) | Новый ps1 | Опционально |
 
 **Вне этапов TUI (отдельный трек):** R3/R4 permissions, IPC, CAN-баги — не смешивать с UX установки.

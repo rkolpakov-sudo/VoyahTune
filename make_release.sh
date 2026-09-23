@@ -323,6 +323,33 @@ copy_stamped() {
     esac
 }
 
+# D6/G8: MANIFEST.sha256 всех файлов staging (кроме самого манифеста).
+# Формат sha256sum: "<sha256>  <относительный путь>" — читается `sha256sum -c` и TUI G1.
+write_manifest() {
+    out="$1"
+    tmp="$out/.MANIFEST.sha256.tmp"
+    (
+        cd "$out" || exit 1
+        find . -type f ! -name 'MANIFEST.sha256' ! -name '.MANIFEST.sha256.tmp' -print |
+            sed 's|^\./||' |
+            LC_ALL=C sort |
+            while IFS= read -r rel; do
+                h="$(sha256_file "$rel")" || exit 1
+                printf '%s  %s\n' "$h" "$rel"
+            done
+    ) > "$tmp" || {
+        rm -f "$tmp"
+        echo "Не удалось собрать MANIFEST.sha256 в $out." >&2
+        exit 1
+    }
+    if [ ! -s "$tmp" ]; then
+        rm -f "$tmp"
+        echo "MANIFEST.sha256 пуст в $out — staging без файлов?" >&2
+        exit 1
+    fi
+    mv "$tmp" "$out/MANIFEST.sha256"
+}
+
 # Защита релизного архива: каждый физический перевод строки в .bat обязан быть CRLF.
 verify_windows_batch_files() {
     out="$1"
@@ -487,6 +514,7 @@ if [ "$DO_FULL" = 1 ]; then
     done
     verify_release_payload "$STAGE" full
     verify_windows_batch_files "$STAGE"
+    write_manifest "$STAGE"
     publish_release_dir "$STAGE" "$OUT"
     make_zip "$OUT" "VoyahTune-$VERSION"
     commit_release_dir
@@ -520,6 +548,7 @@ if [ "$DO_LIGHT" = 1 ]; then
     done
     verify_release_payload "$STAGE" light
     verify_windows_batch_files "$STAGE"
+    write_manifest "$STAGE"
     publish_release_dir "$STAGE" "$OUT"
     make_zip "$OUT" "VoyahTune-$VERSION-light"
     commit_release_dir

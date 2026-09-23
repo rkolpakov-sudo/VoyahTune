@@ -8,6 +8,24 @@ YDNS_REMOTE_HELPER="/data/local/tmp/open_voyah_dns_overlay.sh"
 YDNS_REMOTE_APK="/data/local/tmp/open_voyah_yandex_dns.apk"
 YDNS_ADB="${YDNS_ADB:-adb}"
 
+# B3: wait-for-device с таймаутом (сек, ADB_WAIT_TIMEOUT, по умолчанию 60).
+# Возвращает 0 когда state=device; 1 по таймауту/ошибке (вызывающий обязан exit 1).
+wait_adb_device() {
+    wait_adb_limit="${ADB_WAIT_TIMEOUT:-60}"
+    wait_adb_i=0
+    while [ "$wait_adb_i" -lt "$wait_adb_limit" ]; do
+        wait_adb_state="$("$YDNS_ADB" get-state 2>/dev/null | tr -d '\r')"
+        if [ "$wait_adb_state" = "device" ]; then
+            return 0
+        fi
+        sleep 1
+        wait_adb_i=$((wait_adb_i + 1))
+    done
+    echo "!!! Устройство не перешло в state=device за ${wait_adb_limit}с (ADB_WAIT_TIMEOUT)." >&2
+    echo "    Проверьте кабель Type-A↔A, USB debugging, adb kill-server && adb start-server." >&2
+    return 1
+}
+
 ydns_release_dir() {
     CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd
 }

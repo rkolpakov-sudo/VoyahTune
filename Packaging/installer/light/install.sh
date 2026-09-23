@@ -4,6 +4,7 @@
 # поездки, Power Hold, режим мойки, звук пешеходов, плавающая кнопка «Назад», установка приложений,
 # ярлыки приложений (обычный запуск). БЕЗ сплита/дока/VirtualDisplay, БЕЗ Frida и любой root-инъекции,
 # БЕЗ раздела «Кнопки на руле». init.logcat.sh системы НЕ трогаем.
+cd "$(dirname "$0")" || exit 1
 if [ ! -f ./dns-overlay.sh ]; then
     echo "!!! Не найден ./dns-overlay.sh — установка прервана до изменения устройства."
     exit 1
@@ -31,7 +32,7 @@ if ! ydns_prepare_helper; then
 fi
 
 adb root
-adb wait-for-device
+wait_adb_device || exit 1
 adb root
 
 # Direct Apollo не использует legacy VehicleSetting hook. Закрываем старые opt-in/liveness ключи
@@ -105,14 +106,14 @@ adb disable-verity 2>&1 | sed 's/^/  /'
 if ! system_is_writable; then
     echo "  /system ещё read-only → перезагрузка ОДИН раз (применяем disable-verity)..."
     adb reboot
-    adb wait-for-device
+    ADB_WAIT_TIMEOUT=120 wait_adb_device || exit 1
     i=0
     while [ $i -lt 60 ]; do
         [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ] && break
         sleep 5; i=$((i + 1))
     done
     sleep 3
-    adb root >/dev/null 2>&1; adb wait-for-device; adb root >/dev/null 2>&1
+    adb root >/dev/null 2>&1; wait_adb_device || exit 1; adb root >/dev/null 2>&1
 fi
 if ! system_is_writable; then
     echo "!!! /system ОСТАЁТСЯ read-only — установка прервана (в /system ничего не тронуто)."
@@ -124,24 +125,54 @@ fi
 echo "  /system записываем — продолжаем."
 
 BACKUP_DIR="backup"
-mkdir -p "$BACKUP_DIR"
+mkdir -p "$BACKUP_DIR" || {
+    echo "!!! Не удалось подготовить $BACKUP_DIR — установка прервана до перезаписи файлов."
+    exit 1
+}
 
 # Бэкап файла с головы перед перезаписью. Если бэкап уже есть — не трогаем (сохраняем оригинал).
+# Remote-state: PRESENT → pull; ABSENT → пропуск; ERROR → fail-closed (не маскировать под absence).
 backup_pull() {
-    if [ -f "$BACKUP_DIR/$2" ]; then
-        echo "Backup: $BACKUP_DIR/$2 уже есть — пропуск (сохраняем оригинал)"
-        return
+    if [ -e "$BACKUP_DIR/$2" ]; then
+        if [ -f "$BACKUP_DIR/$2" ] && [ -s "$BACKUP_DIR/$2" ]; then
+            echo "Backup: $BACKUP_DIR/$2 уже есть — пропуск (сохраняем оригинал)"
+            return 0
+        fi
+        echo "!!! Существующий backup $BACKUP_DIR/$2 пуст или не является файлом."
+        return 1
     fi
-    if adb pull "$1" "$BACKUP_DIR/$2" >/dev/null 2>&1; then
-        echo "Backup: $1 -> $BACKUP_DIR/$2"
-    else
-        echo "Backup: $1 отсутствует, пропуск"
-    fi
+    BACKUP_REMOTE_STATE=$(adb shell "if [ -f '$1' ]; then echo PRESENT; elif [ -e '$1' ]; then echo ERROR; else echo ABSENT; fi" 2>/dev/null) || {
+        echo "!!! Не удалось проверить $1 перед backup."
+        return 1
+    }
+    BACKUP_REMOTE_STATE=$(printf '%s' "$BACKUP_REMOTE_STATE" | tr -d '\r')
+    case "$BACKUP_REMOTE_STATE" in
+        ABSENT)
+            echo "Backup: $1 отсутствует, пропуск"
+            return 0
+            ;;
+        PRESENT)
+            rm -f "$BACKUP_DIR/$2.new"
+            if adb pull "$1" "$BACKUP_DIR/$2.new" >/dev/null 2>&1 \
+                    && [ -s "$BACKUP_DIR/$2.new" ] \
+                    && mv -f "$BACKUP_DIR/$2.new" "$BACKUP_DIR/$2"; then
+                echo "Backup: $1 -> $BACKUP_DIR/$2"
+                return 0
+            fi
+            rm -f "$BACKUP_DIR/$2.new"
+            echo "!!! Не удалось сохранить существующий $1 — установка прервана."
+            return 1
+            ;;
+        *)
+            echo "!!! $1 существует, но не является доступным regular file — установка прервана."
+            return 1
+            ;;
+    esac
 }
 
 echo "=== Бэкап перезаписываемых файлов в $BACKUP_DIR/ ==="
-backup_pull /system/priv-app/Native/Native.apk     Native.apk
-backup_pull /system/etc/permissions/privapp-permissions-ru.big.town.anative.xml privapp-permissions-ru.big.town.anative.xml
+backup_pull /system/priv-app/Native/Native.apk     Native.apk || exit 1
+backup_pull /system/etc/permissions/privapp-permissions-ru.big.town.anative.xml privapp-permissions-ru.big.town.anative.xml || exit 1
 
 # NB: install.sh — это ОБНОВЛЕНИЕ и СОХРАНЯЕТ настройки. RestoreMode ставится через -r (его data
 # остаётся); Native обновляется пушем APK в /system БЕЗ сноса data, поэтому локальные тумблеры Native
@@ -151,25 +182,28 @@ echo "=== Native.apk в /system/priv-app (нужны привилегирова�
 # /system уже сделан записываемым выше (verity, overlay) — отдельный remount не нужен.
 adb shell mkdir -p /system/priv-app/Native || exit 1
 adb shell chmod 755 /system/priv-app/Native || exit 1
-if ! adb push native.apk /system/priv-app/Native/Native.apk; then
-    echo "!!! Не удалось записать Native.apk в /system/priv-app — установка прервана."
-    adb shell "rm -f /system/priv-app/Native/Native.apk" >/dev/null 2>&1
+if ! adb push native.apk /system/priv-app/.Native.apk.voyahtune.new; then
+    echo "!!! Не удалось подготовить Native.apk — установка прервана."
+    adb shell "rm -f /system/priv-app/.Native.apk.voyahtune.new" >/dev/null 2>&1
     exit 1
 fi
-adb shell "chown 0:0 /system/priv-app/Native/Native.apk && chmod 644 /system/priv-app/Native/Native.apk && restorecon /system/priv-app/Native/Native.apk && sync && test -f /system/priv-app/Native/Native.apk" || {
-    echo "!!! Native.apk не прошёл chown/chmod/restorecon — установка прервана."
+adb shell "chown 0:0 /system/priv-app/.Native.apk.voyahtune.new && chmod 644 /system/priv-app/.Native.apk.voyahtune.new && restorecon /system/priv-app/.Native.apk.voyahtune.new && mv -f /system/priv-app/.Native.apk.voyahtune.new /system/priv-app/Native/Native.apk && restorecon /system/priv-app/Native/Native.apk && sync && test -f /system/priv-app/Native/Native.apk" || {
+    echo "!!! Атомарная установка Native.apk не удалась — установка прервана."
+    adb shell "rm -f /system/priv-app/.Native.apk.voyahtune.new" >/dev/null 2>&1
     exit 1
 }
 adb shell "ls -all /system/priv-app/Native"
 
 # Whitelist привилегированных пермишенов (нужен на enforce-ROM: FORCE_STOP/WRITE_SECURE_SETTINGS/…)
 adb shell "mkdir -p /system/etc/permissions" || exit 1
-if ! adb push privapp-permissions-ru.big.town.anative.xml /system/etc/permissions/privapp-permissions-ru.big.town.anative.xml; then
-    echo "!!! Не удалось записать whitelist привилегированных пермишенов — установка прервана."
+if ! adb push privapp-permissions-ru.big.town.anative.xml /system/etc/.privapp-permissions-ru.big.town.anative.xml.voyahtune.new; then
+    echo "!!! Не удалось подготовить whitelist привилегированных пермишенов — установка прервана."
+    adb shell "rm -f /system/etc/.privapp-permissions-ru.big.town.anative.xml.voyahtune.new" >/dev/null 2>&1
     exit 1
 fi
-adb shell "chown 0:0 /system/etc/permissions/privapp-permissions-ru.big.town.anative.xml && chmod 644 /system/etc/permissions/privapp-permissions-ru.big.town.anative.xml && restorecon /system/etc/permissions/privapp-permissions-ru.big.town.anative.xml && sync" || {
-    echo "!!! Whitelist не прошёл chown/chmod/restorecon — установка прервана."
+adb shell "chown 0:0 /system/etc/.privapp-permissions-ru.big.town.anative.xml.voyahtune.new && chmod 644 /system/etc/.privapp-permissions-ru.big.town.anative.xml.voyahtune.new && restorecon /system/etc/.privapp-permissions-ru.big.town.anative.xml.voyahtune.new && mv -f /system/etc/.privapp-permissions-ru.big.town.anative.xml.voyahtune.new /system/etc/permissions/privapp-permissions-ru.big.town.anative.xml && restorecon /system/etc/permissions/privapp-permissions-ru.big.town.anative.xml && sync && test -f /system/etc/permissions/privapp-permissions-ru.big.town.anative.xml" || {
+    echo "!!! Атомарная установка whitelist не удалась — установка прервана."
+    adb shell "rm -f /system/etc/.privapp-permissions-ru.big.town.anative.xml.voyahtune.new" >/dev/null 2>&1
     exit 1
 }
 
@@ -226,4 +260,5 @@ case "${YDNS_REQUEST:-keep}" in
 esac
 
 # Ребут нужен, чтобы менеджер пакетов перечитал privapp-whitelist для /system/priv-app.
+echo "Установка успешно завершена — устройство перезагружается."
 adb reboot

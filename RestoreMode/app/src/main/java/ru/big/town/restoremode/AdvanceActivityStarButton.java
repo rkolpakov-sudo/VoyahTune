@@ -38,6 +38,10 @@ public class AdvanceActivityStarButton extends AppCompatActivity {
     }
 
     public void onButtonClickSaveStarButton(View v) {
+        if (buttonSaveStarButton != null && !buttonSaveStarButton.isEnabled()) {
+            Log.w("$$$ StarButton save $$$", "Команды не сохранены: неверный формат");
+            return;
+        }
         GlobalVars.editor.putString("customCommandStarButton1", canCommandEditorStarButton1.getText().toString());
         GlobalVars.editor.putString("customCommandStarButton2", canCommandEditorStarButton2.getText().toString());
         GlobalVars.editor.apply();
@@ -93,6 +97,9 @@ public class AdvanceActivityStarButton extends AppCompatActivity {
         customCommandStarButton2 = GlobalVars.sharedPreferences.getString("customCommandStarButton2", "");
         canCommandEditorStarButton2.setText(customCommandStarButton2);
 
+        // Начальная валидация: при пустых/валидных значениях кнопки не должны остаться disabled
+        // от предыдущего состояния; невалидное уже сохранённое — сразу помечаем.
+        validateStarButtons();
 
         canCommandEditorStarButton1.addTextChangedListener(new TextWatcher() {
             private boolean isFormatting = false;
@@ -133,29 +140,12 @@ public class AdvanceActivityStarButton extends AppCompatActivity {
                 }
                 Log.i("$$$ LENGTH formatted.length $$$ ", String.format("%d", formatted.length()));
 
-                if (formatted.length() % 31 == 0) {
-                    canCommandEditorStarButton1.setBackgroundColor(Color.WHITE);
-                    buttonSaveStarButton.setEnabled(true);
-                    buttonSaveStarButton.setTextColor(Color.WHITE);
-                    buttonApplyStarButton1.setEnabled(true);
-                    buttonApplyStarButton1.setTextColor(Color.WHITE);
-                    buttonBackStarButton.setEnabled(true);
-                    buttonBackStarButton.setTextColor(Color.WHITE);
-                } else {
-                    canCommandEditorStarButton1.setBackgroundColor(0xffffafaf);
-                    buttonSaveStarButton.setEnabled(false);
-                    buttonSaveStarButton.setTextColor(Color.GRAY);
-                    buttonApplyStarButton1.setEnabled(false);
-                    buttonApplyStarButton1.setTextColor(Color.GRAY);
-                    buttonBackStarButton.setEnabled(false);
-                    buttonBackStarButton.setTextColor(Color.GRAY);
-                }
-
                 canCommandEditorStarButton1.removeTextChangedListener(this);
                 canCommandEditorStarButton1.setText(formatted.toString());
                 canCommandEditorStarButton1.setSelection(formatted.length());
                 canCommandEditorStarButton1.addTextChangedListener(this);
                 isFormatting = false;
+                validateStarButtons();
             }
         });
 
@@ -199,31 +189,61 @@ public class AdvanceActivityStarButton extends AppCompatActivity {
                 }
                 Log.i("$$$ LENGTH formatted.length $$$ ", String.format("%d", formatted.length()));
 
-                if (formatted.length() % 31 == 0) {
-                    canCommandEditorStarButton2.setBackgroundColor(Color.WHITE);
-                    buttonSaveStarButton.setEnabled(true);
-                    buttonSaveStarButton.setTextColor(Color.WHITE);
-                    buttonApplyStarButton2.setEnabled(true);
-                    buttonApplyStarButton2.setTextColor(Color.WHITE);
-                    buttonBackStarButton.setEnabled(true);
-                    buttonBackStarButton.setTextColor(Color.WHITE);
-                } else {
-                    canCommandEditorStarButton2.setBackgroundColor(0xffffafaf);
-                    buttonSaveStarButton.setEnabled(false);
-                    buttonSaveStarButton.setTextColor(Color.GRAY);
-                    buttonApplyStarButton2.setEnabled(false);
-                    buttonApplyStarButton2.setTextColor(Color.GRAY);
-                    buttonBackStarButton.setEnabled(false);
-                    buttonBackStarButton.setTextColor(Color.GRAY);
-                }
-
                 canCommandEditorStarButton2.removeTextChangedListener(this);
                 canCommandEditorStarButton2.setText(formatted.toString());
                 canCommandEditorStarButton2.setSelection(formatted.length());
                 canCommandEditorStarButton2.addTextChangedListener(this);
                 isFormatting = false;
+                validateStarButtons();
             }
         });
+    }
+
+    /**
+     * Единая валидация обеих команд: формат AdvanceActivity — только hex-пары, каждая строка
+     * ровно 20 hex-символов (10 байт), пустой ввод тоже валиден. Save/Apply блокируются
+     * только при невалидном непустом вводе; Back не блокируется (нет back-ловушки).
+     */
+    private void validateStarButtons() {
+        boolean v1 = isValidCanCommand(canCommandEditorStarButton1);
+        boolean v2 = isValidCanCommand(canCommandEditorStarButton2);
+        boolean ok = v1 && v2;
+
+        if (canCommandEditorStarButton1 != null) {
+            canCommandEditorStarButton1.setBackgroundColor(v1 ? Color.WHITE : 0xffffafaf);
+        }
+        if (canCommandEditorStarButton2 != null) {
+            canCommandEditorStarButton2.setBackgroundColor(v2 ? Color.WHITE : 0xffffafaf);
+        }
+        if (buttonSaveStarButton != null) {
+            buttonSaveStarButton.setEnabled(ok);
+            buttonSaveStarButton.setTextColor(ok ? Color.WHITE : Color.GRAY);
+        }
+        if (buttonApplyStarButton1 != null) {
+            buttonApplyStarButton1.setEnabled(v1);
+            buttonApplyStarButton1.setTextColor(v1 ? Color.WHITE : Color.GRAY);
+        }
+        if (buttonApplyStarButton2 != null) {
+            buttonApplyStarButton2.setEnabled(v2);
+            buttonApplyStarButton2.setTextColor(v2 ? Color.WHITE : Color.GRAY);
+        }
+        // Back всегда доступен — пользователь не должен быть заперт в экране.
+        if (buttonBackStarButton != null) {
+            buttonBackStarButton.setEnabled(true);
+            buttonBackStarButton.setTextColor(Color.WHITE);
+        }
+    }
+
+    /** Пусто — OK; иначе каждая непустая строка — ровно 10 байт hex (20 hex-символов после пробелов). */
+    private static boolean isValidCanCommand(EditText editor) {
+        if (editor == null) return false;
+        String text = editor.getText() == null ? "" : editor.getText().toString().trim();
+        if (text.isEmpty()) return true;
+        for (String line : text.split("\n")) {
+            String hex = line.replaceAll("[^0-9a-fA-F]", "");
+            if (hex.length() != 20) return false;
+        }
+        return true;
     }
 
     @Override

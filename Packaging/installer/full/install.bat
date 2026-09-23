@@ -7,7 +7,8 @@ for %%F in (adb.exe AdbWinApi.dll AdbWinUsbApi.dll load.bin steeringwheelkeys.js
 )
 
 adb.exe root
-adb.exe wait-for-device
+call :wait_adb_device 60
+if errorlevel 1 exit /b 1
 adb.exe root
 
 echo === Preflight direct-only Apollo ^(VehicleSetting hook OFF^) ===
@@ -35,10 +36,9 @@ if "%CANBUS_PERMISSION_PRESENT%"=="1" for /f "tokens=2 delims==" %%i in ('adb.ex
 if "%CANBUS_PERMISSION_PRESENT%"=="0" goto :canbus_permission_ok
 if "%CANBUS_PERMISSION_OWNER%"=="ru.big.town.anative" goto :canbus_permission_ok
 if "%CANBUS_PERMISSION_OWNER%"=="" (
-    echo   WARNING: this firmware does not report the owner of com.qinggan.permission.WRITE_CANBUS.
-    echo   Continuing. Android PackageManager will still reject a real duplicate permission.
-    set CANBUS_PERMISSION_PRESENT=2
-    goto :canbus_permission_ok
+    echo !!! Owner of com.qinggan.permission.WRITE_CANBUS is unknown. Installation stopped before writing to /system.
+    echo     Same as install.sh: fail-closed when the owner cannot be confirmed.
+    exit /b 1
 )
 echo !!! com.qinggan.permission.WRITE_CANBUS already belongs to %CANBUS_PERMISSION_OWNER%.
 echo     Remove the incompatible package and repeat full install. /system is still unchanged.
@@ -53,7 +53,8 @@ call :ensure_rw
 if "%RWSTATE%"=="RW" goto :sys_rw_ok
 echo   /system is read-only. Rebooting once to apply disable-verity...
 adb.exe reboot
-adb.exe wait-for-device
+call :wait_adb_device 120
+if errorlevel 1 exit /b 1
 set /a _bi=0
 :wait_boot_ovw
 adb.exe shell getprop sys.boot_completed 2>nul | findstr /b "1" >nul
@@ -65,7 +66,8 @@ goto :wait_boot_ovw
 :booted_ovw
 timeout /t 3 /nobreak >nul
 adb.exe root
-adb.exe wait-for-device
+call :wait_adb_device 60
+if errorlevel 1 exit /b 1
 adb.exe root
 call :ensure_rw
 if "%RWSTATE%"=="RW" goto :sys_rw_ok
@@ -204,6 +206,24 @@ adb.exe shell "rm -f /system/_ovw_rwtest" >nul 2>nul
 del "%TEMP%\_ovw_rwtest.tmp" >nul 2>nul
 exit /b 0
 
+:wait_adb_device
+set /a _awt=0
+:wait_adb_device_loop
+for /f "delims=" %%i in ('adb.exe get-state 2^>nul') do set "_awt_state=%%i"
+if "%_awt_state%"=="device" (
+    set "_awt_state="
+    exit /b 0
+)
+set "_awt_state="
+set /a _awt+=1
+if %_awt% GEQ %~1 (
+    echo !!! Device did not reach state=device within %~1 seconds.
+    echo     Check USB Type-A cable, USB debugging; try adb kill-server / start-server.
+    exit /b 1
+)
+timeout /t 1 /nobreak >nul
+goto wait_adb_device_loop
+
 :backup_pull
 if exist "%BACKUP_DIR%\%~2" (
     for %%A in ("%BACKUP_DIR%\%~2") do if %%~zA LEQ 0 (
@@ -307,7 +327,13 @@ if not "%LEGACY_INIT_STATE%"=="LEGACY" (
     exit /b 1
 )
 
-if not exist "backup" mkdir "backup"
+if not exist "backup" (
+    mkdir "backup"
+    if errorlevel 1 (
+        echo !!! Could not prepare backup directory. Migration stopped.
+        exit /b 1
+    )
+)
 del "%LEGACY_INIT_ROLLBACK_SOURCE%.new" >nul 2>nul
 adb.exe pull /system/etc/init.logcat.sh "%LEGACY_INIT_ROLLBACK_SOURCE%.new" >nul 2>nul
 if errorlevel 1 (

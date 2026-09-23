@@ -54,13 +54,20 @@ final class SplitConfigSync {
     }
 
     private static void addDockSplitExtras(Intent i, int slot, String slotPkg, SharedPreferences prefs) {
-        int idx = slotPkg.isEmpty() ? -1 : prefs.getInt("dockOverride" + slot + "Split", -1);
-        List<SplitStore.Preset> all = SplitStore.load(prefs);
-        if (idx < 0 || idx >= all.size() || !all.get(idx).ready()) {
+        if (slotPkg.isEmpty()) {
             i.putExtra("dock" + slot + "HasSplit", false);
             return;
         }
-        SplitStore.Preset ps = all.get(idx);
+        int legacyIdx = prefs.getInt("dockOverride" + slot + "Split", -1);
+        SplitStore.Preset ps = SplitStore.resolveAssigned(
+                prefs, "dockOverride" + slot + "SplitId", legacyIdx);
+        if (ps == null || !ps.ready()) {
+            i.putExtra("dock" + slot + "HasSplit", false);
+            return;
+        }
+        // Индекс — только fallback для старого Native; основной ключ — стабильный id.
+        List<SplitStore.Preset> all = SplitStore.load(prefs);
+        int idx = all.indexOf(ps);
         i.putExtra("dock" + slot + "HasSplit", true);
         i.putExtra("dock" + slot + "SplitL", ps.l);
         i.putExtra("dock" + slot + "SplitR", ps.r);
@@ -73,19 +80,27 @@ final class SplitConfigSync {
         i.putExtra("dock" + slot + "SplitPresetId", ps.id);
     }
 
-    /** Backward-compatible CSV: старый Native прочитает первые пять полей, новый — все восемь. */
+    /** Backward-compatible CSV: старый Native прочитает первые пять полей, новый — все восемь.
+     *  Принимает splitid:uuid (новый), split:N (legacy индекс). */
     static String resolveSteerAction(String id, SharedPreferences prefs) {
-        if (id == null || !id.startsWith("split:")) return id;
-        try {
-            int n = Integer.parseInt(id.substring("split:".length()));
-            List<SplitStore.Preset> all = SplitStore.load(prefs);
-            if (n >= 0 && n < all.size() && all.get(n).ready()) {
-                SplitStore.Preset ps = all.get(n);
-                return "split:" + ps.l + "," + ps.r + "," + ps.ratio + ","
-                        + AppDpiStore.get(prefs, ps.l) + "," + AppDpiStore.get(prefs, ps.r) + ","
-                        + (ps.resizable ? "1" : "0") + "," + SplitStore.leftFraction(ps) + "," + ps.id;
-            }
-        } catch (Exception ignored) {}
+        if (id == null || id.isEmpty()) return id;
+        SplitStore.Preset ps = null;
+        if (id.startsWith("splitid:")) {
+            ps = SplitStore.findById(prefs, id.substring("splitid:".length()));
+        } else if (id.startsWith("split:")) {
+            try {
+                int n = Integer.parseInt(id.substring("split:".length()));
+                List<SplitStore.Preset> all = SplitStore.load(prefs);
+                if (n >= 0 && n < all.size()) ps = all.get(n);
+            } catch (Exception ignored) {}
+        } else {
+            return id;
+        }
+        if (ps != null && ps.ready()) {
+            return "split:" + ps.l + "," + ps.r + "," + ps.ratio + ","
+                    + AppDpiStore.get(prefs, ps.l) + "," + AppDpiStore.get(prefs, ps.r) + ","
+                    + (ps.resizable ? "1" : "0") + "," + SplitStore.leftFraction(ps) + "," + ps.id;
+        }
         return "none";
     }
 }

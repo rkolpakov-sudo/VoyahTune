@@ -31,7 +31,7 @@
 
 1. Полностью распаковать ZIP в отдельную папку (например `C:\VoyahTune`).
 2. Подключить кабель Type-A↔A, подтвердить USB debugging.
-3. Запустить `install.bat` (non-interactive) или `install-tui.bat` (меню, лог, verify).
+3. Рекомендуется: `install-tui.bat` (меню с preflight, логом, verify). Для автоматизации — `install.bat` (non-interactive, без вопросов).
 4. Дождаться `Installation complete` и перезагрузки.
 5. **Yandex DNS** — отдельно: `install-yandex-dns.bat` после успешной основной установки.
 
@@ -39,7 +39,7 @@
 
 1. `brew install android-platform-tools` (или эквивалент).
 2. Кабель Type-A↔A, `chmod +x install.sh remove.sh`.
-3. `./install.sh` — в конце выбор DNS; либо `./install-tui.sh` (флаги `--dry-run`, `--yes`, `--non-interactive`).
+3. Рекомендуется `./install-tui.sh` (флаги `--dry-run`, `--yes`, `--non-interactive`); либо `./install.sh` — в конце выбор DNS.
 
 ## Удаление
 

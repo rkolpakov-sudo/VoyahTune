@@ -518,7 +518,8 @@ public class SetModesService extends Service {
             out.putExtra("log", NativeLog.get().snapshot());
             out.putExtra("running", NativeLog.get().isRunning());
             out.putExtra("path", NativeLog.get().logFile(getApplicationContext()).getAbsolutePath());
-            sendBroadcast(out);
+            out.setPackage("ru.big.town.restoremode");
+            sendBroadcast(out, "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE");
         }
     };
 
@@ -758,7 +759,8 @@ public class SetModesService extends Service {
             IntentFilter logFilter = new IntentFilter(ACTION_REQUEST_LOG);
             logFilter.addAction(ACTION_LOGGING_SET);
             logFilter.addAction(ACTION_LOGGING_SHARE);
-            registerReceiver(logRequestReceiver, logFilter, RECEIVER_EXPORTED);
+            registerReceiver(logRequestReceiver, logFilter,
+                    "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE", null, RECEIVER_EXPORTED);
         } catch (Exception e) {
             Log.w(TAG, "register logRequestReceiver: " + e.getMessage());
         }

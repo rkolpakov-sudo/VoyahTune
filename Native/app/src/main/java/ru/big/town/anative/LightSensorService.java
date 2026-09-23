@@ -558,7 +558,8 @@ public class LightSensorService extends Service {
         startForeground(2, notification);
 
         IntentFilter reqFilter = new IntentFilter("ru.big.town.anative.REQUEST_LUX_UPDATE");
-        registerReceiver(requestReceiver, reqFilter, RECEIVER_EXPORTED);
+        registerReceiver(requestReceiver, reqFilter,
+                "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE", null, RECEIVER_EXPORTED);
 
         ensureBound();
         ensureCanBusBound();
@@ -871,7 +872,8 @@ public class LightSensorService extends Service {
     private void broadcastUpdate(int sensorLevel) {
         Intent intent = new Intent(ACTION_LUX_UPDATE);
         intent.putExtra(EXTRA_SENSOR_LEVEL, sensorLevel);
-        sendBroadcast(intent);
+        intent.setPackage("ru.big.town.restoremode");
+        sendBroadcast(intent, "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE");
     }
 
     private final BroadcastReceiver requestReceiver = new BroadcastReceiver() {

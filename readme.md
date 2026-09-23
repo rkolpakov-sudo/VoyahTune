@@ -4,7 +4,7 @@ Rutube https://rutube.ru/video/35215feafbd0a8fd41b8abad31007d20/
 
 Youtube https://youtu.be/_hfe5qyZKXQ
 
-APK находятся в папке Releases. Для установки запускаем файл install.sh или install.bat в зависимости от ОС. На Windows дополнительно доступно интерактивное меню install-tui.bat; на macOS/Linux — ./install-tui.sh. Подробная пошаговая инструкция (сложности и решения): docs/user/INSTALL_GUIDE.md. Кратко — docs/user/installation.md; текст в релизе — Packaging/README.txt.
+APK и скрипты лежат **плоско в корне распакованного ZIP** (папка `Releases/` — только вывод сборки, в git её нет). Для установки запускаем файл install.sh или install.bat в зависимости от ОС. На Windows рекомендуется интерактивное меню install-tui.bat; на macOS/Linux — ./install-tui.sh (TUI и verify — только в full). Подробная пошаговая инструкция (сложности и решения): Docs/user/INSTALL_GUIDE.md. Кратко — Docs/user/installation.md; текст в релизе — Packaging/README.txt.
 
 Кабель для установки: только USB Type-A ↔ Type-A (USB 2.0). Кабели Type-C ↔ Type-A и Type-C ↔ Type-C не подходят. Допускается переходник или USB-хаб.
 
@@ -36,4 +36,4 @@ A: Доступно с версии 2.5
 
 Q: Нужен ли второй раз root / две перезагрузки?
 
-A: Установщик сам выполняет adb root и при необходимости disable-verity. Перезагрузок обычно две: первая — если /system после disable-verity остался read-only, вторая — финальная, после неё стартует сервис. Если /system стал RW сразу — будет только финальная. См. docs/user/installation.md.
+A: Установщик сам выполняет adb root и при необходимости disable-verity. Перезагрузок обычно две: первая — если /system после disable-verity остался read-only, вторая — финальная, после неё стартует сервис. Если /system стал RW сразу — будет только финальная. См. Docs/user/installation.md.

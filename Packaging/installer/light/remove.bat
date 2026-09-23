@@ -13,7 +13,8 @@ if errorlevel 1 (
 )
 
 adb.exe root
-adb.exe wait-for-device
+call :wait_adb_device 60
+if errorlevel 1 exit /b 1
 adb.exe root
 adb.exe disable-verity >nul 2>nul
 adb.exe remount >nul 2>nul
@@ -52,6 +53,18 @@ adb.exe shell settings delete global open_voyah_apollo_asc 2>nul
 adb.exe shell settings delete global open_voyah_apollo_sdb 2>nul
 adb.exe shell settings delete global open_voyah_apollo_profile_supported 2>nul
 adb.exe shell settings delete global open_voyah_apollo_profile_heartbeat 2>nul
+adb.exe shell settings delete global voyahtune_dock1 2>nul
+adb.exe shell settings delete global voyahtune_dock2 2>nul
+adb.exe shell settings delete global voyahtune_dock1Dpi 2>nul
+adb.exe shell settings delete global voyahtune_dock2Dpi 2>nul
+adb.exe shell settings delete global voyahtune_steerStarShort 2>nul
+adb.exe shell settings delete global voyahtune_steerStarLong 2>nul
+adb.exe shell settings delete global voyahtune_steerDvrShort 2>nul
+adb.exe shell settings delete global voyahtune_steerDvrLong 2>nul
+adb.exe shell settings delete global voyahtune_steerVoiceShort 2>nul
+adb.exe shell settings delete global voyahtune_steerVoiceLong 2>nul
+adb.exe shell settings delete global voyahtune_steerPhoneShort 2>nul
+adb.exe shell settings delete global voyahtune_steerPhoneLong 2>nul
 
 
 adb.exe reboot
@@ -61,3 +74,21 @@ if errorlevel 1 (
 )
 echo Removal complete. The device is rebooting.
 exit /b 0
+
+:wait_adb_device
+set /a _awt=0
+:wait_adb_device_loop
+for /f "delims=" %%i in ('adb.exe get-state 2^>nul') do set "_awt_state=%%i"
+if "%_awt_state%"=="device" (
+    set "_awt_state="
+    exit /b 0
+)
+set "_awt_state="
+set /a _awt+=1
+if %_awt% GEQ %~1 (
+    echo !!! Device did not reach state=device within %~1 seconds.
+    echo     Check USB Type-A cable, USB debugging; try adb kill-server / start-server.
+    exit /b 1
+)
+timeout /t 1 /nobreak >nul
+goto wait_adb_device_loop

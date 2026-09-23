@@ -262,7 +262,7 @@ public class MainActivity extends AppCompatActivity {
     public void onButtonBatteryHeat(View v) {
         Intent i = new Intent(ACTION_BATTERY_HEAT_ACTIVATE);
         i.setPackage("ru.big.town.anative");
-        sendBroadcast(i);
+        sendBroadcast(i, "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE");
         showSnack("Запуск прогрева батареи…");
         Log.i(TAG, "BATTERY_HEAT_ACTIVATE отправлен");
     }
@@ -282,7 +282,7 @@ public class MainActivity extends AppCompatActivity {
                 .setPositiveButton("Сбросить", (d, w) -> {
                     Intent i = new Intent(ACTION_TRIP_RESET);
                     i.setPackage("ru.big.town.anative");
-                    sendBroadcast(i);
+                    sendBroadcast(i, "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE");
                     Log.i(TAG, "TRIP_RESET отправлен");
                 })
                 .setNegativeButton("Отмена", null)
@@ -498,23 +498,27 @@ public class MainActivity extends AppCompatActivity {
         EdgeToEdge.enable(this);
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN,
                 WindowManager.LayoutParams.FLAG_FULLSCREEN);
-        setContentView(R.layout.activity_main);
+        // До setContentView: иначе portrait-default layout может надуться без mainContent.
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
+        setContentView(R.layout.activity_main);
 
         // Свой док удалён — используется родной док головы (висит поверх слева ~145dp, в insets не приходит).
         // Контент отступаем вправо от него + под статус-бар.
         final View mainContent = findViewById(R.id.mainContent);
         final int nativeDock = Math.round(getResources().getDisplayMetrics().density * 145f);
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main), (v, insets) -> {
-            Insets sb = insets.getInsets(WindowInsetsCompat.Type.systemBars());
-            int top = sb.top;
-            if (top == 0) {   // на голове статус-бар не сообщает высоту в insets — берём системный status_bar_height
-                int id = getResources().getIdentifier("status_bar_height", "dimen", "android");
-                if (id > 0) top = getResources().getDimensionPixelSize(id);
-            }
-            mainContent.setPadding(nativeDock + sb.left, top, sb.right, sb.bottom);
-            return insets;
-        });
+        final View mainRoot = findViewById(R.id.main);
+        if (mainContent != null && mainRoot != null) {
+            ViewCompat.setOnApplyWindowInsetsListener(mainRoot, (v, insets) -> {
+                Insets sb = insets.getInsets(WindowInsetsCompat.Type.systemBars());
+                int top = sb.top;
+                if (top == 0) {   // на голове статус-бар не сообщает высоту в insets — берём системный status_bar_height
+                    int id = getResources().getIdentifier("status_bar_height", "dimen", "android");
+                    if (id > 0) top = getResources().getDimensionPixelSize(id);
+                }
+                mainContent.setPadding(nativeDock + sb.left, top, sb.right, sb.bottom);
+                return insets;
+            });
+        }
 
         sharedPreferences = getSharedPreferences("DrivePreferences", Context.MODE_PRIVATE);
         GlobalVars.sharedPreferences=sharedPreferences;
@@ -556,30 +560,42 @@ public class MainActivity extends AppCompatActivity {
             resultIntentStarButton = new Intent(this, AdvanceActivityStarButton.class);
         }
 
-        resultIntent.putExtra("StarButtonStarButton1", StarButtonStarButton1);
-        resultIntent.putExtra("StarButtonStarButton2", StarButtonStarButton2);
+        resultIntentStarButton.putExtra("StarButtonStarButton1", StarButtonStarButton1);
+        resultIntentStarButton.putExtra("StarButtonStarButton2", StarButtonStarButton2);
     }
 
     private void getModes(){
-
-        Cursor cursor = getContentResolver().query(Uri
-                        .parse("content://ru.big.town.restoremode.restoremodecontentprovider/"),
-                null, null,
-                null, null);
-        if(cursor.getCount() != 0){
-            cursor.moveToFirst();
-            driveMode=cursor.getString(0);
-            energy=cursor.getString(1);
-            recycle=cursor.getString(2);
-            customCommand=cursor.getString(3);
-            customCommandCount=cursor.getInt(4);
-            Log.i("$$$ getModes() $$$", "Query Result:" +
-                    "\ndriveMode: " + driveMode +
-                    "\nenergy: " + energy +
-                    "\nrecycle: " + recycle
-            );
+        Cursor cursor = null;
+        try {
+            cursor = getContentResolver().query(Uri
+                            .parse("content://ru.big.town.restoremode.restoremodecontentprovider/"),
+                    null, null,
+                    null, null);
+            if (cursor != null && cursor.moveToFirst()) {
+                driveMode=cursor.getString(0);
+                energy=cursor.getString(1);
+                recycle=cursor.getString(2);
+                customCommand=cursor.getString(3);
+                customCommandCount=cursor.getInt(4);
+                Log.i("$$$ getModes() $$$", "Query Result:" +
+                        "\ndriveMode: " + driveMode +
+                        "\nenergy: " + energy +
+                        "\nrecycle: " + recycle
+                );
+            }
+        } catch (Exception e) {
+            Log.w("$$$ getModes() $$$", "provider query failed: " + e.getMessage());
+        } finally {
+            if (cursor != null) cursor.close();
         }
-        cursor.close();    }
+    }
+
+    /** Кнопка «Применить» в portrait-layout (в land её нет) — тот же MSG_APPLY, что и в Advance. */
+    public void onButtonClickApply(View v) {
+        boolean ok = sendMessageToService(MSG_APPLY_DRIVE_MODES);
+        showSnack(ok ? "Режимы применены" : "Сервис не готов");
+        Log.i(TAG, "onButtonClickApply sent=" + ok);
+    }
 
     public void onButtonClickClose(View v){
         finish();
@@ -649,20 +665,21 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        final String bindPerm = "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE";
         ContextCompat.registerReceiver(this, tripReceiver, new IntentFilter(ACTION_TRIP_UPDATE),
-                ContextCompat.RECEIVER_EXPORTED);
+                bindPerm, null, ContextCompat.RECEIVER_EXPORTED);
         Intent req = new Intent(ACTION_REQUEST_TRIP_UPDATE);
         req.setPackage("ru.big.town.anative");
-        sendBroadcast(req);
+        sendBroadcast(req, bindPerm);
         uiHandler.removeCallbacks(tripTick);
         uiHandler.post(tripTick);
         ContextCompat.registerReceiver(this, batteryHeatReceiver, new IntentFilter(ACTION_BATTERY_HEAT_UPDATE),
-                ContextCompat.RECEIVER_EXPORTED);
+                bindPerm, null, ContextCompat.RECEIVER_EXPORTED);
         ContextCompat.registerReceiver(this, settingSyncReceiver, new IntentFilter("ru.big.town.anative.SETTING_SYNCED"),
-                "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE", null, ContextCompat.RECEIVER_EXPORTED);
+                bindPerm, null, ContextCompat.RECEIVER_EXPORTED);
         Intent bhReq = new Intent(ACTION_REQUEST_BATTERY_HEAT);
         bhReq.setPackage("ru.big.town.anative");
-        sendBroadcast(bhReq);
+        sendBroadcast(bhReq, bindPerm);
         refreshToggles();   // подхватить изменения, сделанные в «Дополнительно»
         applyMainScreenVisibility();
         renderSplitTiles();

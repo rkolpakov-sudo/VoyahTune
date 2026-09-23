@@ -534,7 +534,8 @@ public class BatteryHeatService extends Service {
         i.putExtra("bmsState",      bmsState);
         i.putExtra("autoEnabled",   isAutoEnabled() ? 1 : 0);
         i.putExtra("tempThreshold", AUTO_TEMP_THRESHOLD_C);
-        sendBroadcast(i);
+        i.setPackage("ru.big.town.restoremode");
+        sendBroadcast(i, "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE");
     }
 
     private final BroadcastReceiver uiReceiver = new BroadcastReceiver() {
@@ -571,7 +572,8 @@ public class BatteryHeatService extends Service {
 
         IntentFilter f = new IntentFilter(ACTION_REQUEST_BATTERY_HEAT);
         f.addAction(ACTION_BATTERY_HEAT_ACTIVATE);
-        registerReceiver(uiReceiver, f, RECEIVER_EXPORTED);
+        registerReceiver(uiReceiver, f,
+                "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE", null, RECEIVER_EXPORTED);
 
         ensureCanBusBound();
         handler.postDelayed(pollRunnable, 2_000L);

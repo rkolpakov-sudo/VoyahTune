@@ -86,6 +86,47 @@ tui_find_adb() {
     return 1
 }
 
+# G8/D6: сверка MANIFEST.sha256 (формат sha256sum: "<hash>  <file>").
+# Отсутствие манифеста — warning (старый zip / сборка без D6); mismatch/пустой файл — fail.
+tui_check_manifest() {
+    if [ ! -s MANIFEST.sha256 ]; then
+        tui_warn "MANIFEST.sha256 отсутствует — сверка целостности пропущена (соберите релиз: make_release.sh)"
+        return 0
+    fi
+    if command -v sha256sum >/dev/null 2>&1; then
+        tui_hash_file() { sha256sum "$1" | awk '{print $1}'; }
+    elif command -v shasum >/dev/null 2>&1; then
+        tui_hash_file() { shasum -a 256 "$1" | awk '{print $1}'; }
+    else
+        tui_warn "нет sha256sum/shasum — сверка MANIFEST.sha256 пропущена"
+        return 0
+    fi
+    bad=0
+    while read -r expected name; do
+        [ -z "${expected:-}" ] && continue
+        if [ ! -s "$name" ]; then
+            tui_err "MANIFEST: нет или пуст $name"
+            bad=1
+            continue
+        fi
+        actual="$(tui_hash_file "$name")" || {
+            tui_err "MANIFEST: не удалось хешировать $name"
+            bad=1
+            continue
+        }
+        if [ "$actual" != "$expected" ]; then
+            tui_err "MANIFEST: hash mismatch $name"
+            bad=1
+        fi
+    done < MANIFEST.sha256
+    if [ "$bad" = 1 ]; then
+        tui_err "MANIFEST.sha256 не сошёлся. Распакуйте ZIP полностью; устройство не изменялось."
+        return 1
+    fi
+    tui_ok "MANIFEST.sha256: файлы совпали"
+    return 0
+}
+
 # G1: обязательный набор full-install (минимальный preflight до device).
 tui_check_bundle() {
     missing=0
@@ -105,10 +146,13 @@ tui_check_bundle() {
         return 1
     fi
     tui_ok "файлы полного комплекта на месте"
+    tui_check_manifest || return 1
     return 0
 }
 
 # G2: только чтение adb.
+# B7: если задан ADB_SERIAL — валидируем серийник и export ANDROID_SERIAL для движка
+# (голый adb в install.sh наследует env и целиится в этот serial; сам движок не правим).
 tui_check_device() {
     if ! tui_find_adb; then
         tui_err "adb не найден (PATH или ./adb.exe). Установите Platform Tools / распакуйте релиз."
@@ -119,20 +163,64 @@ tui_check_device() {
     adb_out="$("$TUI_ADB" devices 2>/dev/null | sed -n '2,$p' | tr -d '\r')"
     line_count=0
     state=""
+    serials=""
     while IFS= read -r line; do
         [ -z "$line" ] && continue
         line_count=$((line_count + 1))
-        state=$(printf '%s' "$line" | awk '{print $2}')
+        ser=$(printf '%s' "$line" | awk '{print $1}')
+        st=$(printf '%s' "$line" | awk '{print $2}')
+        state="$st"
+        serials="${serials}${serials:+ }${ser}"
     done <<EOF
 $adb_out
 EOF
+
+    if [ -n "${ADB_SERIAL:-}" ]; then
+        found=0
+        ser_state=""
+        while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            ser=$(printf '%s' "$line" | awk '{print $1}')
+            st=$(printf '%s' "$line" | awk '{print $2}')
+            if [ "$ser" = "$ADB_SERIAL" ]; then
+                found=1
+                ser_state="$st"
+            fi
+        done <<EOF
+$adb_out
+EOF
+        if [ "$found" != 1 ]; then
+            tui_err "ADB_SERIAL=$ADB_SERIAL не найден в adb devices: ${serials:-<нет>}"
+            return 1
+        fi
+        case "$ser_state" in
+            device)
+                export ANDROID_SERIAL="$ADB_SERIAL"
+                tui_ok "ADB_SERIAL=$ADB_SERIAL, state=device; ANDROID_SERIAL экспортирован для движка."
+                return 0
+                ;;
+            unauthorized)
+                tui_err "unauthorized — разблокируйте ГУ и подтвердите RSA-ключ USB debugging."
+                return 1
+                ;;
+            offline)
+                tui_err "offline — переподключите кабель; adb kill-server && adb start-server."
+                return 1
+                ;;
+            *)
+                tui_err "неожиданное состояние устройства: ${ser_state:-<пусто>}"
+                return 1
+                ;;
+        esac
+    fi
 
     if [ "$line_count" -eq 0 ]; then
         tui_err "нет устройств: проверьте кабель Type-A<->A, порт, драйвер, USB debugging."
         return 1
     fi
     if [ "$line_count" -gt 1 ]; then
-        tui_err "несколько устройств ($line_count) — отключите лишние Android/эмуляторы."
+        tui_err "несколько устройств ($line_count: $serials) — отключите лишние или задайте ADB_SERIAL=<serial>."
+        tui_info "пример: ADB_SERIAL=<serial> ./install-tui.sh"
         return 1
     fi
     case "$state" in
@@ -183,7 +271,147 @@ tui_show_safety() {
   4. Распакуйте ZIP полностью; не запускайте из архиватора.
   5. Будет 1–2 перезагрузки головного устройства.
   6. Лог: install.log в этой папке (создаётся при запуске через TUI).
+  7. Если adb / wait-for-device «висит» дольше ~30–60 с — закройте окно
+     ДО начала копирования, почините ADB и запустите тот же скрипт заново.
 EOF
+}
+
+# Интерактивное меню install-tui.sh — паритет с install-tui.bat (5 пунктов).
+# Мутации: только вызовы существующих движков (install/remove/dns), без новых фаз.
+tui_show_menu() {
+    while true; do
+        if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+            printf '\033[2J\033[H'
+        else
+            clear 2>/dev/null || printf '\n'
+        fi
+        tui_title "Open Voyah installer TUI @VERSION@"
+        printf '%s\n' "  1  Install full (install.sh + install.log)"
+        printf '%s\n' "  2  Verify post-install (read-only)"
+        printf '%s\n' "  3  Remove / restore (remove.sh)"
+        printf '%s\n' "  4  Yandex DNS only (dns-overlay / install-yandex-dns)"
+        printf '%s\n' "  5  Dry-run preflight only (no mutations)"
+        printf '%s\n' "  6  Exit"
+        tui_hr
+        if [ "${TUI_NONINTERACTIVE}" = 1 ] || [ ! -t 0 ]; then
+            tui_info "non-interactive stdin — выход (используйте --yes/--non-interactive/--dry-run)."
+            return 0
+        fi
+        printf '%s  Select option [1-6]: %s' "${TUI_C_YELLOW}" "${TUI_C_RESET}"
+        # shellcheck disable=SC2162
+        read tui_m || tui_m=6
+        case "$tui_m" in
+            1)
+                TUI_YES=0
+                TUI_NONINTERACTIVE=0
+                TUI_DRY_RUN_LOCAL=0
+                tui_run_install_flow || true
+                tui_pause
+                ;;
+            2)
+                if [ -f ./verify_post_install.sh ]; then
+                    sh ./verify_post_install.sh
+                else
+                    tui_err "verify_post_install.sh не найден (только full-комплект)"
+                fi
+                tui_pause
+                ;;
+            3)
+                if [ ! -f ./remove.sh ]; then
+                    tui_err "remove.sh не найден"
+                elif tui_confirm "Запустить remove.sh (restore из ./backup в ЭТОЙ папке)?"; then
+                    sh ./remove.sh
+                fi
+                tui_pause
+                ;;
+            4)
+                if [ -f ./install-yandex-dns.sh ] || [ -f ./dns-overlay.sh ]; then
+                    if tui_confirm "Запустить установку Yandex DNS-overlay?"; then
+                        if [ -f ./install-yandex-dns.sh ]; then
+                            sh ./install-yandex-dns.sh
+                        else
+                            sh ./dns-overlay.sh
+                        fi
+                    fi
+                else
+                    tui_err "DNS-скрипт не найден рядом с TUI"
+                fi
+                tui_pause
+                ;;
+            5)
+                # dry-run: только preflight, без мутаций
+                tui_title "Dry-run preflight"
+                bundle_rc=0
+                tui_check_bundle || bundle_rc=1
+                dev_rc=0
+                if [ "$bundle_rc" = 0 ]; then
+                    if tui_find_adb; then
+                        tui_check_device || dev_rc=1
+                        [ "$dev_rc" = 0 ] && tui_device_profile || true
+                    else
+                        tui_warn "adb не найден — device check пропущен (bundle OK)"
+                    fi
+                fi
+                tui_show_plan
+                if [ "$bundle_rc" = 0 ]; then
+                    tui_ok "dry-run: preflight пройден; движок не запускался."
+                else
+                    tui_err "dry-run: комплект неполон."
+                fi
+                tui_pause
+                ;;
+            6|q|Q|"")
+                return 0
+                ;;
+            *)
+                tui_warn "неизвестный пункт: $tui_m"
+                sleep 1
+                ;;
+        esac
+    done
+}
+
+# Одиночный проход установки (используется меню и прямым запуском без меню).
+tui_run_install_flow() {
+    tui_title "Open Voyah — установка (TUI) @VERSION@"
+    tui_info "движок: install.sh · мутации выполняет только install.sh"
+    tui_show_safety
+    if ! tui_confirm "Подтверждаю пункты безопасности выше — продолжить?"; then
+        tui_warn "Отменено пользователем. Устройство не изменялось."
+        return 2
+    fi
+    tui_title "Preflight (только чтение)"
+    bundle_rc=0
+    tui_check_bundle || bundle_rc=1
+    dev_rc=0
+    if [ "$bundle_rc" = 0 ]; then
+        tui_check_device || dev_rc=1
+        [ "$dev_rc" = 0 ] && tui_device_profile || true
+    fi
+    if [ "$bundle_rc" != 0 ] || [ "$dev_rc" != 0 ]; then
+        tui_title "Стоп до мутаций"
+        tui_err "Preflight не пройден — install.sh НЕ запускался, /system не изменялась."
+        printf '%s\n' "  → См. README.txt «ПРОВЕРКА ADB» / «PREFLIGHT» / «ТИПОВЫЕ ОШИБКИ»."
+        printf '%s\n' "  → Если wait-for-device «висит» >30–60 с: закройте окно, почините ADB, повторите."
+        return 3
+    fi
+    tui_show_plan
+    if ! tui_confirm "Начать установку (мутации устройства + backup в ./backup)?"; then
+        tui_warn "Отменено. Устройство не изменялось."
+        return 2
+    fi
+    tui_title "Запуск install.sh (лог: install.log)"
+    tui_run_engine "install.sh"
+    map_rc=0
+    tui_map_exit "${tui_engine_rc:-1}" "install.log" || map_rc=1
+    if [ "${tui_engine_rc:-1}" = 0 ]; then
+        if [ -f ./verify_post_install.sh ]; then
+            if tui_confirm "Запустить verify_post_install (read-only, без изменений)?"; then
+                sh ./verify_post_install.sh || true
+            fi
+        fi
+    fi
+    return "$map_rc"
 }
 
 tui_show_plan() {
@@ -218,6 +446,10 @@ tui_run_engine() {
     fi
     TUI_LOG_FILE="install.log"
     TUI_RC_FILE="install.log.tui-rc"
+    # Ротация: предыдущий лог не затираем молча (A6 дизайна).
+    if [ -f "$TUI_LOG_FILE" ]; then
+        mv -f "$TUI_LOG_FILE" "${TUI_LOG_FILE}.1" 2>/dev/null || true
+    fi
     rm -f "$TUI_RC_FILE"
     {
         if [ "$engine" = "./install.sh" ] || [ "$engine" = "install.sh" ]; then
@@ -251,15 +483,29 @@ tui_map_exit() {
 
     tui_err "install.sh завершился с кодом $rc."
     ban=0
+    canbus=0
+    sysro=0
     if [ -f "$log" ]; then
         if grep -E 'Не перезагружайте|Do not reboot|do not reboot' "$log" >/dev/null 2>&1; then
             ban=1
+        fi
+        if grep -E 'WRITE_CANBUS уже принадлежит|WRITE_CANBUS не определён' "$log" >/dev/null 2>&1; then
+            canbus=1
+        fi
+        if grep -E 'EROFS|заблокирован загрузчик|disable-verity не срабатывает' "$log" >/dev/null 2>&1; then
+            sysro=1
         fi
         tui_info "лог: $log (приложите к отчёту, строки с !!!)"
     fi
     if [ "$ban" = 1 ]; then
         tui_err "НЕ ПЕРЕЗАГРЫВАЙТЕ ГУ, пока ADB не восстановлен и повторный запуск не завершился успешно."
         tui_info "восстановите соединение → запустите install-tui.sh (или install.sh) заново из ЭТОЙ же папки."
+    elif [ "$canbus" = 1 ]; then
+        tui_warn "Причина: владелец WRITE_CANBUS чужой/не определён — /system не изменялся."
+        tui_info "удалите несовместимый пакет владельца → повторите install.sh (README «ТИПОВЫЕ ОШИБКИ»)."
+    elif [ "$sysro" = 1 ]; then
+        tui_warn "Причина: /system недоступна (EROFS / загрузчик / verity) — стоп."
+        tui_info "см. README:81–84 → после устранения причины повторите install.sh из этой папки."
     else
         tui_warn "Обычный recovery: исправьте причину (README.txt) → повторите ТОТ ЖЕ install.sh из этой папки."
         tui_info "операции рассчитаны на повторный запуск; не удаляйте ./backup."

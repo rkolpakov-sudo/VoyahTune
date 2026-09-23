@@ -6,6 +6,7 @@
 #   3) dormant legacy Apollo diagnostic (direct-only не инжектит VehicleSetting).
 # Boot-хук = свои RC-сервисы /system/etc/init/voyahtune.*.rc (setenforce 0 + load.bin watchdog).
 # Штатный /system/etc/init.logcat.sh не меняем, кроме узкой миграции нашего legacy-файла.
+cd "$(dirname "$0")" || exit 1
 if [ ! -f ./dns-overlay.sh ]; then
     echo "!!! Не найден ./dns-overlay.sh — установка прервана до изменения устройства."
     exit 1
@@ -37,7 +38,7 @@ for FULL_REQUIRED_ASSET in load.bin steeringwheelkeys.js launcherdock.js multidi
 done
 
 adb root
-adb wait-for-device
+wait_adb_device || exit 1
 adb root
 
 # Direct-only update не наследует legacy opt-in/stale gate. До disable-verity и любых
@@ -111,14 +112,14 @@ adb disable-verity 2>&1 | sed 's/^/  /'
 if ! system_is_writable; then
     echo "  /system ещё read-only → перезагрузка ОДИН раз (применяем disable-verity)..."
     adb reboot
-    adb wait-for-device
+    ADB_WAIT_TIMEOUT=120 wait_adb_device || exit 1
     i=0
     while [ $i -lt 60 ]; do
         [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ] && break
         sleep 5; i=$((i + 1))
     done
     sleep 3
-    adb root >/dev/null 2>&1; adb wait-for-device; adb root >/dev/null 2>&1
+    adb root >/dev/null 2>&1; wait_adb_device || exit 1; adb root >/dev/null 2>&1
 fi
 if ! system_is_writable; then
     echo "!!! /system ОСТАЁТСЯ read-only — установка прервана (в /system ничего не тронуто)."
@@ -643,4 +644,6 @@ case "${YDNS_REQUEST:-keep}" in
         ;;
 esac
 
+echo "Установка успешно завершена — устройство перезагружается."
+echo "После загрузки запустите verify_post_install.sh для проверки."
 adb reboot

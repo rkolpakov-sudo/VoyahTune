@@ -17,7 +17,8 @@ if not exist "init.logcat.original.sh" (
 )
 
 adb.exe root
-adb.exe wait-for-device
+call :wait_adb_device 60
+if errorlevel 1 exit /b 1
 adb.exe root
 adb.exe disable-verity >nul 2>nul
 adb.exe remount >nul 2>nul
@@ -191,7 +192,13 @@ if not "%LEGACY_INIT_STATE%"=="LEGACY" (
     exit /b 1
 )
 
-if not exist "backup" mkdir "backup"
+if not exist "backup" (
+    mkdir "backup"
+    if errorlevel 1 (
+        echo !!! Could not prepare backup directory. Removal stopped.
+        exit /b 1
+    )
+)
 del "%LEGACY_INIT_ROLLBACK_SOURCE%.new" >nul 2>nul
 adb.exe pull /system/etc/init.logcat.sh "%LEGACY_INIT_ROLLBACK_SOURCE%.new" >nul 2>nul
 if errorlevel 1 (
@@ -335,3 +342,21 @@ exit /b 0
 del "%VTS_STATE_FILE%" >nul 2>nul
 echo !!! voyahtune_load did not stop. Boot file removal was cancelled.
 exit /b 1
+
+:wait_adb_device
+set /a _awt=0
+:wait_adb_device_loop
+for /f "delims=" %%i in ('adb.exe get-state 2^>nul') do set "_awt_state=%%i"
+if "%_awt_state%"=="device" (
+    set "_awt_state="
+    exit /b 0
+)
+set "_awt_state="
+set /a _awt+=1
+if %_awt% GEQ %~1 (
+    echo !!! Device did not reach state=device within %~1 seconds.
+    echo     Check USB Type-A cable, USB debugging; try adb kill-server / start-server.
+    exit /b 1
+)
+timeout /t 1 /nobreak >nul
+goto wait_adb_device_loop

@@ -1,6 +1,7 @@
 #!/bin/sh
 # Удаление Open Voyah v@VERSION@-LIGHT — полный откат к состоянию ДО установки.
 # LIGHT ничего не инжектит и не трогает init.logcat.sh/Frida — чистим только priv-app + whitelist + оба APK.
+cd "$(dirname "$0")" || exit 1
 if [ ! -f ./dns-overlay.sh ]; then
     echo "!!! Не найден ./dns-overlay.sh — удаление прервано до изменения устройства."
     exit 1
@@ -21,7 +22,7 @@ if ! ydns_prepare_helper restore; then
 fi
 
 adb root
-adb wait-for-device
+wait_adb_device || exit 1
 adb root
 # /system записываемым: снимаем verity (идемпотентно) + overlay-remount + сырой remount. Полный
 # ребут-цикл здесь не нужен (после install verity уже снята; если её вернул OTA — сначала прогнать
@@ -61,6 +62,19 @@ adb shell settings delete global open_voyah_apollo_asc 2>/dev/null
 adb shell settings delete global open_voyah_apollo_sdb 2>/dev/null
 adb shell settings delete global open_voyah_apollo_profile_supported 2>/dev/null
 adb shell settings delete global open_voyah_apollo_profile_heartbeat 2>/dev/null
+# Настройки дока/руля (если ранее ставился full) — иначе чистая переустановка подхватит старое.
+adb shell settings delete global voyahtune_dock1 2>/dev/null
+adb shell settings delete global voyahtune_dock2 2>/dev/null
+adb shell settings delete global voyahtune_dock1Dpi 2>/dev/null
+adb shell settings delete global voyahtune_dock2Dpi 2>/dev/null
+adb shell settings delete global voyahtune_steerStarShort 2>/dev/null
+adb shell settings delete global voyahtune_steerStarLong 2>/dev/null
+adb shell settings delete global voyahtune_steerDvrShort 2>/dev/null
+adb shell settings delete global voyahtune_steerDvrLong 2>/dev/null
+adb shell settings delete global voyahtune_steerVoiceShort 2>/dev/null
+adb shell settings delete global voyahtune_steerVoiceLong 2>/dev/null
+adb shell settings delete global voyahtune_steerPhoneShort 2>/dev/null
+adb shell settings delete global voyahtune_steerPhoneLong 2>/dev/null
 
 # Примечание: persist.app.feature.leavecar (power hold) НЕ откатываем — это штатная функция авто.
 
