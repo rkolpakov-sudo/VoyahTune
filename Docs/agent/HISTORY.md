@@ -664,3 +664,34 @@
 ### Статус фаз плана
 - 0: ... 1: ... 2: ... 3: ...
 ```
+
+---
+
+## Сессия 11 — 2026-09-24: merge GitLab 3.11.1 → master, EOL fix, release 3.11.1
+
+### Сделано
+- **Merge GitLab 3.11.1** в fork/master: ветка `merge/gitlab-3.11.1`, 24 конфликта разобраны (product=gitlab, TUI/ours, make_release union, NativeLog ours). Коммиты `90ed97c` + `9745ca2`.
+- **Push fork/master** и merge-ветки → `rkolpakov-sudo/VoyahTune`.
+- **Unit tests** Native + RestoreMode: PASS (online).
+- **Гейт-тесты make_release** (6/6 + static): PASS после EOL-фикса.
+- **EOL-фикс (критично):** `core.autocrlf=true` клал CRLF в `load.bin`, `voyahtune.load.rc`, inject `*.js`, `gradlew` (shebang `#!/usr/bin/env sh\\r` → `env: sh\\r`). Worktree нормализован в LF; `.gitattributes` расширен (eol=lf для gradlew/load.bin/.rc/.js/sh/исходников). Без этого `sh -n` падал, а загрузчик на авто мог не стартовать.
+- **test_power_hold_oem:** upstream AppWidgets перенёс `powerHoldBadge` в `tile_power_hold.xml` (код MainActivity уже биндит через widgetView). Firmware-fixtures (tmp/car_apks) сделаны optional offline.
+- **Релиз 3.11.1:** APK Native+RestoreMode full/light собраны (gradlew.bat, JDK 17, --no-daemon после I/O-конфликта локов). `make_release.sh 3.11.1 --no-build --no-zip` → FULL+LIGHT; ZIP собраны GnuWin32 zip, `unzip -tq` OK. MANIFEST full+light **OK**.
+- **C:\\VoyahTune** заменён на full 3.11.1 (40 файлов), MANIFEST в месте назначения **EXIT=0**. Старый install.log сохранён в `Releases\\logs\\install_3.7.1.log.bak`.
+- BUILD_STATUS: `phase=READY-FOR-INSTALL`.
+
+### Известные нюансы среды
+- `bash` в PowerShell = **WSL** (Java 25.0.3-ea) — `./gradlew` из make_release падает; сборка APK через `gradlew.bat` + JAVA_HOME JDK17. Упаковка через `--no-build`.
+- `zip` только в GnuWin32/Git; make_release без zip → `--no-zip` + ручной zip.
+- `test_apollo_direct_only.sh`: node не найден (не в gate).
+- Security re-audit plain sendBroadcast — не завершён (открытый вопрос).
+
+### Не сделано / дальше
+- Установка на Sport+ 2026 — ждёт команду после подключения ПК↔ГУ (`install-tui.bat` из `C:\\VoyahTune`).
+- Re-audit R3 broadcast permissions после merge.
+- Push fork подтверждён; history/BUILD_STATUS обновлены.
+
+### Проверка
+- `sha256sum -c MANIFEST.sha256` в `C:\\VoyahTune` → 0
+- `sh -n` install/remove/tui/verify → OK
+- Гейт-тесты 6/6 + static → PASS
