@@ -504,6 +504,11 @@
 - 0: ✅ · 1–2: 🟡 · 3–6: ❌ (гейт согласования) · install-track V: ❌ (кабеля нет).
 - UI-эмуляция: **DONE** (RestoreMode interactive + Native static + ANR root-caused).
 
+### Коммит (2026-09-24)
+- `8fcd452` — build+UI: lint/TLS, make_release perl CRLF, align RestoreMode tile headers, HISTORY s6–s7.
+- Пуш: `fork/master` (`rkolpakov-sudo/VoyahTune`) b6c90e5→8fcd452. Ветка `master`, upstream=fork.
+- Dirty tree после коммита: **clean** (BUILD_STATUS/logs не в git).
+
 ---
 
 ## ШАБЛОН следующей сессии
