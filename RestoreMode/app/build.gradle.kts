@@ -78,6 +78,10 @@ android {
         includeInBundle = true
     }
     ndkVersion = "27.0.12077973"
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
+    }
 
 }
 

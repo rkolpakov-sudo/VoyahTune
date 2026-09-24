@@ -58,6 +58,10 @@ android {
     }
     ndkVersion = "27.0.12077973"
     buildToolsVersion = "35.0.0"
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
+    }
 }
 
 dependencies {

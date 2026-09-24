@@ -351,16 +351,23 @@ write_manifest() {
 }
 
 # Защита релизного архива: каждый физический перевод строки в .bat обязан быть CRLF.
+# НЕ gawk: на Git for Windows / MSYS gawk открывает файл в text mode и «съедает» CR,
+# поэтому даже корректный CRLF-файл проваливал проверку. perl читает бинарно.
 verify_windows_batch_files() {
     out="$1"
     for batch in "$out/"*.bat; do
         [ -f "$batch" ] || continue
-        if ! LC_ALL=C awk '
-            {
-                if (!sub(/\r$/, "")) exit 1
-                if ($0 ~ /[^ -~\t]/) exit 1
+        if ! perl -e '
+            local $/; my $d = <>;
+            exit 1 if !defined($d) || $d eq "";
+            my @lines = split /\n/, $d, -1;
+            pop @lines if @lines && $lines[-1] eq "" && $d =~ /\n\z/;
+            exit 1 if !@lines;
+            for my $l (@lines) {
+                exit 1 unless $l =~ s/\r\z//;
+                exit 1 if $l =~ /[^ -~\t]/;
             }
-            END { if (NR == 0) exit 1 }
+            exit 0;
         ' "$batch"; then
             echo "Некорректный $batch — .bat должен использовать CRLF и только ASCII." >&2
             exit 1
