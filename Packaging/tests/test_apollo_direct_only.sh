@@ -1,152 +1,139 @@
 #!/bin/sh
 set -eu
 
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)
+REPO_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+HOOK="$REPO_ROOT/Packaging/inject/apollo_tech.js"
 LOAD_BIN="$REPO_ROOT/Packaging/system/load.bin"
-APOLLO_JS="$REPO_ROOT/Packaging/inject/apollo_tech.js"
-INSTALL_SH="$REPO_ROOT/Packaging/installer/full/install.sh"
-INSTALL_BAT="$REPO_ROOT/Packaging/installer/full/install.bat"
-LIGHT_INSTALL_SH="$REPO_ROOT/Packaging/installer/light/install.sh"
-LIGHT_INSTALL_BAT="$REPO_ROOT/Packaging/installer/light/install.bat"
-REMOVE_SH="$REPO_ROOT/Packaging/installer/full/remove.sh"
-REMOVE_BAT="$REPO_ROOT/Packaging/installer/full/remove.bat"
-LIGHT_REMOVE_SH="$REPO_ROOT/Packaging/installer/light/remove.sh"
-LIGHT_REMOVE_BAT="$REPO_ROOT/Packaging/installer/light/remove.bat"
 README="$REPO_ROOT/Packaging/README.md"
-NATIVE_BUILD="$REPO_ROOT/Native/app/build.gradle.kts"
-RESTORE_BUILD="$REPO_ROOT/RestoreMode/app/build.gradle.kts"
+ADVANCE="$REPO_ROOT/RestoreMode/app/src/main/java/ru/big/town/restoremode/AdvanceActivity.java"
+APOLLO_SETTINGS="$REPO_ROOT/RestoreMode/app/src/main/java/ru/big/town/restoremode/ApolloSettings.java"
+PROVIDER="$REPO_ROOT/RestoreMode/app/src/main/java/ru/big/town/restoremode/RestoreModeContentProvider.java"
+LAYOUT="$REPO_ROOT/RestoreMode/app/src/main/res/layout/activity_advance.xml"
+SET_MODES="$REPO_ROOT/Native/app/src/main/java/ru/big/town/anative/SetModesService.java"
+MAIN="$REPO_ROOT/Native/app/src/main/java/ru/big/town/anative/MainActivity.java"
+RESTORE_POLICY="$REPO_ROOT/Native/app/src/main/java/ru/big/town/anative/ApolloRestorePolicy.java"
+APPLY_ENGINE="$REPO_ROOT/Native/app/src/main/java/ru/big/town/anative/ApplyEngine.java"
 NATIVE_MANIFEST="$REPO_ROOT/Native/app/src/main/AndroidManifest.xml"
-NATIVE_SERVICE="$REPO_ROOT/Native/app/src/main/java/ru/big/town/anative/ApolloTlcService.java"
-RESTORE_ACTIVITY="$REPO_ROOT/RestoreMode/app/src/main/java/ru/big/town/restoremode/AdvanceActivity.java"
-OPT_IN_KEY=open_voyah_apollo_legacy_hook_enabled
+RUNTIME_FLAG="$REPO_ROOT/Native/app/src/main/java/ru/big/town/anative/ApolloSettingsRuntimeFlag.java"
+RUNTIME_STATE="$REPO_ROOT/Native/app/src/main/java/ru/big/town/anative/ApolloSettingsRuntimeState.java"
 
-fail() {
-    echo "FAIL: $*" >&2
-    exit 1
+fail() { echo "FAIL: $*" >&2; exit 1; }
+require_fixed() { grep -Fq -- "$2" "$1" || fail "missing '$2' in $1"; }
+forbid_fixed() {
+    if grep -Fq -- "$2" "$1"; then
+        fail "forbidden '$2' remains in $1"
+    fi
 }
 
-require_fixed() {
-    grep -Fq -- "$2" "$1" || fail "$1 does not contain: $2"
-}
-
-first_line() {
-    LINE=$(grep -Fn -- "$2" "$1" | sed -n '1s/:.*//p')
-    [ -n "$LINE" ] || fail "$1 does not contain: $2"
-    echo "$LINE"
-}
-
-assert_before() {
-    BEFORE=$(first_line "$1" "$2")
-    AFTER=$(first_line "$1" "$3")
-    [ "$BEFORE" -lt "$AFTER" ] || fail "$2 must appear before $3 in $1"
-}
-
-# Host-side syntax checks for every changed POSIX shell entry point.
-for FILE in "$LOAD_BIN" "$INSTALL_SH" "$LIGHT_INSTALL_SH" "$REMOVE_SH" "$LIGHT_REMOVE_SH"; do
-    sh -n "$FILE"
+# The Android 11 VehicleSettings hook overrides subscription/exam status without changing stock
+# view visibility. It never exposes hidden H97X rows, subscribes to CAN, or writes VehicleState.
+require_fixed "$HOOK" 'BaiduProviderUtil.doQuerySubscribeInfo.overload("android.content.Context")'
+require_fixed "$HOOK" 'BaiduProviderUtil.doQueryNOALearnInfo.overload('
+require_fixed "$HOOK" 'DriveAssistantConfig.isSupportSDB.overload()'
+require_fixed "$HOOK" 'DriveAssistanceAdasStatusManager'
+require_fixed "$HOOK" 'ui=stock_visibility'
+for SYMBOL in forceApolloBindingVisible FragmentDriveAssistanceBindingImpl \
+        'executeBindings.overload()' onHintSwitchAdasClick getGearStatus GearState Parking \
+        CanBusManager CanBusTool asyncQueryAllAdasStatus asyncQueryAdasSubData \
+        onVehicleStateChanged sendAdasSubStatusToADCU setVehicleState \
+        setVehicleAndAirConditionBundleState TX58 TX77 setInterval setTimeout \
+        forceSubscriptionUiVisible refreshExistingApolloFragments \
+        'DriveAssistantData.isShowAdas.overload()' 'setShowAdas(' \
+        'fragmentAdasSubStatusBg.value.setVisibility(' \
+        'DriveAssistanceFragment.updateAdasData.overload()' \
+        'DriveAssistanceFragment.getSDBState.overload()'; do
+    forbid_fixed "$HOOK" "$SYMBOL"
 done
-if command -v node >/dev/null 2>&1; then
-    node --check "$APOLLO_JS"
-fi
+node --check "$HOOK"
 
-# Loader is direct-only unless the exact explicit diagnostic opt-in is 1.
-require_fixed "$LOAD_BIN" "APOLLO_LEGACY_OPT_IN_KEY=$OPT_IN_KEY"
-require_fixed "$LOAD_BIN" 'if [ "$APOLLO_LEGACY_OPT_IN" != "1" ]; then'
-require_fixed "$LOAD_BIN" 'disable_apollo_legacy_hook'
-require_fixed "$LOAD_BIN" 'APOLLO_DISABLED_MARK=/data/local/tmp/voyah_apollo.disabled'
-require_fixed "$LOAD_BIN" 'am force-stop "$APOLLO_TARGET"'
-require_fixed "$LOAD_BIN" 'cat /proc/sys/kernel/random/boot_id'
-require_fixed "$LOAD_BIN" 'echo "v2|$IDENT_BOOT|$IDENT_PID|$IDENT_START"'
-assert_before "$LOAD_BIN" 'if [ "$APOLLO_LEGACY_OPT_IN" != "1" ]; then' \
-    'inject_verified_marker "$APOLLO_PID"'
-
-# Manual attach is also fail-closed before the one-time APK hashes/OEM class resolution.
-require_fixed "$APOLLO_JS" "var LEGACY_OPT_IN_KEY = \"$OPT_IN_KEY\";"
-assert_before "$APOLLO_JS" 'if (readLegacyOptIn() !== true) {' \
-    'var hashMatches = verifyPinnedPackages();'
-assert_before "$APOLLO_JS" 'var hashMatches = verifyPinnedPackages();' \
-    'BaiduProviderUtil = Java.use('
-
-# H97X never installs the hot generic callback. Legacy callback filters pinned numeric
-# VehicleState IDs and values before assigning names or scheduling main-thread work.
-require_fixed "$APOLLO_JS" 'if (!legacy97CProfile) {'
-require_fixed "$APOLLO_JS" '"mode=direct_h97x" : "mode=unsupported"'
-assert_before "$APOLLO_JS" 'if (legacy97CProfile) {' \
-    'CanBusCallback = Java.use("com.qinggan.app.basevehiclesetting.canbustools.CanBusTool$3");'
-require_fixed "$APOLLO_JS" 'vehicleStateGetValue = VehicleStateClass.getValue.overload();'
-require_fixed "$APOLLO_JS" 'wakeId = vehicleStateGetValue.call(state);'
-require_fixed "$APOLLO_JS" 'var HUM_VCU_READY_ID = 924;'
-require_fixed "$APOLLO_JS" 'var BMS_STATE_ID = 958;'
-require_fixed "$APOLLO_JS" 'stateId === HUM_VCU_READY_ID && value === 1'
-require_fixed "$APOLLO_JS" 'stateId === BMS_STATE_ID && value === 3'
-require_fixed "$APOLLO_JS" 'Legacy generic hook всё ещё делает GumJS crossing'
-assert_before "$APOLLO_JS" 'if (!legacy97CProfile) return;' \
-    'wakeId = vehicleStateGetValue.call(state);'
-assert_before "$APOLLO_JS" 'if (!isEligibleWakeId(wakeId, value)) return;' \
-    'var wakeName = wakeId === HUM_VCU_READY_ID'
-
-WAKE_FUNCTION=$(awk '
-    /function scheduleEligibleWake\(state, value\)/ { capture = 1 }
-    capture { print }
-    capture && /^    }$/ { exit }
-' "$APOLLO_JS")
-case "$WAKE_FUNCTION" in
-    *toString*) fail "scheduleEligibleWake must not stringify generic VehicleState callbacks" ;;
-esac
-
-# Single-flight coalesces an initial burst and retains one event arriving during handling.
-require_fixed "$APOLLO_JS" 'if (wakeDispatchPending) {'
-require_fixed "$APOLLO_JS" 'trailingWakePending = true;'
-require_fixed "$APOLLO_JS" 'if (trailingWakePending) {'
-require_fixed "$APOLLO_JS" 'Java.scheduleOnMainThread(dispatchPendingWake);'
-
-# Install/update always closes opt-in and liveness before system mutation in both flavors.
-for FILE in "$INSTALL_SH" "$INSTALL_BAT" "$LIGHT_INSTALL_SH" "$LIGHT_INSTALL_BAT"; do
-    require_fixed "$FILE" "$OPT_IN_KEY"
-    require_fixed "$FILE" 'open_voyah_apollo_profile_supported'
-    require_fixed "$FILE" 'open_voyah_apollo_profile_heartbeat'
-    require_fixed "$FILE" 'com.qinggan.permission.WRITE_CANBUS'
+# The stock-menu target is a normal persisted setting. The boot-bound file is only a fail-closed
+# loader transport republished by the same delayed restore plan.
+require_fixed "$LAYOUT" 'android:text="Активация функций Apollo"'
+require_fixed "$LAYOUT" 'android:id="@+id/switchApolloSettingsActivation"'
+require_fixed "$LAYOUT" 'android:checked="false"'
+require_fixed "$APOLLO_SETTINGS" 'static final String STOCK_UI = "apolloStockUiEnabled";'
+require_fixed "$ADVANCE" 'ApolloSettings.STOCK_UI, ApolloSettings.DEFAULT_ENABLED'
+require_fixed "$PROVIDER" 'ApolloSettings.STOCK_UI,      // 28'
+require_fixed "$MAIN" 'apolloStockUiEnabled = cursor.getColumnCount() > 28'
+require_fixed "$MAIN" 'plan.addOnce("Apollo stock subscription/exam UI"'
+require_fixed "$MAIN" 'ApolloSettingsRuntimeState.applyTarget(context, stockUiTarget)'
+require_fixed "$RUNTIME_STATE" 'static TargetApplyResult applyTarget(Context context, boolean enabled)'
+require_fixed "$RUNTIME_STATE" 'forceStop.invoke(am, "com.qinggan.app.vehiclesetting")'
+require_fixed "$RUNTIME_FLAG" 'boot='
+require_fixed "$RUNTIME_FLAG" 'isEnabledForBoot'
+require_fixed "$RUNTIME_STATE" 'createDeviceProtectedStorageContext()'
+require_fixed "$RUNTIME_STATE" 'new File("/proc/sys/kernel/random/boot_id")'
+require_fixed "$RUNTIME_STATE" 'StandardCopyOption.ATOMIC_MOVE'
+for FILE in "$RUNTIME_FLAG" "$RUNTIME_STATE"; do
+    forbid_fixed "$FILE" 'Settings.Global'
 done
-assert_before "$INSTALL_SH" "$OPT_IN_KEY" 'adb disable-verity'
-assert_before "$INSTALL_BAT" "$OPT_IN_KEY" 'adb.exe disable-verity'
-assert_before "$LIGHT_INSTALL_SH" "$OPT_IN_KEY" 'adb disable-verity'
-assert_before "$LIGHT_INSTALL_BAT" "$OPT_IN_KEY" 'adb.exe disable-verity'
-for FILE in "$REMOVE_SH" "$REMOVE_BAT"; do
-    require_fixed "$FILE" "$OPT_IN_KEY"
-    require_fixed "$FILE" 'voyah_apollo.disabled'
-done
-for FILE in "$LIGHT_REMOVE_SH" "$LIGHT_REMOVE_BAT"; do
-    require_fixed "$FILE" "$OPT_IN_KEY"
-    require_fixed "$FILE" 'open_voyah_apollo_profile_supported'
-done
+require_fixed "$LOAD_BIN" 'apollo_runtime_flag_enabled() {'
+require_fixed "$LOAD_BIN" '[ "$APOLLO_FLAG_BOOT" = "$APOLLO_CURRENT_BOOT" ]'
+require_fixed "$LOAD_BIN" 'if apollo_runtime_flag_enabled; then'
+require_fixed "$HOOK" 'profile=persisted-target'
+forbid_fixed "$ADVANCE" 'MSG_APOLLO_SETTINGS_SET'
+forbid_fixed "$ADVANCE" 'MSG_APOLLO_SETTINGS_STATE'
+forbid_fixed "$SET_MODES" 'MSG_APOLLO_SETTINGS_SET'
+forbid_fixed "$SET_MODES" 'MSG_APOLLO_SETTINGS_STATE'
 
-# Direct Apollo and its signature permission are intentionally common to full and light; only
-# legacy Frida diagnostics remain full-only.
-for FILE in "$NATIVE_BUILD" "$RESTORE_BUILD"; do
-    DIRECT_APOLLO_FLAVORS=$(grep -F -c \
-        'buildConfigField("boolean", "HAS_DIRECT_APOLLO", "true")' "$FILE")
-    [ "$DIRECT_APOLLO_FLAVORS" -eq 2 ] \
-        || fail "$FILE must enable HAS_DIRECT_APOLLO in exactly full and light"
+# VoyahTune owns five persisted targets. There is no current-state query or parking gate.
+for KEY in STOCK_UI TLC TRAFFIC_LIGHTS GREEN_SOUND TRAFFIC_SIGNS; do
+    require_fixed "$APOLLO_SETTINGS" "static final String $KEY"
 done
-require_fixed "$NATIVE_MANIFEST" 'android:name="com.qinggan.permission.WRITE_CANBUS"'
-require_fixed "$NATIVE_SERVICE" 'BuildConfig.HAS_DIRECT_APOLLO'
-require_fixed "$RESTORE_ACTIVITY" 'BuildConfig.HAS_DIRECT_APOLLO'
-if grep -Fq 'BuildConfig.IS_FULL' "$NATIVE_SERVICE"; then
-    fail "ApolloTlcService must not couple direct Apollo to the full flavor"
-fi
-for FORBIDDEN in TX_ADD_CALLBACK TX_REMOVE_CALLBACK createCanBusCallback \
-        addCanBusCallback removeCanBusCallback DELAYED_READBACK_MS finishDelayedReadback; do
-    if grep -Fq "$FORBIDDEN" "$NATIVE_SERVICE"; then
-        fail "ApolloTlcService must remain callback-free/fire-and-forget: $FORBIDDEN"
+require_fixed "$ADVANCE" 'bindApolloSwitch(switchApolloTlc, ApolloSettings.TLC);'
+require_fixed "$ADVANCE" 'bindApolloSwitch(switchApolloTrafficLights, ApolloSettings.TRAFFIC_LIGHTS);'
+require_fixed "$ADVANCE" 'bindApolloSwitch(switchApolloTrafficSigns, ApolloSettings.TRAFFIC_SIGNS);'
+require_fixed "$ADVANCE" 'prefs.edit().putBoolean(ApolloSettings.GREEN_SOUND'
+require_fixed "$LAYOUT" 'android:id="@+id/switchApolloTlc"'
+require_fixed "$LAYOUT" 'android:id="@+id/switchApolloTrafficLights"'
+require_fixed "$LAYOUT" 'android:id="@+id/switchApolloTrafficSigns"'
+require_fixed "$PROVIDER" 'ApolloSettings.TLC,          // 24'
+require_fixed "$PROVIDER" 'ApolloSettings.TRAFFIC_LIGHTS, // 25'
+require_fixed "$PROVIDER" 'ApolloSettings.GREEN_SOUND, // 26'
+require_fixed "$PROVIDER" 'ApolloSettings.TRAFFIC_SIGNS,// 27'
+for SYMBOL in MSG_APOLLO_TLC_QUERY ACTION_APOLLO_TLC_UPDATE APOLLO_DEMAND_OWNER \
+        requestQuery releaseApolloDemand ApolloTlcService ApolloCanBusDemandGate \
+        ApolloTlcPolicy TX_GET_GEAR_STATUS; do
+    if grep -R -Fq --exclude-dir=build --exclude-dir=.gradle \
+            --exclude=test_apollo_direct_only.sh \
+            "$SYMBOL" "$REPO_ROOT/Native" "$REPO_ROOT/RestoreMode"; then
+        fail "obsolete read-only Apollo symbol remains: $SYMBOL"
     fi
 done
-require_fixed "$NATIVE_SERVICE" 'without global callback subscription'
-require_fixed "$NATIVE_SERVICE" 'Do not subscribe globally or issue a delayed verification read.'
-require_fixed "$README" "$OPT_IN_KEY=1"
-require_fixed "$README" 'generic `onVehicleStateChanged` не'
-require_fixed "$README" 'Прямой H97X Binder-контур Native доступен в full и light'
-require_fixed "$README" 'не вызывает OEM'
-require_fixed "$README" '`TX28/TX29`'
+# TX57 is now a shared transport capability for the unrelated Power Hold one-shot SOC/status
+# checks. Apollo itself must remain write-only and must not read current VehicleState.
+forbid_fixed "$RESTORE_POLICY" 'readVehicleState'
+forbid_fixed "$RESTORE_POLICY" 'TX_GET_VEHICLE_STATE'
+forbid_fixed "$NATIVE_MANIFEST" 'android:process=":apollo"'
 
-echo "PASS: Apollo direct-only packaging guards"
+# The existing wake restore sends capability values first and switches second through ordered OEM
+# TX77 bundles. Disabled values are explicit too, so a target can actually be turned back off.
+for ENTRY in PLC_SWITCH GLA_SWITCH GLA_LIGHT_CHANGE_SWITCH TSR_SWITCH \
+        RPA_FUNC_ENABLE HPP_FUNC_ENABLE GLC_FUNC_ENABLE ISLC_FUNC_ENABLE TLC_FUNC_ENABLE \
+        NOA_FUNC_ENABLE ELK_FUNC_ENABLE ESA_FUNC_ENABLE APA_FUNC_ENABLE_SA \
+        RPA_FUNC_ENABLE_SA HAVP_FUNC_ENABLE_SA ACC_FUNC_ENABLE_SA ICA_FUNC_ENABLE_SA \
+        PLC_FUNC_ENABLE_SA HANP_FUNC_ENABLE_SA ISA_FUNC_ENABLE_SA ISLC_FUNC_ENABLE_SA \
+        TLA_FUNC_ENABLE_SA; do
+    require_fixed "$RESTORE_POLICY" "static final String $ENTRY"
+done
+require_fixed "$RESTORE_POLICY" 'if (tlc || trafficLights || trafficSigns) {'
+require_fixed "$RESTORE_POLICY" 'putAllEntitlements(entitlements, ENABLED);'
+require_fixed "$RESTORE_POLICY" 'target.put(RPA_FUNC_ENABLE, value);'
+require_fixed "$RESTORE_POLICY" 'target.put(TLA_FUNC_ENABLE_SA, value);'
+require_fixed "$RESTORE_POLICY" 'switches.put(PLC_SWITCH, state(tlc));'
+require_fixed "$RESTORE_POLICY" 'switches.put(GLA_LIGHT_CHANGE_SWITCH, state(trafficLights && greenSound));'
+require_fixed "$RESTORE_POLICY" 'switches.put(TSR_SWITCH, trafficSigns ? 1 : 2);'
+require_fixed "$MAIN" 'ApolloRestorePolicy.appendTo(primaryValues, trailingValues,'
+require_fixed "$MAIN" 'OemVehicleStateTransport.sendRestoreSequence('
+require_fixed "$MAIN" 'Apollo entitlements then switches/recuperation'
+forbid_fixed "$RESTORE_POLICY" 'getVehicleState'
+forbid_fixed "$RESTORE_POLICY" 'Parking'
+
+# Restoration has no debounce; explicit Apply remains immediate.
+forbid_fixed "$APPLY_ENGINE" 'DEBOUNCE_MS'
+require_fixed "$APPLY_ENGINE" 'public static void applyNow('
+require_fixed "$README" 'Скрытые на 97X строки отдельных функций не раскрываются'
+require_fixed "$README" 'Автоматическое'
+require_fixed "$README" 'восстановление выполняется по открытию водительской двери и переходу в Drive.'
+
+echo "PASS: Apollo UI and functions use persisted event-driven restore targets"

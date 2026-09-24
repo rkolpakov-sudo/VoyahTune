@@ -1,7 +1,9 @@
 #!/bin/sh
-# Сборка релиза Open Voyah: собирает APK обоих флейворов и раскладывает готовые папки релиза.
+# ./make_release.sh VERSION → Full/Light ZIP со скриптами установки и удаления.
+# ./make_release.sh VERSION --installers → три автономных GUI/CLI-установщика.
+# ./make_release.sh VERSION --mac [--windows] [--linux] → только выбранные установщики.
 #
-#   ./make_release.sh 3.2.2              → Releases/build/v3.2.2{,-light} + Releases/dist/*.zip
+#   ./make_release.sh 3.2.2              → Releases/build/VoyahTune-3.2.2{,-light} + Releases/dist/*.zip
 #   ./make_release.sh 3.2.2 --full-only  → только full
 #   ./make_release.sh 3.2.2 --light-only → только light
 #   ./make_release.sh 3.2.2 --no-build   → не пересобирать APK, только переразложить файлы
@@ -14,6 +16,15 @@
 # Папка релиза остаётся ПЛОСКОЙ: install.sh ищет файлы рядом с собой, его править не нужно.
 # Заменяет собой прежние build_full.sh / build_light.sh (там версия была зашита в код).
 set -e
+# Preserve the classic shell-only default. The Python branch consumes --installers.
+for release_arg in "$@"; do
+    case "$release_arg" in
+        --installers|--mac|--windows|--linux)
+            exec python3 "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/Installer/scripts/release.py" "$@" ;;
+    esac
+done
+if [ "${1:-}" = --legacy ]; then shift; fi
+
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 COMMON="$ROOT/Packaging"
@@ -195,6 +206,37 @@ sha256_file() {
 
 # Проверяем общие готовые артефакты ДО запуска Gradle и создания содержимого релиза.
 verify_common_release_assets() {
+    # A clean remove -> install cycle is safety-critical on Android 11: raw deletion of CE/DE
+    # desynchronizes PackageManager from /data_mirror and makes Native crash in zygote.
+    if ! sh "$COMMON/tests/test_android11_package_lifecycle.sh"; then
+        echo "Android 11 package lifecycle guard failed; release was not created." >&2
+        exit 1
+    fi
+    if ! sh "$COMMON/tests/test_saved_config_startup_wake.sh"; then
+        echo "Startup/wake saved-config guard failed; release was not created." >&2
+        exit 1
+    fi
+    if ! sh "$COMMON/tests/test_keyboard_modes.sh"; then
+        echo "Keyboard opt-in lifecycle guard failed; release was not created." >&2
+        exit 1
+    fi
+    if ! sh "$COMMON/tests/test_hook_status.sh"; then
+        echo "Hook status/install contract guard failed; release was not created." >&2
+        exit 1
+    fi
+    if ! sh "$COMMON/tests/test_app_client.sh"; then
+        echo "App client geometry/packaging guard failed; release was not created." >&2
+        exit 1
+    fi
+    if ! sh "$COMMON/tests/test_mapkit_dpi_client.sh"; then
+        echo "MapKit DPI client guard failed; release was not created." >&2
+        exit 1
+    fi
+    if ! bash "$ROOT/Utils/android11-oem-stubs/tests/static-checks.sh"; then
+        echo "Android 11 OEM stub harness guard failed; release was not created." >&2
+        exit 1
+    fi
+
     if [ ! -f "$DNS_OVERLAY" ]; then
         echo "Нет $DNS_OVERLAY — добавьте зафиксированный DNS RRO APK." >&2
         exit 1
@@ -380,7 +422,7 @@ verify_release_payload() {
     flavor="$2"
     required="README.txt native.apk restore_mode.apk $DNS_OVERLAY_NAME dns-overlay.sh dns-overlay.bat install-yandex-dns.bat dns-overlay-device.sh install.sh install.bat remove.sh remove.bat privapp-permissions-ru.big.town.anative.xml adb.exe AdbWinApi.dll AdbWinUsbApi.dll"
     if [ "$flavor" = full ]; then
-        required="$required frida-inject-16.2.1-android-arm64 load.bin steeringwheelkeys.js launcherdock.js multidisplay.js vd_bypass.js apollo_tech.js init.logcat.original.sh voyahtune.load.rc voyahtune.load.sh install-tui.sh tui-lib.sh install-tui.bat verify_post_install.sh verify_post_install.bat"
+        required="$required frida-inject-16.2.1-android-arm64 load.bin steeringwheelkeys.js launcherdock.js multidisplay.js vd_bypass.js app_client.js apollo_tech.js keyboard_lock_en.js keyboard_ru.js voyahtune_keyboard_en_config.json voyahtune_keyboard_ru_config.json voyahtune_skb_qwerty_ru.json init.logcat.original.sh voyahtune.load.rc voyahtune.load.sh install-tui.sh tui-lib.sh install-tui.bat verify_post_install.sh verify_post_install.bat"
     fi
     for payload in $required; do
         if [ ! -s "$out/$payload" ]; then
@@ -388,6 +430,8 @@ verify_release_payload() {
             exit 1
         fi
     done
+    sh -n "$out/install.sh"
+    sh -n "$out/remove.sh"
 }
 
 # Собрать APK одного флейвора и положить в папку релиза под финальными именами.
@@ -514,6 +558,7 @@ if [ "$DO_FULL" = 1 ]; then
 
     cp "$COMMON/tools/"*                                    "$STAGE/"
     cp "$COMMON/inject/"*.js                                "$STAGE/"
+    cp "$COMMON/inject/"*.json                              "$STAGE/"
     cp "$COMMON/system/"*                                   "$STAGE/"
     copy_common_release_assets "$STAGE"
     for f in "$COMMON/installer/full/"*; do
@@ -529,7 +574,7 @@ if [ "$DO_FULL" = 1 ]; then
 fi
 
 # ---------------------------------------------------------------------------------------------
-# LIGHT: сокращённый набор — direct Apollo, но без инжекта, frida, load.bin и boot-хука.
+# LIGHT: сокращённый набор — read-only Apollo без entitlement hook, frida, load.bin и boot-хука.
 # Инструменты берём НЕ целиком: нужен только adb (его требуют .bat на Windows; на Unix .sh
 # рассчитывает на системный adb). frida-inject в light не кладём — он весит 53M и здесь не нужен.
 # ---------------------------------------------------------------------------------------------

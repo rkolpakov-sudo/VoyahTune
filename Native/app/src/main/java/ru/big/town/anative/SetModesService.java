@@ -9,12 +9,16 @@ import android.car.VehiclePropertyIds;
 import android.car.hardware.CarPropertyConfig;
 import android.car.hardware.CarPropertyValue;
 import android.car.hardware.property.CarPropertyManager;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.hardware.display.DisplayManager;
+import android.hardware.display.VirtualDisplay;
 import android.content.SharedPreferences;
 import android.os.Build;
 import android.os.Handler;
+import android.os.HandlerThread;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.Message;
@@ -24,15 +28,30 @@ import android.car.hardware.power.CarPowerManager;
 import android.os.RemoteException;
 import android.os.SystemClock;
 import android.util.Log;
+import android.view.InputEvent;
+import android.view.MotionEvent;
+import android.view.Surface;
+import java.lang.reflect.Method;
+import java.util.HashMap;
+import java.util.Map;
 import androidx.core.app.NotificationCompat;
+import androidx.core.content.ContextCompat;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
 
 public class SetModesService extends Service {
 
     private Messenger clientMessenger;
+    private final Map<String, VirtualDisplay> embeddedDisplays = new HashMap<>();
+    private final Map<String, String> embeddedPackages = new HashMap<>();
+    private final Map<String, Boolean> embeddedLaunched = new HashMap<>();
+    // Время последнего запуска приложения в виджет: задача создаётся не мгновенно, и без этой паузы
+    // переподключение Surface сразу после запуска принимало бы живой дисплей за протухший.
+    private static final long EMBEDDED_LAUNCH_GRACE_MS = 3_000L;
+    private final Map<String, Long> embeddedLaunchAt = new HashMap<>();
     static final int MSG_APPLY_DRIVE_MODES          = 1;
     static final int MSG_APPLY_DRIVE_MODES_STAR_BUTTON = 2;
     static final int MSG_RESULT                     = 4;
@@ -45,27 +64,40 @@ public class SetModesService extends Service {
     static final int MSG_APPLY_FORCED_EV           = 35; // форсированный электрорежим (arg1: 1=вкл)
     static final int MSG_REBOOT                     = 22; // перезагрузка системы (голова)
     static final int MSG_WASH_MODE                  = 23; // активация режима мойки
-    static final int MSG_FLOATING_BACK              = 24; // плавающая кнопка «Назад» (arg1: 1=вкл)
-    static final int MSG_FLOATING_BACK_SIDE         = 25; // сторона кнопки (arg1: 0 лево, 1 верх, 2 право)
+    static final int MSG_FLOATING_BACK              = 24; // плавающие Назад/Home (arg1: 1=вкл)
+    static final int MSG_FLOATING_BACK_SIDE         = 25; // сторона блока (arg1: 0 лево, 1 верх, 2 право)
     static final int MSG_GRANT_INSTALL              = 26; // выдать app-op установки из неизв. источников (data: "pkg")
     static final int MSG_CLOSE_ALL                  = 27; // закрыть все сторонние приложения (forceStopPackage)
     static final int MSG_SET_THEME                  = 28; // тема системы/приложений (arg1: 0 авто, 1 светлая, 2 тёмная)
     static final int MSG_LOGGING_ENABLE             = 32; // вкл/выкл захват логов в файл (arg1: 1=вкл)
     static final int MSG_LOGGING_SHARE              = 33; // «Выгрузить логи» → share лог-файла
-    static final int MSG_SPLIT_LAUNCH_VD            = 34; // сплит на VirtualDisplay (data left/right, arg1=ratio, data leftDpi/rightDpi)
-    static final int MSG_APOLLO_TLC_QUERY           = 36; // запрос read-only снимка PLC/TLC
-    static final int MSG_APOLLO_TLC_SET             = 37; // PLC_SWITCH (arg1: 1=вкл, 0=выкл)
-    static final int MSG_APOLLO_MASTER_SET          = 38; // Apollo master (arg1: 1=вкл, 0=выкл)
-    static final int MSG_APOLLO_GLA_SET             = 39; // распознавание светофоров
-    static final int MSG_APOLLO_GLA_SOUND_SET       = 40; // звук при зелёном сигнале
-    static final int MSG_APOLLO_TSR_SET             = 41; // распознавание дорожных знаков
+    static final int MSG_SPLIT_LAUNCH_VD            = 34; // single → physical WM-clamped task; pair → VD split
     static final String ACTION_REQUEST_LOG = "ru.big.town.anative.REQUEST_LOG";
     static final String ACTION_LOG_UPDATE  = "ru.big.town.anative.LOG_UPDATE";
     static final String ACTION_LOGGING_SET   = "ru.big.town.anative.LOGGING_SET";   // extra "on" bool
     static final String ACTION_LOGGING_SHARE = "ru.big.town.anative.LOGGING_SHARE";
+    static final String ACTION_REQUEST_POWER_HOLD_STATUS =
+            "ru.big.town.anative.REQUEST_POWER_HOLD_STATUS";
+    static final String ACTION_POWER_HOLD_STATUS_UPDATE =
+            "ru.big.town.anative.POWER_HOLD_STATUS_UPDATE";
+    // Сообщение хосту (RestoreMode), что embedded-виджет теряет задачу приложения: она уезжает
+    // на физический экран, и виджет без окна показал бы чёрный квадрат.
+    static final String ACTION_EMBEDDED_TASK_LEFT = "ru.big.town.anative.EMBEDDED_TASK_LEFT";
+    static final String EXTRA_EMBEDDED_TASK_PKG = "pkg";
+    static final String EXTRA_POWER_HOLD_STATUS = "status";
+    static final String EXTRA_POWER_HOLD_EXIT_REASON = "exitReason";
+    static final String EXTRA_POWER_HOLD_REQUEST_OUTCOME = "requestOutcome";
+    private static final String BIND_PERMISSION =
+            "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE";
     static final String RESTOREMODE_PKG   = "ru.big.town.restoremode";
     static final String RESTOREMODE_MAIN  = "ru.big.town.restoremode.MainActivity";
+    private static final String RESTOREMODE_CONFIG_SYNC_ACTION =
+            "ru.big.town.restoremode.SYNC_SAVED_CONFIG";
+    private static final String RESTOREMODE_CONFIG_SYNC_RECEIVER =
+            "ru.big.town.restoremode.SavedConfigSyncReceiver";
     static final String TAG = "$$$ SetModesService $$$";
+    private static final long CAR_POWER_RECONNECT_DELAY_MS = 5_000L;
+    private static final long CAR_POWER_CONNECT_WATCHDOG_MS = 15_000L;
 
     class IncomingHandler extends Handler {
         @Override
@@ -76,15 +108,14 @@ public class SetModesService extends Service {
                     // MSG_RESULT отправим по ЗАВЕРШЕНИИ цикла применения, чтобы клиент держал
                     // кнопку «Применить» заблокированной всё время отправки.
                     final Messenger replyTo = msg.replyTo;
-                    ApplyEngine.applyNow(8, 250, () -> notifyApplyDone(replyTo));
+                    ApplyEngine.applyNow(() -> notifyApplyDone(replyTo));
                     Log.i(TAG, "handleMessage() MSG_APPLY_DRIVE_MODES");
                     break;
                 case MSG_APPLY_DRIVE_MODES_STAR_BUTTON:
                     clientMessenger = msg.replyTo;
-                    // MSG_RESULT — только ПОСЛЕ отправки CAN в ApplyEngine (иначе кнопка
-                    // разблокируется раньше кадров). replyTo может быть null (внешний вызов worker).
-                    worker(1, 100, MSG_APPLY_DRIVE_MODES_STAR_BUTTON, msg.arg1, msg.replyTo);
+                    worker(1, 100, MSG_APPLY_DRIVE_MODES_STAR_BUTTON, msg.arg1);
                     Log.i(TAG, "handleMessage() MSG_APPLY_DRIVE_MODES_STAR_BUTTON");
+                    notifyApplyDone(msg.replyTo);
                     break;
 
                 case MSG_AUTO_LIGHT_ENABLE:
@@ -101,12 +132,33 @@ public class SetModesService extends Service {
 
                 case MSG_LEAVE_CAR:
                     Log.i(TAG, "handleMessage() MSG_LEAVE_CAR");
-                    ApplyEngine.postUserCommand("leave car", MainActivity::sendLeaveCarCommand);
+                    PowerHoldStatusTracker tracker = powerHoldStatusTracker;
+                    if (tracker == null) {
+                        Log.w(TAG, "Power Hold tracker is unavailable");
+                        break;
+                    }
+                    tracker.beginActivation(requestGeneration -> {
+                        AtomicReference<PowerHoldPolicy.Outcome> outcome =
+                                new AtomicReference<>(
+                                        PowerHoldPolicy.Outcome.TRANSPORT_FAILURE);
+                        ApplyEngine.postUserCommand("power hold", () -> {
+                            PowerHoldController controller = powerHoldController;
+                            if (controller != null) outcome.set(controller.activate());
+                            Log.i(TAG, "power hold activation outcome=" + outcome.get());
+                        }, () -> tracker.finishActivation(
+                                requestGeneration, outcome.get()));
+                    });
                     break;
 
                 case MSG_WASH_MODE:
                     Log.i(TAG, "handleMessage() MSG_WASH_MODE");
-                    ApplyEngine.postUserCommand("wash mode", MainActivity::sendWashModeCommand);
+                    ApplyEngine.postUserCommand("wash mode", () -> {
+                        WashModeController controller = washModeController;
+                        WashModePolicy.Outcome outcome = controller == null
+                                ? WashModePolicy.Outcome.TRANSPORT_FAILURE
+                                : controller.activate();
+                        Log.i(TAG, "wash mode activation outcome=" + outcome);
+                    });
                     break;
 
                 case MSG_FLOATING_BACK:
@@ -162,6 +214,7 @@ public class SetModesService extends Service {
                     String right = (d != null) ? d.getString("right") : null;
                     int lDpi = (d != null) ? d.getInt("leftDpi", 0) : 0;
                     int rDpi = (d != null) ? d.getInt("rightDpi", 0) : 0;
+                    boolean singleVd = (d != null) && d.getBoolean("singleVd", false);
                     // Изменяемая пропорция: разрешение тянуть делитель, стартовая доля левого окна и
                     // индекс пресета (по нему хост вернёт новое значение в RestoreMode).
                     boolean resizable = (d != null) && d.getBoolean("resizable", false);
@@ -170,9 +223,36 @@ public class SetModesService extends Service {
                     String presetId = (d != null) ? d.getString("presetId", "") : "";
                     Log.i(TAG, "handleMessage() MSG_SPLIT_LAUNCH_VD left=" + left + " right=" + right
                             + " ratio=" + msg.arg1 + " lDpi=" + lDpi + " rDpi=" + rDpi
+                            + " singleVd=" + singleVd
                             + " resizable=" + resizable + " split=" + split + " preset=" + presetIdx
                             + " presetId=" + presetId);
-                    launchVirtualSplit(left, right, msg.arg1, lDpi, rDpi, resizable, split, presetIdx, presetId);
+                    if (d != null && d.getBoolean("embeddedRelease", false)) {
+                        releaseEmbeddedDisplay(d.getString("widgetId", ""));
+                    } else if (d != null && d.getBoolean("embeddedSurface", false)) {
+                        Surface surface = d.getParcelable("surface");
+                        startEmbeddedDisplay(d.getString("widgetId", ""), left, surface,
+                                d.getInt("width", 0), d.getInt("height", 0), lDpi);
+                    } else if (d != null && d.getBoolean("embeddedTouch", false)) {
+                        injectEmbeddedTouch(d.getString("widgetId", ""),
+                                d.getParcelable("event"));
+                    } else if (singleVd) {
+                        SplitHostActivity.launchSingle(SetModesService.this, left, lDpi, 0);
+                    } else if (right == null || right.isEmpty()) {
+                        boolean dpiReloaded = SetModesReceiverDynamic.ensureAppDpi(
+                                SetModesService.this, left, lDpi);
+                        Runnable launch = () -> SetModesReceiverDynamic.openFreeformApp(
+                                SetModesService.this, left, 0);
+                        if (dpiReloaded) {
+                            // WIN_RELOAD is asynchronous in system_server; let it clear the DPI cache
+                            // and reattach the config hook before ActivityRecord is first configured.
+                            mainHandler.postDelayed(launch, 300L);
+                        } else {
+                            launch.run();
+                        }
+                    } else {
+                        launchVirtualSplit(left, right, msg.arg1, lDpi, rDpi,
+                                resizable, split, presetIdx, presetId);
+                    }
                     break;
                 }
 
@@ -184,38 +264,6 @@ public class SetModesService extends Service {
                 case MSG_LOGGING_SHARE:
                     Log.i(TAG, "handleMessage() MSG_LOGGING_SHARE");
                     shareLogFile();
-                    break;
-
-                case MSG_APOLLO_TLC_QUERY:
-                    Log.i(TAG, "handleMessage() MSG_APOLLO_TLC_QUERY");
-                    ApolloTlcService.requestQuery(SetModesService.this);
-                    break;
-
-                case MSG_APOLLO_TLC_SET:
-                    Log.i(TAG, "handleMessage() MSG_APOLLO_TLC_SET arg1=" + msg.arg1);
-                    ApolloTlcService.requestTlcSet(SetModesService.this, msg.arg1 == 1,
-                            msg.arg1 == 0 || msg.arg1 == 1);
-                    break;
-
-                case MSG_APOLLO_MASTER_SET:
-                    Log.i(TAG, "handleMessage() MSG_APOLLO_MASTER_SET arg1=" + msg.arg1);
-                    ApolloTlcService.requestMasterSet(SetModesService.this, msg.arg1 == 1,
-                            msg.arg1 == 0 || msg.arg1 == 1);
-                    break;
-
-                case MSG_APOLLO_GLA_SET:
-                    ApolloTlcService.requestGlaSet(SetModesService.this, msg.arg1 == 1,
-                            msg.arg1 == 0 || msg.arg1 == 1);
-                    break;
-
-                case MSG_APOLLO_GLA_SOUND_SET:
-                    ApolloTlcService.requestGlaSoundSet(SetModesService.this, msg.arg1 == 1,
-                            msg.arg1 == 0 || msg.arg1 == 1);
-                    break;
-
-                case MSG_APOLLO_TSR_SET:
-                    ApolloTlcService.requestTsrSet(SetModesService.this, msg.arg1 == 1,
-                            msg.arg1 == 0 || msg.arg1 == 1);
                     break;
 
                 default:
@@ -230,7 +278,7 @@ public class SetModesService extends Service {
     }
 
     /**
-     * Вкл/выкл плавающую кнопку «Назад». Сам accessibility-сервис остаётся подключённым без оверлея,
+     * Вкл/выкл плавающие кнопки Назад/Home. Сам accessibility-сервис остаётся подключённым без оверлея,
      * если он нужен системному действию, назначенному на кнопку руля.
      */
     private void setFloatingBackEnabled(boolean enable) {
@@ -248,7 +296,7 @@ public class SetModesService extends Service {
     }
 
     /**
-     * На пробуждении/загрузке гарантируем плавающую кнопку «Назад», если она включена.
+     * На пробуждении/загрузке гарантируем плавающие кнопки Назад/Home, если они включены.
      * Просто перезапись secure-настройки тем же значением НЕ перебиндивает сервис и не
      * пересоздаёт оверлей (окно снимается при засыпании) — поэтому:
      *  1) если сервис доступности жив → просим его пере-показать оверлей ({@code reshow});
@@ -421,15 +469,13 @@ public class SetModesService extends Service {
         launchVirtualSplit(leftPkg, rightPkg, ratio, leftDpi, rightDpi, false, 0f, -1, "");
     }
 
-    /**
-     * ВНИМАНИЕ: пустой rightPkg — это ШТАТНЫЙ одиночный режим (ярлык приложения с главного экрана
-     * VoyahTune), а не ошибка. Именно поэтому запуск идёт здесь, а не через
-     * SplitHostActivity.launchSplit — тот пустой правый пакет отвергает и ярлыки молча не открывались.
-     */
+    /** Только двухпанельный VD split. Одиночный пакет маршрутизируется в обычную physical task. */
     private void launchVirtualSplit(String leftPkg, String rightPkg, int ratio, int leftDpi, int rightDpi,
                                     boolean resizable, float split, int presetIdx, String presetId) {
-        if (leftPkg == null || leftPkg.isEmpty()) return; // rightPkg пуст = одиночный полноэкранный режим
-        if (rightPkg == null) rightPkg = "";
+        if (leftPkg == null || leftPkg.isEmpty() || rightPkg == null || rightPkg.isEmpty()) {
+            Log.w(TAG, "launchVirtualSplit: нужны два пакета");
+            return;
+        }
         try {
             android.provider.Settings.Global.putInt(getContentResolver(), "enable_freeform_support", 1);
             android.provider.Settings.Global.putInt(getContentResolver(), "force_resizable_activities", 1);
@@ -453,6 +499,127 @@ public class SetModesService extends Service {
             Log.i(TAG, "launchVirtualSplit host started");
         } catch (Exception e) {
             Log.e(TAG, "launchVirtualSplit failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Есть ли у пакета задача на указанном дисплее. Защёлка embeddedLaunched экономит перезапуск,
+     * но врёт, когда приложение покинуло дисплей виджета (развернули на весь экран, запустили
+     * обычным способом из дока, приложение закрылось): поверхность остаётся без окна, и плитка
+     * показывает чёрный квадрат. При ошибке считаем, что задача на месте: ложный перезапуск хуже,
+     * чем неперерисованный виджет.
+     */
+    private boolean hasTaskOnDisplay(String pkg, int displayId) {
+        try {
+            android.app.ActivityManager am =
+                    (android.app.ActivityManager) getSystemService(ACTIVITY_SERVICE);
+            if (am == null) return true;
+            List<android.app.ActivityManager.RunningTaskInfo> tasks = am.getRunningTasks(100);
+            if (tasks == null) return true;
+            for (android.app.ActivityManager.RunningTaskInfo task : tasks) {
+                android.content.ComponentName component = task.baseActivity != null
+                        ? task.baseActivity : task.topActivity;
+                if (component == null || !pkg.equals(component.getPackageName())) continue;
+                // RunningTaskInfo.displayId скрыт в этом SDK — читаем полем, как AppDisplayLauncher.
+                int taskDisplay = task.getClass().getField("displayId").getInt(task);
+                if (taskDisplay == displayId) return true;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "hasTaskOnDisplay: " + e.getMessage());
+            return true;
+        }
+        return false;
+    }
+
+    private void startEmbeddedDisplay(String widgetId, String packageName, Surface surface,
+                                      int width, int height, int dpi) {
+        if (widgetId == null || widgetId.isEmpty() || packageName == null || packageName.isEmpty()
+                || surface == null || !surface.isValid() || width <= 0 || height <= 0) return;
+        try {
+            VirtualDisplay display = embeddedDisplays.get(widgetId);
+            // Виджет переподключает Surface при каждом рендере главного экрана. Если приложение уже
+            // ушло с дисплея виджета, старая защёлка embeddedLaunched запрещала повторный запуск и
+            // плитка оставалась чёрным квадратом. Пересоздаём дисплей и запускаем заново — ровно то,
+            // что вручную делают крестиком и повторным тапом по иконке приложения.
+            Long launchedAt = embeddedLaunchAt.get(widgetId);
+            boolean launchSettled = launchedAt == null
+                    || SystemClock.elapsedRealtime() - launchedAt > EMBEDDED_LAUNCH_GRACE_MS;
+            if (display != null && launchSettled
+                    && !hasTaskOnDisplay(packageName, display.getDisplay().getDisplayId())) {
+                Log.i(TAG, "embedded VD stale widget=" + widgetId + " pkg=" + packageName
+                        + " — пересоздаём дисплей");
+                releaseEmbeddedDisplay(widgetId);
+                display = null;
+            }
+            if (display != null) {
+                display.setSurface(surface);
+                display.resize(width, height, dpi > 0 ? dpi : 213);
+            } else {
+                DisplayManager manager = (DisplayManager) getSystemService(DISPLAY_SERVICE);
+                int flags = 1 | 8 | 256 | 1024;
+                try {
+                    display = manager.createVirtualDisplay("voyah-app-widget-" + widgetId,
+                            width, height, dpi > 0 ? dpi : 213, surface, flags);
+                } catch (Exception trustedFailure) {
+                    display = manager.createVirtualDisplay("voyah-app-widget-" + widgetId,
+                            width, height, dpi > 0 ? dpi : 213, surface, 1 | 8 | 256);
+                }
+                if (display == null) return;
+                // Re-attach explicitly after creation. On Android 11 a Surface received through
+                // Binder can be accepted by createVirtualDisplay but not become the active sink.
+                display.setSurface(surface);
+                embeddedDisplays.put(widgetId, display);
+                embeddedPackages.put(widgetId, packageName);
+                embeddedLaunched.put(widgetId, false);
+                Log.i(TAG, "embedded VD created widget=" + widgetId + " display="
+                        + display.getDisplay().getDisplayId() + " " + width + "x" + height);
+            }
+            if (!Boolean.TRUE.equals(embeddedLaunched.get(widgetId))) {
+                // Запускаем в дисплей виджета тем же путём, что и любой запуск на конкретный
+                // дисплей: AppDisplayLauncher сперва снимает уже существующую задачу приложения
+                // (она могла остаться на физическом экране или в другом VirtualDisplay) и только
+                // потом стартует его заново на нужном дисплее. Без снятия задача оставалась на
+                // прежнем дисплее, а поверхность виджета показывала чёрный квадрат — лечилось
+                // только свернуть/открыть сетку.
+                final String widget = widgetId;
+                int vdDisplayId = display.getDisplay().getDisplayId();
+                AppDisplayLauncher.launch(getApplicationContext(), packageName, vdDisplayId, false,
+                        () -> embeddedDisplays.containsKey(widget),      // запуск ещё нужен?
+                        () -> embeddedLaunched.put(widget, false));      // неудача → разрешаем повтор
+                embeddedLaunched.put(widgetId, true);
+                embeddedLaunchAt.put(widgetId, SystemClock.elapsedRealtime());
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "embedded VD failed widget=" + widgetId + ": " + e.getMessage());
+        }
+    }
+
+    private void releaseEmbeddedDisplay(String widgetId) {
+        VirtualDisplay display = embeddedDisplays.remove(widgetId);
+        embeddedPackages.remove(widgetId);
+        embeddedLaunched.remove(widgetId);
+        embeddedLaunchAt.remove(widgetId);
+        if (display != null) {
+            try { display.release(); } catch (Exception ignored) {}
+            Log.i(TAG, "embedded VD released widget=" + widgetId);
+        }
+    }
+
+    private void injectEmbeddedTouch(String widgetId, MotionEvent event) {
+        VirtualDisplay display = embeddedDisplays.get(widgetId);
+        if (display == null || event == null) return;
+        MotionEvent copy = null;
+        try {
+            copy = MotionEvent.obtain(event);
+            Method setDisplayId = MotionEvent.class.getMethod("setDisplayId", int.class);
+            setDisplayId.invoke(copy, display.getDisplay().getDisplayId());
+            Object inputManager = getSystemService("input");
+            Method inject = inputManager.getClass().getMethod("injectInputEvent", InputEvent.class, int.class);
+            inject.invoke(inputManager, copy, 0);
+        } catch (Exception e) {
+            Log.w(TAG, "embedded touch failed: " + e.getMessage());
+        } finally {
+            if (copy != null) copy.recycle();
         }
     }
 
@@ -518,8 +685,7 @@ public class SetModesService extends Service {
             out.putExtra("log", NativeLog.get().snapshot());
             out.putExtra("running", NativeLog.get().isRunning());
             out.putExtra("path", NativeLog.get().logFile(getApplicationContext()).getAbsolutePath());
-            out.setPackage("ru.big.town.restoremode");
-            sendBroadcast(out, "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE");
+            sendBroadcast(out);
         }
     };
 
@@ -610,13 +776,7 @@ public class SetModesService extends Service {
 
     /** Стартует BatteryHeatService (статус ВВБ для виджета + авто-прогрев по температуре). */
     private void startBatteryHeatService() {
-        Intent intent = new Intent(this, BatteryHeatService.class);
-        startForegroundService(intent);
-    }
-
-    /** Starts the read-mostly, fail-closed Apollo PLC/TLC bridge for both full and light reports. */
-    private void startApolloTlcService() {
-        ApolloTlcService.ensureStarted(this);
+        BatteryHeatService.requestStartup(this);
     }
 
     /** Стартует NowPlayingService (ридер метаданных активной медиа-сессии для наших поверхностей). */
@@ -652,14 +812,24 @@ public class SetModesService extends Service {
 
     //private boolean isWorking = false;
     private SetModesReceiverDynamic setModesReceiverDynamic;
+    private ScreenLiftTaskRestorer screenLiftTaskRestorer;
     private boolean receiverRegistered = false;
     private final String CHANNEL_ID = "screen_monitor_channel";
-    private Car mCar;
+    private volatile Car mCar;
+    private volatile CarPowerManager carPowerManager;
+    private volatile Handler carPowerHandler;
+    private HandlerThread carPowerThread;
+    private final CarPowerCallbackGate carPowerCallbackGate = new CarPowerCallbackGate();
+    private WashModeController washModeController;
+    private PowerHoldController powerHoldController;
+    private PowerHoldStatusTracker powerHoldStatusTracker;
+    private VehicleStateControllers vehicleStateControllers;
+    private boolean powerHoldStatusReceiverRegistered;
     private CarPropertyManager mCarPropertyManager;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private boolean startupInitialized = false;
     private boolean wakeSessionActive = false;
-    private boolean serviceDestroyed = false;
+    private volatile boolean serviceDestroyed = false;
     private boolean screenOffObserved = false;
     private boolean pendingPhysicalWake = false;
 
@@ -674,6 +844,48 @@ public class SetModesService extends Service {
     private final Runnable autoLaunchRunnable = this::maybeAutoLaunchRestoreMode;
     private final Runnable floatingBackEnableRunnable = () ->
             BackButtonService.setFloatingButtonEnabled(this, true);
+    private final Runnable carPowerReconnectRunnable = this::reconnectCarPowerOnWorker;
+
+    private final BroadcastReceiver powerHoldStatusRequestReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (!ACTION_REQUEST_POWER_HOLD_STATUS.equals(intent.getAction())) return;
+            PowerHoldStatusTracker tracker = powerHoldStatusTracker;
+            if (tracker != null) tracker.requestCurrentStatus();
+        }
+    };
+
+    /**
+     * Задача пакета снимается с виртуального дисплея (embedded-виджет главного экрана) перед
+     * полноэкранным запуском. Велим хосту снять такой виджет: сам он не восстановится, потому что
+     * защёлка embeddedLaunched не даёт перезапустить приложение без запроса хоста.
+     */
+    static void notifyEmbeddedTaskLeft(Context context, String pkg) {
+        Intent update = new Intent(ACTION_EMBEDDED_TASK_LEFT);
+        update.setPackage(RESTOREMODE_PKG);
+        update.putExtra(EXTRA_EMBEDDED_TASK_PKG, pkg);
+        try {
+            context.sendBroadcast(update, BIND_PERMISSION);
+        } catch (RuntimeException e) {
+            Log.w(TAG, "notifyEmbeddedTaskLeft failed: " + e.getMessage());
+        }
+    }
+
+    private void publishPowerHoldStatus(PowerHoldStatusPolicy.Snapshot snapshot,
+                                        PowerHoldPolicy.Outcome requestOutcome,
+                                        boolean force) {
+        Intent update = new Intent(ACTION_POWER_HOLD_STATUS_UPDATE);
+        update.setPackage(RESTOREMODE_PKG);
+        update.putExtra(EXTRA_POWER_HOLD_STATUS, snapshot.status.ipcCode);
+        update.putExtra(EXTRA_POWER_HOLD_EXIT_REASON, snapshot.exitReason.ipcCode);
+        update.putExtra(EXTRA_POWER_HOLD_REQUEST_OUTCOME,
+                requestOutcome == null ? 0 : requestOutcome.ipcCode);
+        try {
+            sendBroadcast(update, BIND_PERMISSION);
+        } catch (RuntimeException e) {
+            Log.w(TAG, "publishPowerHoldStatus failed: " + e.getMessage());
+        }
+    }
 
     /** Один набор недебаунсированных side-effects на физический wake, а не на каждый power state. */
     private boolean beginWakeSession() {
@@ -704,11 +916,30 @@ public class SetModesService extends Service {
         mainHandler.removeCallbacks(floatingBackEnableRunnable);
     }
 
+    /**
+     * Просит RestoreMode повторно опубликовать сохранённые Dock/steering настройки. Это одно
+     * explicit событие на startup/wake, а не polling: receiver читает локальные prefs и отправляет
+     * их существующему signature-protected SetModesConfigReceiver.
+     */
+    private void requestSavedConfigSync(String source) {
+        Intent intent = new Intent(RESTOREMODE_CONFIG_SYNC_ACTION);
+        intent.setClassName(RESTOREMODE_PKG, RESTOREMODE_CONFIG_SYNC_RECEIVER);
+        intent.addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES);
+        try {
+            sendBroadcast(intent);
+            Log.i(TAG, "saved config sync requested by " + source);
+        } catch (RuntimeException e) {
+            Log.w(TAG, "saved config sync request failed: " + e.getMessage());
+        }
+    }
+
     private void runWakeSideEffects(String source) {
         if (serviceDestroyed) return;
         if (beginWakeSession()) {
+            requestSavedConfigSync("physical wake");
             resetWiperColdOnPowerOn();
             forwardPowerOnToTripStats();
+            BatteryHeatService.requestPhysicalWake(this);
             scheduleAncillaryWakeTasks();
             Log.i(TAG, "wake side-effects started by " + source);
         } else {
@@ -716,15 +947,27 @@ public class SetModesService extends Service {
         }
     }
 
+    private void requestWashModeCleanup(String source) {
+        WashModeController controller = washModeController;
+        if (controller == null || !controller.hasArmedRequest()) return;
+        ApplyEngine.postIndependentUserCommand("wash mode cleanup: " + source, () -> {
+            boolean cleaned = controller.cleanupRequestBit(source);
+            Log.i(TAG, "wash mode request cleanup " + (cleaned ? "accepted" : "deferred")
+                    + " by " + source);
+        });
+    }
+
     private void handleScreenOffFallback() {
         screenOffObserved = true;
         pendingPhysicalWake = false;
         endWakeSession();
         cancelAncillaryWakeTasks();
+        requestWashModeCleanup("SCREEN_OFF");
     }
 
     private void handleScreenOnFallback() {
         screenOffObserved = false;
+        requestWashModeCleanup("SCREEN_ON");
         // SCREEN_ON сам по себе бывает обычным включением дисплея и не является границей поездки.
         // Выполняем физические side-effects только если до него реально пришёл CarPower wake.
         if (pendingPhysicalWake) {
@@ -746,21 +989,42 @@ public class SetModesService extends Service {
     public void onCreate() {
         Log.i(TAG, "onCreate()");
         super.onCreate();
-        HeadlightCanTransport.initialize(this);
-        DriveModeCanTransport.initialize(this);
+        // A stale file from an earlier boot is fail-closed and removed on first service creation.
+        ApolloSettingsRuntimeState.isEnabled(this);
+        washModeController = WashModeController.create(this);
+        powerHoldController = PowerHoldController.create(this);
+        powerHoldStatusTracker = PowerHoldStatusTracker.create(
+                this, this::publishPowerHoldStatus);
+        try {
+            vehicleStateControllers = VehicleStateControllers.get(getApplicationContext());
+        } catch (RuntimeException e) {
+            Log.w(TAG, "start vehicle state controllers: " + e.getMessage());
+        }
+        try {
+            ContextCompat.registerReceiver(this, powerHoldStatusRequestReceiver,
+                    new IntentFilter(ACTION_REQUEST_POWER_HOLD_STATUS), BIND_PERMISSION,
+                    mainHandler, ContextCompat.RECEIVER_EXPORTED);
+            powerHoldStatusReceiverRegistered = true;
+        } catch (RuntimeException e) {
+            Log.w(TAG, "register Power Hold status receiver: " + e.getMessage());
+        }
         screenOffObserved = !isScreenInteractive();
         initializeCarPowerManager();
         setModesReceiverDynamic = new SetModesReceiverDynamic(
                 this::handleScreenOffFallback,
                 this::handleScreenOnFallback);
+        if (BuildConfig.IS_FULL) {
+            screenLiftTaskRestorer = new ScreenLiftTaskRestorer(getApplicationContext());
+            screenLiftTaskRestorer.register();
+        }
         // Приёмник запроса снимка логов + восстановление захвата регистрируем в onCreate
         // (срабатывает и при простом bind, не только при startService).
         try {
             IntentFilter logFilter = new IntentFilter(ACTION_REQUEST_LOG);
             logFilter.addAction(ACTION_LOGGING_SET);
             logFilter.addAction(ACTION_LOGGING_SHARE);
-            registerReceiver(logRequestReceiver, logFilter,
-                    "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE", null, RECEIVER_EXPORTED);
+            ContextCompat.registerReceiver(this, logRequestReceiver, logFilter,
+                    ContextCompat.RECEIVER_EXPORTED);
         } catch (Exception e) {
             Log.w(TAG, "register logRequestReceiver: " + e.getMessage());
         }
@@ -768,24 +1032,12 @@ public class SetModesService extends Service {
         Log.i(TAG, "onCreated");
     }
 
-
-
-    private final CarPowerManager.CarPowerStateListener mPowerStateListener =
-            new CarPowerManager.CarPowerStateListener() {
-                @Override
-                public void onStateChanged(int state) {
-                    // android.car invokes this listener directly from a Binder thread. Marshal the
-                    // whole transition to main so SCREEN_OFF/onDestroy cannot interleave halfway
-                    // through schedule/cancel and leave delayed tasks armed in sleep.
-                    mainHandler.post(() -> handlePowerStateChanged(state));
-                }
-            };
-
     private void handlePowerStateChanged(int state) {
         if (serviceDestroyed) return;
         Log.i(TAG, "Power state changed: " + state + " (" + powerStateName(state) + ")");
         if (isWakeState(state)) {
-            ApplyEngine.scheduleApply("power state " + powerStateName(state));
+            requestWashModeCleanup("power state " + powerStateName(state));
+            ApplyEngine.activateWake("power state " + powerStateName(state));
             if (isScreenInteractive()
                     || state == CarPowerManager.CarPowerStateListener.ON
                     || state == CarPowerManager.CarPowerStateListener.SHUTDOWN_CANCELLED) {
@@ -803,6 +1055,7 @@ public class SetModesService extends Service {
             pendingPhysicalWake = false;
             endWakeSession();
             cancelAncillaryWakeTasks();
+            requestWashModeCleanup("power state " + powerStateName(state));
             ApplyEngine.resetRestoreGate("power state " + powerStateName(state));
         }
         Log.i(TAG, "onStateChanged() ignored state: " + state);
@@ -861,61 +1114,226 @@ public class SetModesService extends Service {
 //    }
 
     private void initializeCarPowerManager() {
-        try {
-            // Подключаемся к CarService через lifecycle-колбэк: если CarService перезапустится
-            // (обычное дело на этом OEM), мы заново получим CarPowerManager и перерегистрируем
-            // слушатель питания. Раньше слушатель регистрировался один раз и после рестарта
-            // CarService «тихо умирал» — пробуждения переставали ловиться.
-            mCar = Car.createCar(this, null, Car.CAR_WAIT_TIMEOUT_WAIT_FOREVER,
-                    (car, ready) -> {
-                        // disconnect() и lifecycle callback могут пересечься при teardown. Не даём
-                        // позднему ready снова зарегистрировать listener уже уничтоженного сервиса.
-                        if (serviceDestroyed) {
-                            Log.i(TAG, "Car lifecycle ignored after service destroy, ready=" + ready);
-                            return;
-                        }
-                        Log.i(TAG, "Car lifecycle: ready=" + ready);
-                        if (ready) {
-                            try {
-                                GlobalVars.mCarPowerManager =
-                                        (CarPowerManager) car.getCarManager(Car.POWER_SERVICE);
-                                if (GlobalVars.mCarPowerManager != null) {
-                                    registerPowerStateListener();
-                                } else {
-                                    Log.e(TAG, "Failed to get CarPowerManager");
-                                }
-                            } catch (Exception e) {
-                                GlobalVars.mCarPowerManager = null;
-                                Log.e(TAG, "getCarManager(POWER_SERVICE) failed", e);
-                            }
-                        } else {
-                            // CarService отвалился — менеджер невалиден. Отработает fallback
-                            // (SCREEN_ON/GARAGE_MODE_OFF), а на реконнекте мы перерегистрируемся.
-                            GlobalVars.mCarPowerManager = null;
-                        }
-                    });
-        } catch (Throwable e) {
-            GlobalVars.mCarPowerManager = null;
-            Log.e(TAG, "Error initializing CarPowerManager", e);
+        carPowerThread = new HandlerThread("SetModesCarPower");
+        carPowerThread.start();
+        Handler worker = new Handler(carPowerThread.getLooper());
+        carPowerHandler = worker;
+        if (!worker.post(() -> createCarPowerConnectionOnWorker(worker))) {
+            carPowerHandler = null;
+            carPowerThread.quitSafely();
         }
     }
 
-    private void registerPowerStateListener() {
+    private void createCarPowerConnectionOnWorker(Handler worker) {
+        if (serviceDestroyed || carPowerHandler != worker) return;
+        try {
+            // Подключаемся к CarService через lifecycle-колбэк: если CarService перезапустится
+            // (обычное дело на этом OEM), мы заново получим CarPowerManager и перерегистрируем
+            // слушатель питания. DO_NOT_WAIT запускает bind/retry, но не блокирует worker (и тем
+            // более main) бесконечным 50-мс polling, когда car_service ещё не опубликован.
+            Car created = Car.createCar(getApplicationContext(), worker,
+                    Car.CAR_WAIT_TIMEOUT_DO_NOT_WAIT, this::dispatchCarLifecycleToWorker);
+            if (created == null) {
+                Log.e(TAG, "Car.createCar returned null");
+                scheduleCarPowerReconnectOnWorker("create returned null",
+                        CAR_POWER_RECONNECT_DELAY_MS);
+                return;
+            }
+            if (serviceDestroyed || carPowerHandler != worker) {
+                created.disconnect();
+                return;
+            }
+            mCar = created;
+            scheduleCarPowerReconnectOnWorker("connect watchdog",
+                    CAR_POWER_CONNECT_WATCHDOG_MS);
+        } catch (Throwable e) {
+            Log.e(TAG, "Error initializing CarPowerManager", e);
+            scheduleCarPowerReconnectOnWorker("create failed", CAR_POWER_RECONNECT_DELAY_MS);
+        }
+    }
+
+    /** android.car forces lifecycle delivery through main; keep that callback enqueue-only. */
+    private void dispatchCarLifecycleToWorker(Car car, boolean ready) {
+        Handler worker = carPowerHandler;
+        if (serviceDestroyed || worker == null) return;
+        if (!worker.post(() -> handleCarLifecycleOnWorker(car, ready))) {
+            Log.w(TAG, "Car lifecycle dropped: worker stopped, ready=" + ready);
+        }
+    }
+
+    private void handleCarLifecycleOnWorker(Car car, boolean ready) {
+        if (serviceDestroyed || car != mCar) return;
+        Log.i(TAG, "Car lifecycle: ready=" + ready);
+        if (!ready) {
+            carPowerCallbackGate.invalidateCurrent();
+            clearPublishedCarPowerManager(carPowerManager);
+            scheduleCarPowerReconnectOnWorker("lifecycle disconnected",
+                    CAR_POWER_RECONNECT_DELAY_MS);
+            return;
+        }
+        Handler worker = carPowerHandler;
+        if (worker != null) worker.removeCallbacks(carPowerReconnectRunnable);
+        try {
+            CarPowerManager manager = (CarPowerManager) car.getCarManager(Car.POWER_SERVICE);
+            if (serviceDestroyed || car != mCar) return;
+            if (manager == null) {
+                carPowerCallbackGate.invalidateCurrent();
+                clearPublishedCarPowerManager(carPowerManager);
+                Log.e(TAG, "Failed to get CarPowerManager");
+                scheduleCarPowerReconnectOnWorker("power manager unavailable",
+                        CAR_POWER_RECONNECT_DELAY_MS);
+                return;
+            }
+            CarPowerManager previous = carPowerManager;
+            if (previous != null && previous != manager) {
+                carPowerCallbackGate.invalidateCurrent();
+                clearPublishedCarPowerManager(previous);
+                try {
+                    previous.clearListener();
+                } catch (Throwable e) {
+                    Log.w(TAG, "clear stale CarPower listener failed: " + e.getMessage());
+                }
+            }
+            carPowerManager = manager;
+            GlobalVars.mCarPowerManager = manager;
+            registerPowerStateListenerOnWorker(manager);
+        } catch (Throwable e) {
+            carPowerCallbackGate.invalidateCurrent();
+            clearPublishedCarPowerManager(carPowerManager);
+            Log.e(TAG, "getCarManager(POWER_SERVICE) failed", e);
+            scheduleCarPowerReconnectOnWorker("power manager failed",
+                    CAR_POWER_RECONNECT_DELAY_MS);
+        }
+    }
+
+    private void registerPowerStateListenerOnWorker(CarPowerManager manager) {
+        carPowerCallbackGate.invalidateCurrent();
+        long generation = CarPowerCallbackGate.REJECTED_GENERATION;
         try {
             // setListener в Android 11 кидает IllegalStateException, если слушатель уже
             // установлен ("Listener must be cleared first") — защищаемся clearListener'ом
             // на случай повторного ready-колбэка без дисконнекта между ними.
             try {
-                GlobalVars.mCarPowerManager.clearListener();
+                manager.clearListener();
             } catch (Throwable ignored) {
                 // слушатель не был установлен — это нормально
             }
-            GlobalVars.mCarPowerManager.setListener(mPowerStateListener);
+            if (serviceDestroyed || manager != carPowerManager) return;
+            generation = carPowerCallbackGate.beginRegistration();
+            if (generation == CarPowerCallbackGate.REJECTED_GENERATION) return;
+            final long listenerGeneration = generation;
+            CarPowerManager.CarPowerStateListener listener = state ->
+                    dispatchPowerStateFromBinder(listenerGeneration, state);
+            manager.setListener(listener);
             Log.i(TAG, "CarPowerStateListener registered");
         } catch (NoSuchMethodError e) {
+            carPowerCallbackGate.invalidate(generation);
+            clearPublishedCarPowerManager(manager);
             Log.w(TAG, "setListener(Listener) not available on this platform, skipping");
         } catch (Throwable e) {
+            carPowerCallbackGate.invalidate(generation);
+            clearPublishedCarPowerManager(manager);
             Log.e(TAG, "setListener failed: " + e.getMessage());
+            scheduleCarPowerReconnectOnWorker("listener registration failed",
+                    CAR_POWER_RECONNECT_DELAY_MS);
+        }
+    }
+
+    private void scheduleCarPowerReconnectOnWorker(String reason, long delayMs) {
+        Handler worker = carPowerHandler;
+        if (serviceDestroyed || worker == null) return;
+        worker.removeCallbacks(carPowerReconnectRunnable);
+        if (worker.postDelayed(carPowerReconnectRunnable, delayMs)) {
+            Log.i(TAG, "CarPower reconnect scheduled in " + delayMs + "ms: " + reason);
+        } else {
+            Log.w(TAG, "CarPower reconnect dropped: worker stopped");
+        }
+    }
+
+    private void reconnectCarPowerOnWorker() {
+        Handler worker = carPowerHandler;
+        if (serviceDestroyed || worker == null || Looper.myLooper() != worker.getLooper()) return;
+        Log.w(TAG, "CarPower connection watchdog fired; recreating connection");
+        carPowerCallbackGate.invalidateCurrent();
+        releaseCarPowerManagerOnWorker(carPowerManager);
+        createCarPowerConnectionOnWorker(worker);
+    }
+
+    private void dispatchPowerStateFromBinder(long generation, int state) {
+        Handler worker = carPowerHandler;
+        if (serviceDestroyed || worker == null) return;
+        Runnable forward = () -> {
+            if (serviceDestroyed || !carPowerCallbackGate.isCurrent(generation)) return;
+            mainHandler.post(() -> {
+                if (carPowerCallbackGate.isCurrent(generation)) {
+                    handlePowerStateChanged(state);
+                }
+            });
+        };
+        if (Looper.myLooper() == worker.getLooper()) forward.run();
+        else if (!worker.post(forward)) Log.w(TAG, "CarPower state dropped: worker stopped");
+    }
+
+    private void clearPublishedCarPowerManager(CarPowerManager expected) {
+        if (expected == null) return;
+        if (carPowerManager == expected) carPowerManager = null;
+        if (GlobalVars.mCarPowerManager == expected) GlobalVars.mCarPowerManager = null;
+    }
+
+    private void releaseCarPowerManagerAsync() {
+        carPowerCallbackGate.close();
+        Handler worker = carPowerHandler;
+        HandlerThread thread = carPowerThread;
+        carPowerHandler = null;
+
+        CarPowerManager published = carPowerManager;
+        clearPublishedCarPowerManager(published);
+        if (worker == null || thread == null) {
+            mCar = null;
+            return;
+        }
+
+        boolean queued = worker.postAtFrontOfQueue(() -> {
+            try {
+                releaseCarPowerManagerOnWorker(published);
+            } finally {
+                worker.removeCallbacksAndMessages(null);
+                thread.quitSafely();
+            }
+        });
+        if (!queued) {
+            // The worker looper is already gone. Never move vendor Binder cleanup back to main.
+            carPowerManager = null;
+            mCar = null;
+            thread.quitSafely();
+            Log.w(TAG, "CarPower cleanup dropped: worker already stopped");
+        }
+    }
+
+    private void releaseCarPowerManagerOnWorker(CarPowerManager published) {
+        CarPowerManager manager = carPowerManager;
+        if (manager == null) manager = published;
+        carPowerManager = null;
+        if (GlobalVars.mCarPowerManager == manager) GlobalVars.mCarPowerManager = null;
+        if (manager != null) {
+            try {
+                manager.clearListener();
+                Log.i(TAG, "CarPowerStateListener unregistered");
+            } catch (NoSuchMethodError e) {
+                Log.w(TAG, "clearListener() not available on this platform");
+            } catch (Throwable e) {
+                Log.w(TAG, "clearListener() failed: " + e.getMessage());
+            }
+        }
+
+        Car car = mCar;
+        mCar = null;
+        if (car != null) {
+            try {
+                car.disconnect();
+            } catch (Throwable e) {
+                Log.w(TAG, "Car disconnect failed: " + e.getMessage());
+            }
         }
     }
 
@@ -940,14 +1358,15 @@ public class SetModesService extends Service {
         // Fallback-подписку на пробуждение через броадкасты держим ВСЕГДА (belt-and-suspenders),
         // а не только когда mCarPowerManager==null: слушатель питания может «протухнуть» при
         // рестарте CarService, и тогда единственным триггером остаётся SCREEN_ON/GARAGE_MODE_OFF.
-        // Дубли с power-listener гасит дебаунс в ApplyEngine.
+        // Режимы восстанавливаются отдельно по двери и Drive.
         if (!receiverRegistered) {
             IntentFilter filter = new IntentFilter();
             filter.addAction("android.intent.action.KEYCODE_SWC_USER_DEFINE");
             filter.addAction("com.android.server.jobscheduler.GARAGE_MODE_OFF");
             filter.addAction("android.intent.action.SCREEN_ON");
             filter.addAction("android.intent.action.SCREEN_OFF");
-            getApplicationContext().registerReceiver(setModesReceiverDynamic, filter, RECEIVER_EXPORTED);
+            ContextCompat.registerReceiver(getApplicationContext(), setModesReceiverDynamic,
+                    filter, ContextCompat.RECEIVER_EXPORTED);
             receiverRegistered = true;
         }
 
@@ -955,12 +1374,12 @@ public class SetModesService extends Service {
         // зависимостей и delayed-задач нужна один раз; повторный onStartCommand не должен плодить bind/UI.
         if (!startupInitialized) {
             startupInitialized = true;
-            ApplyEngine.scheduleApply("service start");
+            requestSavedConfigSync("service start");
+            ApplyEngine.activateWake("service start");
             restoreAutoLightState();
             restoreWiperColdState();
             startTripStatsService();
             startBatteryHeatService();
-            startApolloTlcService();
             scheduleAncillaryWakeTasks();
             Log.i(TAG, "onStartCommand(): startup initialized");
         } else {
@@ -996,10 +1415,33 @@ public class SetModesService extends Service {
     public void onDestroy() {
         Log.i(TAG, "onDestroy()");
         serviceDestroyed = true;
+        for (VirtualDisplay display : embeddedDisplays.values()) {
+            try { display.release(); } catch (Exception ignored) {}
+        }
+        embeddedDisplays.clear();
+        embeddedPackages.clear();
+        embeddedLaunched.clear();
+        embeddedLaunchAt.clear();
+        if (powerHoldStatusReceiverRegistered) {
+            try {
+                unregisterReceiver(powerHoldStatusRequestReceiver);
+            } catch (IllegalArgumentException ignored) {
+            }
+            powerHoldStatusReceiverRegistered = false;
+        }
+        PowerHoldStatusTracker powerHoldTracker = powerHoldStatusTracker;
+        powerHoldStatusTracker = null;
+        if (powerHoldTracker != null) powerHoldTracker.close();
+        vehicleStateControllers = null;
+        powerHoldController = null;
+        releaseCarPowerManagerAsync();
         pendingPhysicalWake = false;
         endWakeSession();
         cancelAncillaryWakeTasks();
         mainHandler.removeCallbacksAndMessages(null);
+        ScreenLiftTaskRestorer liftRestorer = screenLiftTaskRestorer;
+        screenLiftTaskRestorer = null;
+        if (liftRestorer != null) liftRestorer.close();
         if (receiverRegistered) {
             try {
                 getApplicationContext().unregisterReceiver(setModesReceiverDynamic);
@@ -1011,23 +1453,6 @@ public class SetModesService extends Service {
         try {
             unregisterReceiver(logRequestReceiver);
         } catch (IllegalArgumentException ignored) {
-        }
-        // Clean up resources
-        if (GlobalVars.mCarPowerManager != null) {
-            try {
-                GlobalVars.mCarPowerManager.clearListener();
-                Log.i(TAG, "CarPowerStateListener unregistered");
-            } catch (NoSuchMethodError e) {
-                Log.w(TAG, "clearListener() not available on this platform");
-            } catch (Exception e) {
-                Log.w(TAG, "clearListener() failed: " + e.getMessage());
-            }
-        }
-        GlobalVars.mCarPowerManager = null;
-
-        if (mCar != null) {
-            mCar.disconnect();
-            mCar = null;
         }
         super.onDestroy();
     }
@@ -1048,24 +1473,16 @@ public class SetModesService extends Service {
      * общий с worker'ом применения — сохраняем ту же гарантию, но без сырых потоков).
      */
     static public void worker(int repeat, int pause, int mode, int msg_arg1) {
-        worker(repeat, pause, mode, msg_arg1, null);
-    }
-
-    static public void worker(int repeat, int pause, int mode, int msg_arg1, Messenger replyTo) {
         Log.i(TAG, " Call worker" +
                 String.format(" repeat: %d, pause: %d, mode %d, msg_arg1: %d",
                         repeat, pause, mode, msg_arg1));
-        if (GlobalVars.SAVE_CONTEXT == null || mode != MSG_APPLY_DRIVE_MODES_STAR_BUTTON) {
-            notifyApplyDone(replyTo);
-            return;
-        }
+        if (GlobalVars.SAVE_CONTEXT == null || mode != MSG_APPLY_DRIVE_MODES_STAR_BUTTON) return;
 
         ApplyEngine.postUserCommand("star button " + msg_arg1, () -> {
             MainActivity.loadModes(GlobalVars.SAVE_CONTEXT);
             Log.i(TAG, " Run customCommandStarButton");
             if (msg_arg1 == 1) MainActivity.setCanValues(1, MainActivity.getCustomCommandStarButton1(), "star button command 1");
             if (msg_arg1 == 2) MainActivity.setCanValues(1, MainActivity.getCustomCommandStarButton2(), "star button command 2");
-            notifyApplyDone(replyTo);
         });
     }
 }

@@ -1,167 +1,136 @@
 package ru.big.town.anative;
 
-/**
- * Android-free state machine separating an OEM wake reset from a real external mode selection.
- *
- * <p>A successful CAN write only means that the command reached the bus. The car may still publish
- * and apply its default mode later in the wake sequence. Therefore feedback remains read-only for a
- * settling interval after restore. A conflicting value in that interval requests another restore;
- * it is never allowed to replace the saved source of truth.</p>
- */
-final class ModeSyncPolicy {
-    static final long POST_RESTORE_SETTLE_MS = 20_000L;
-    static final long CORRECTION_COOLDOWN_MS = 3_000L;
-    static final int MAX_CORRECTIONS_PER_WAKE = 1;
+import java.util.HashMap;
+import java.util.Map;
 
-    enum Decision {
-        /** Stable awake state: feedback may be persisted as an external user selection. */
-        ACCEPT,
-        /** Expected restore echo, disabled mode, invalid input, or correction already in flight. */
-        IGNORE,
-        /** Wake feedback conflicts with the saved mode: re-run restore, do not persist feedback. */
-        CORRECT
-    }
+/** Saved selection and current vehicle state are independent; feedback never requests a restore. */
+final class ModeSyncPolicy {
+    enum Decision { ACCEPT, IGNORE }
 
     private long generation;
-    private boolean restoreCompleted;
-    private boolean correctionAllowed;
     private boolean wakeActive;
-    private long acceptAfterUptime = Long.MAX_VALUE;
-    private long lastCorrectionUptime = Long.MIN_VALUE;
-    private int correctionsThisWake;
-
+    private boolean feedbackOpen;
+    private boolean driveEntered;
+    private boolean waitingForDrive;
+    private int lastGear = -1;
     private String expectedDrive;
-    private String expectedEnergy;
-    private boolean driveEnabled;
-    private boolean energyEnabled;
+    private final Map<String, String> currentModes = new HashMap<>();
+    private boolean driveRememberLast = true;
+    private boolean energyRememberLast = true;
+    private boolean recycleRememberLast = true;
 
-    /**
-     * Starts a new guarded restore generation while retaining the last known saved snapshot.
-     *
-     * <p>Several wake signals (and a correction requested by feedback) may create several restore
-     * generations during one physical wake. The correction budget is intentionally reset only
-     * after {@link #freeze()}, not on every such generation, otherwise each correction would give
-     * itself a fresh budget and conflicting OEM feedback could create an endless restore storm.</p>
-     */
+    synchronized void activateWake() { wakeActive = true; }
+
+    synchronized void onDriverDoorOpened() {
+        driveEntered = false;
+        waitingForDrive = true;
+        feedbackOpen = false;
+        // A completion or persistence check from the previous door cycle is no longer valid.
+        generation++;
+    }
+
+    synchronized void onGear(int gear) {
+        if (gear < 0) return;
+        if (wakeActive && waitingForDrive && gear == 3 && lastGear != 3) {
+            driveEntered = true;
+            waitingForDrive = false;
+        }
+        lastGear = gear;
+    }
+
+    /** Also guards steering selections, which are saved while their command is still running. */
+    synchronized boolean canRememberSelection() { return wakeActive && driveEntered; }
+
     synchronized long beginRestore() {
-        if (!wakeActive) {
-            wakeActive = true;
-            correctionsThisWake = 0;
-            lastCorrectionUptime = Long.MIN_VALUE;
-        }
-        generation++;
-        restoreCompleted = false;
-        correctionAllowed = true;
-        acceptAfterUptime = Long.MAX_VALUE;
-        return generation;
+        wakeActive = true;
+        feedbackOpen = false;
+        return ++generation;
     }
 
-    /** Freezes feedback for sleep/shutdown without sending corrective CAN while the car powers down. */
     synchronized long freeze() {
-        generation++;
-        restoreCompleted = false;
-        correctionAllowed = false;
         wakeActive = false;
-        acceptAfterUptime = Long.MAX_VALUE;
-        return generation;
+        feedbackOpen = false;
+        driveEntered = false;
+        waitingForDrive = false;
+        lastGear = -1;
+        currentModes.clear();
+        return ++generation;
     }
 
-    /**
-     * Invalidates an automatic restore superseded by an explicit user command.
-     *
-     * <p>This is deliberately not {@link #freeze()}: the physical wake and its correction budget
-     * continue. Feedback stays closed while the command is queued/running; its matching terminal
-     * calls {@link #completeUserCommand(long, long)} to start the normal settling delay. If sleep
-     * wins the race, that stale terminal cannot reopen the frozen gate.</p>
-     */
     synchronized long cancelRestore() {
-        generation++;
-        restoreCompleted = false;
-        correctionAllowed = false;
-        acceptAfterUptime = Long.MAX_VALUE;
-        return generation;
+        feedbackOpen = false;
+        return ++generation;
     }
 
-    /** Starts settle after the matching explicit command terminates, without creating corrections. */
-    synchronized boolean completeUserCommand(long commandGeneration, long nowUptime) {
-        if (commandGeneration != generation || !wakeActive) return false;
-        restoreCompleted = true;
-        correctionAllowed = false;
-        acceptAfterUptime = saturatedAdd(nowUptime, POST_RESTORE_SETTLE_MS);
+    synchronized boolean completeUserCommand(long candidate) {
+        return completeRestore(candidate);
+    }
+
+    synchronized boolean completeRestore(long candidate) {
+        if (candidate != generation || !wakeActive) return false;
+        feedbackOpen = true;
         return true;
     }
 
-    /** Captures the feedback-gate generation for a lock-free persistence handoff. */
-    synchronized long currentGeneration() {
-        return generation;
+    synchronized boolean failRestore(long candidate) {
+        if (candidate != generation) return false;
+        feedbackOpen = false;
+        return true;
     }
 
-    /** Pure revalidation immediately before potentially blocking provider persistence. */
-    synchronized boolean canPersist(long candidateGeneration, long nowUptime) {
-        return candidateGeneration == generation
-                && restoreCompleted
-                && nowUptime >= acceptAfterUptime;
+    synchronized long currentGeneration() { return generation; }
+
+    synchronized boolean canPersist(long candidate, String modeKey) {
+        return candidate == generation && canRememberSelection()
+                && feedbackOpen && acceptsExternalFeedback(modeKey);
     }
 
-    /** Refreshes the source-of-truth snapshot loaded from RestoreMode/provider or Native cache. */
-    synchronized void updateExpected(String drive, String energy,
-                                     boolean driveEnabled, boolean energyEnabled) {
+    synchronized void updateExpected(String drive, String energy, String recycle,
+                                     boolean driveEnabled, boolean energyEnabled,
+                                     boolean recycleEnabled, boolean driveRememberLast,
+                                     boolean energyRememberLast, boolean recycleRememberLast) {
         if (valid(drive)) expectedDrive = drive;
-        if (valid(energy)) expectedEnergy = energy;
-        this.driveEnabled = driveEnabled;
-        this.energyEnabled = energyEnabled;
+        this.driveRememberLast = driveRememberLast;
+        this.energyRememberLast = energyRememberLast;
+        this.recycleRememberLast = recycleRememberLast;
     }
 
-    /** Updates one explicitly saved mode immediately (steering button or accepted external change). */
-    synchronized void updateExpectedMode(boolean energy, String mode) {
-        if (!valid(mode)) return;
-        if (energy) expectedEnergy = mode;
-        else expectedDrive = mode;
+    synchronized void updateExpectedMode(String modeKey, String mode) {
+        if ("driveMode".equals(modeKey) && valid(mode)) expectedDrive = mode;
     }
 
-    /** Opens feedback only after the matching generation has restored and then settled. */
-    synchronized boolean completeRestore(long completedGeneration, long nowUptime) {
-        if (completedGeneration != generation) return false;
-        restoreCompleted = true;
-        acceptAfterUptime = saturatedAdd(nowUptime, POST_RESTORE_SETTLE_MS);
-        return true;
+    synchronized void updateRememberLast(String modeKey, boolean rememberLast) {
+        if ("driveMode".equals(modeKey)) driveRememberLast = rememberLast;
+        else if ("energy".equals(modeKey)) energyRememberLast = rememberLast;
+        else if ("recycle".equals(modeKey)) recycleRememberLast = rememberLast;
     }
 
-    /** A bounded restore window failed: keep feedback read-only and suppress correction recursion. */
-    synchronized boolean failRestore(long failedGeneration) {
-        if (failedGeneration != generation) return false;
-        restoreCompleted = false;
-        correctionAllowed = false;
-        acceptAfterUptime = Long.MAX_VALUE;
-        return true;
+    synchronized void observe(String modeKey, String mode) {
+        if (knownModeKey(modeKey) && valid(mode)) currentModes.put(modeKey, mode);
     }
 
-    synchronized Decision evaluate(boolean energy, String observedMode, long nowUptime) {
-        if (!valid(observedMode)) return Decision.IGNORE;
-        if (restoreCompleted && nowUptime >= acceptAfterUptime) return Decision.ACCEPT;
-
-        String expected = energy ? expectedEnergy : expectedDrive;
-        boolean enabled = energy ? energyEnabled : driveEnabled;
-        if (!correctionAllowed || !enabled || !valid(expected) || expected.equals(observedMode)) {
-            return Decision.IGNORE;
-        }
-
-        if (correctionsThisWake >= MAX_CORRECTIONS_PER_WAKE) return Decision.IGNORE;
-
-        if (lastCorrectionUptime == Long.MIN_VALUE
-                || nowUptime - lastCorrectionUptime >= CORRECTION_COOLDOWN_MS) {
-            lastCorrectionUptime = nowUptime;
-            correctionsThisWake++;
-            return Decision.CORRECT;
-        }
-        return Decision.IGNORE;
+    synchronized String currentMode(String modeKey, String fallback) {
+        return currentModes.getOrDefault(modeKey, fallback);
     }
 
-    private static boolean valid(String mode) {
-        return mode != null && !mode.isEmpty();
+    synchronized Decision evaluate(String modeKey, String observedMode) {
+        if (!knownModeKey(modeKey) || !valid(observedMode)) return Decision.IGNORE;
+        // Even opted-out feedback is needed for steering cycles and Snow recuperation handling.
+        observe(modeKey, observedMode);
+        return canRememberSelection() && feedbackOpen && acceptsExternalFeedback(modeKey)
+                ? Decision.ACCEPT : Decision.IGNORE;
     }
 
-    private static long saturatedAdd(long value, long delta) {
-        return value > Long.MAX_VALUE - delta ? Long.MAX_VALUE : value + delta;
+    private boolean acceptsExternalFeedback(String modeKey) {
+        if ("energy".equals(modeKey)) return energyRememberLast;
+        if ("driveMode".equals(modeKey)) return driveRememberLast;
+        return "recycle".equals(modeKey) && recycleRememberLast
+                && !"SNOW".equals(currentMode("driveMode", expectedDrive));
     }
+
+    private static boolean knownModeKey(String key) {
+        return "driveMode".equals(key) || "energy".equals(key) || "recycle".equals(key);
+    }
+
+    private static boolean valid(String mode) { return mode != null && !mode.isEmpty(); }
 }

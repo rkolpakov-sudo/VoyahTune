@@ -8,9 +8,11 @@
     <uses-permission android:name="android.permission.MEDIA_CONTENT_CONTROL" />
     <!-- Перенос приложения между сплитом/фриформом БЕЗ убийства процесса: завершаем задачу приложения
          (removeTask), а не force-stop процесса — плейбек в foreground-сервисе выживает (музыка не глохнет).
-         REAL_GET_TASKS — перечислить задачи всех приложений; REMOVE_TASKS — завершить чужую задачу. -->
+         REAL_GET_TASKS — перечислить задачи всех приложений; REMOVE_TASKS — завершить чужую задачу.
+         OEM REMOVE_TASKS = signature|documenter: Full использует UID-scoped ATMS.removeTask hook. -->
     <uses-permission android:name="android.permission.REAL_GET_TASKS" />
     <uses-permission android:name="android.permission.REMOVE_TASKS" />
+    <uses-permission android:name="android.permission.REORDER_TASKS" />
     <uses-permission android:name="android.permission.REBOOT" />
     <uses-permission android:name="android.permission.MANAGE_APP_OPS_MODES" />
     <uses-permission android:name="android.permission.FORCE_STOP_PACKAGES" />
@@ -52,10 +54,9 @@
     <uses-permission android:name="ru.big.town.anative.permission.BIND_SET_MODES_SERVICE" />
 
     <!--
-      Direct Apollo uses the pinned CanBus Binder ABI in both full and light. CanBusService checks
-      this vendor permission name before TX58 but does not define it itself, so Native owns a
-      signature-level definition. Installers reject any pre-existing foreign owner before writing
-      the system APK.
+      Native transports use the pinned CanBus Binder ABI. The vendor service checks this permission
+      name but does not define it itself, so Native owns a signature-level definition. Installers
+      reject any pre-existing foreign owner before writing the system APK.
     -->
     <permission
         android:name="com.qinggan.permission.WRITE_CANBUS"
@@ -66,7 +67,6 @@
         <provider android:authorities="ru.big.town.restoremode.restoremodecontentprovider" />
         <package android:name="com.qinggan.carsignal.service" />
         <package android:name="com.qinggan.canbus.service" />
-        <package android:name="com.qinggan.app.vehiclesetting" />
     </queries>
 
     <uses-permission android:name="android.permission.CAR_POWER" />
@@ -137,6 +137,13 @@
             android:enabled="true"
             android:exported="true" />
 
+        <receiver android:name=".WidgetActionReceiver" android:exported="false" />
+        <!-- Удалены: RunningAppsWidget, MediaVolumeWidget — не работают, будут переделаны позже -->
+        <receiver android:name=".LaunchAppsWidget" android:exported="false">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_launch_apps_info" />
+        </receiver>
+
         <receiver
             android:name=".SetModesConfigReceiver"
             android:enabled="true"
@@ -177,12 +184,6 @@
             android:enabled="true"
             android:exported="false"
             />
-
-        <!-- Direct Apollo bridge. TX58 remains schema/permission/transport/safety gated. -->
-        <service
-            android:name=".ApolloTlcService"
-            android:enabled="true"
-            android:exported="false" />
 
         <service
             android:name=".NowPlayingService"
@@ -237,13 +238,24 @@
             </intent-filter>
         </activity>
 
-        <!-- Хост сплита на VirtualDisplay (per-app DPI + живой ресайз) -->
+        <!-- Удалён RunningAppsActivity — связан с удалённым RunningAppsWidget -->
+
+        <!-- Однопанельный/двухпанельный VirtualDisplay-хост (per-app DPI + живой ресайз) -->
         <activity
             android:name=".SplitHostActivity"
             android:exported="false"
             android:launchMode="singleTop"
             android:resizeableActivity="true"
             android:screenOrientation="landscape"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|density" />
+
+        <activity
+            android:name=".ClusterMediaHostActivity"
+            android:exported="false"
+            android:taskAffinity="ru.big.town.anative.cluster"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen"
+            android:resizeableActivity="true"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|density" />
 
         <!-- «Сейчас играет» — снимок трека + обложка для наших поверхностей (читает RestoreMode/VoyahTune) -->

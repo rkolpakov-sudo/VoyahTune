@@ -6,7 +6,11 @@ import static ru.big.town.anative.SetModesService.STATE_SHUTDOWN_PREPARE;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
+
+import java.util.List;
 
 public class SetModesReceiverDynamic extends BroadcastReceiver {
     public static volatile int repeat = 7;
@@ -55,35 +59,63 @@ public class SetModesReceiverDynamic extends BroadcastReceiver {
 
         }
 
-        // NB: одиночный запуск приложения из слота дока БОЛЬШЕ не идёт на VD (был broadcast LAUNCH_ON_VD →
-        // SplitHostActivity одиночным окном). Теперь одиночное стороннее приложение открывается freeform-окном
-        // на display 0 (launcherdock.js → обычный launch-интент, системный хук vd_bypass ужимает окно). VD
-        // остаётся ТОЛЬКО под сплит ДВУХ приложений (запускается из SetModesService по пресетам). Мёртвый
-        // обработчик LAUNCH_ON_VD удалён.
-
-        // Открытие приложения из дока во freeform (launcherdock делегирует СЮДА, чтобы мы закрыли активный
-        // VD-сплит и запустили приложение ЧИСТО на display 0). Иначе приложение-панель «уехало» бы с VD с
-        // глитчем (чёрное окно). closeActiveSplit force-stop'ит панели → приложение стартует заново; если
-        // сплит был — запускаем с задержкой (teardown асинхронный), иначе сразу. Только full.
+        // Одиночное приложение из дока открываем обычной задачей целевого пакета на физическом дисплее.
+        // Возврат из медиакарточки восстанавливает OEM-карточку и учитывает экран нажатия. Только full.
         if ("ru.big.town.anative.OPEN_FREEFORM".equals(receivedIntent) && BuildConfig.IS_FULL) {
-            // display: на каком экране открыть. Отсутствует → 0 (водительский), т.е. прежнее поведение.
+            // Accept only configured dock packages and the two physical application screens.
             String pkg = intent.getStringExtra("pkg");
-            if (isConfiguredDockPackage(context, pkg)) {
-                openFreeformApp(context, pkg, intent.getIntExtra("display", 0));
+            int displayId = intent.getIntExtra("display", 0);
+            if (displayId != 0 && displayId != 1) {
+                Log.w(TAG, "OPEN_FREEFORM отклонён: неверный physical display " + displayId);
+            } else if (isConfiguredDockPackage(context, pkg)) {
+                openFreeformApp(context, pkg, displayId);
             } else {
                 Log.w(TAG, "OPEN_FREEFORM отклонён: пакет не назначен доку: " + pkg);
             }
         }
 
-        // Открытие СПЛИТА, назначенного слоту дока, по долгому нажатию (launcherdock.js шлёт номер слота).
-        // Детали сплита читаем из Settings.Global — их зеркалит mirrorDock из DOCK_CONFIG (VoyahTune).
-        // SplitHostActivity.launchSplit уходит на VD (обычный движок сплита); коллизии панелей он гасит сам.
-        if ("ru.big.town.anative.OPEN_DOCK_SPLIT".equals(receivedIntent) && BuildConfig.IS_FULL) {
+        // Плитка «Быстрый запуск»: открыть приложение на выбранном физическом дисплее.
+        // 0 — водительский экран, 1 — пассажирский. Как и OPEN_FREEFORM, только в full-сборке.
+        if ("ru.big.town.anative.OPEN_ON_DISPLAY".equals(receivedIntent) && BuildConfig.IS_FULL) {
+            String pkg = intent.getStringExtra("pkg");
+            int displayId = intent.getIntExtra("display", 0);
+            if (displayId != 0 && displayId != 1) {
+                Log.w(TAG, "OPEN_ON_DISPLAY отклонён: неверный physical display " + displayId);
+            } else if (pkg == null || pkg.isEmpty()) {
+                Log.w(TAG, "OPEN_ON_DISPLAY отклонён: пустой пакет");
+            } else {
+                openFreeformApp(context, pkg, displayId);
+            }
+        }
+
+        // Launcher hook routes an allowlisted All Apps tile here so ActivityOptions can normalize a
+        // reused freeform task before the activity is resumed. The exported bridge accepts only the
+        // exact package persisted by the protected fullscreen config receiver.
+        if ("ru.big.town.anative.OPEN_FULLSCREEN".equals(receivedIntent) && BuildConfig.IS_FULL) {
+            String pkg = intent.getStringExtra("pkg");
+            int displayId = intent.getIntExtra("display", 0);
+            if (displayId != 0 && displayId != 1) {
+                Log.w(TAG, "OPEN_FULLSCREEN отклонён: неверный physical display " + displayId);
+            } else if (isConfiguredFullscreenPackage(context, pkg)) {
+                openFreeformApp(context, pkg, displayId);
+            } else {
+                Log.w(TAG, "OPEN_FULLSCREEN отклонён: пакет не в fullscreen-списке: " + pkg);
+            }
+        }
+
+        // Long press resolves only protected slot config: split or the slot app in the cluster.
+        // Keep the legacy action for an older launcher hook during upgrades.
+        if (("ru.big.town.anative.OPEN_DOCK_SPLIT".equals(receivedIntent)
+                || "ru.big.town.anative.OPEN_DOCK_LONG_PRESS".equals(receivedIntent)) && BuildConfig.IS_FULL) {
             int slot = intent.getIntExtra("slot", 0);
             if (slot == 1 || slot == 2) {
                 android.content.ContentResolver cr = context.getContentResolver();
+                String action = android.provider.Settings.Global.getString(cr, "voyahtune_dock" + slot + "LongAction");
                 String has = android.provider.Settings.Global.getString(cr, "voyahtune_dock" + slot + "HasSplit");
-                if ("1".equals(has)) {
+                if ("cluster".equals(action)) {
+                    String pkg = android.provider.Settings.Global.getString(cr, "voyahtune_dock" + slot);
+                    ClusterMediaHostActivity.launch(context, pkg);
+                } else if ((action == null || "split".equals(action)) && "1".equals(has)) {
                     String l = android.provider.Settings.Global.getString(cr, "voyahtune_dock" + slot + "SplitL");
                     String r = android.provider.Settings.Global.getString(cr, "voyahtune_dock" + slot + "SplitR");
                     int ratio = parseIntSafe(android.provider.Settings.Global.getString(cr, "voyahtune_dock" + slot + "SplitRatio"), 1);
@@ -93,6 +125,8 @@ public class SetModesReceiverDynamic extends BroadcastReceiver {
                     float frac = parseFloatSafe(android.provider.Settings.Global.getString(cr, "voyahtune_dock" + slot + "SplitFraction"), 0f);
                     int pIdx = parseIntSafe(android.provider.Settings.Global.getString(cr, "voyahtune_dock" + slot + "SplitPresetIdx"), -1);
                     String pId = android.provider.Settings.Global.getString(cr, "voyahtune_dock" + slot + "SplitPresetId");
+                    ClusterMediaHostActivity.closeForPackage(l);
+                    ClusterMediaHostActivity.closeForPackage(r);
                     SplitHostActivity.launchSplit(context.getApplicationContext(), l, r, ratio, lDpi, rDpi,
                             rsz, frac, pIdx, pId);
                     Log.i(TAG, "OPEN_DOCK_SPLIT slot=" + slot + " " + l + "/" + r + " ratio=" + ratio);
@@ -105,7 +139,7 @@ public class SetModesReceiverDynamic extends BroadcastReceiver {
         // Исполнение назначенного действия кнопки руля. Только full.
         if ("ru.big.town.anative.STEER_ACTION".equals(receivedIntent) && BuildConfig.IS_FULL) {
             String action = intent.getStringExtra("action");
-            if (isConfiguredSteerAction(context, action)) handleSteerAction(context, action);
+            if (isConfiguredSteerAction(context, action)) handleSteerActions(context, action);
             else Log.w(TAG, "STEER_ACTION отклонён: действие не настроено: " + action);
         }
 //        if (receivedIntent.equals("ru.big.town.anative.APPLY_DRIVE_MODES")) {
@@ -125,11 +159,11 @@ public class SetModesReceiverDynamic extends BroadcastReceiver {
 
         // Fallback-триггер пробуждения через броадкасты. Держим его активным всегда (даже если
         // power-listener работает): при рестарте CarService слушатель может «протухнуть», а этот
-        // путь остаётся. Возможные дубли с power-listener гасит дебаунс в ApplyEngine.
+        // путь остаётся. Режимы восстанавливаются отдельно по двери и Drive.
         if (!explicitComponent && (Intent.ACTION_SCREEN_ON.equals(receivedIntent) ||
                 "com.android.server.jobscheduler.GARAGE_MODE_OFF".equals(receivedIntent))) {
             Log.i(TAG, "onReceive ACTION_SCREEN_ON or GARAGE_MODE_OFF");
-            ApplyEngine.scheduleApply(receivedIntent);
+            ApplyEngine.activateWake(receivedIntent);
             if (Intent.ACTION_SCREEN_ON.equals(receivedIntent) && wakeCallback != null) {
                 wakeCallback.run();
             }
@@ -166,16 +200,25 @@ public class SetModesReceiverDynamic extends BroadcastReceiver {
         int dpi = intent.getIntExtra("dock" + slot + "Dpi", 0);
         try {
             android.content.ContentResolver cr = ctx.getContentResolver();
+            String previousPkg = android.provider.Settings.Global.getString(cr, "voyahtune_dock" + slot);
+            if (previousPkg != null && !previousPkg.equals(pkg)) {
+                ClusterMediaHostActivity.closeForPackage(previousPkg);
+            }
             android.provider.Settings.Global.putString(cr, "voyahtune_dock" + slot, pkg);
             android.provider.Settings.Global.putString(cr, "voyahtune_dock" + slot + "Dpi", String.valueOf(dpi));
-            // Per-package DPI для freeform-хука: 0 тоже обязательно зеркалируем. Иначе после выбора
-            // «Авто» в Settings.Global навсегда оставалось старое ненулевое значение для пакета.
+            // Per-package DPI остаётся для VD split-панелей: 0 тоже обязательно зеркалируем. Иначе
+            // после выбора «Авто» в Settings.Global навсегда оставалось старое ненулевое значение.
             if (!"none".equals(pkg)) {
                 android.provider.Settings.Global.putString(cr, "voyahtune_dpi_" + pkg, String.valueOf(dpi));
             }
             // Сплит, открываемый долгим нажатием на слот дока. Флаг HasSplit читает launcherdock.js
             // (гейт долгого тапа), детали (L/R/Ratio/Dpi) — обработчик OPEN_DOCK_SPLIT ниже.
             boolean hasSplit = intent.getBooleanExtra("dock" + slot + "HasSplit", false);
+            String action = intent.getStringExtra("dock" + slot + "LongAction");
+            if (action == null) action = hasSplit ? "split" : "none";
+            if ("none".equals(pkg) || !("split".equals(action) || "cluster".equals(action))) action = "none";
+            hasSplit = hasSplit && "split".equals(action);
+            android.provider.Settings.Global.putString(cr, "voyahtune_dock" + slot + "LongAction", action);
             android.provider.Settings.Global.putString(cr, "voyahtune_dock" + slot + "HasSplit", hasSplit ? "1" : "0");
             if (hasSplit) {
                 android.provider.Settings.Global.putString(cr, "voyahtune_dock" + slot + "SplitL", nz(intent.getStringExtra("dock" + slot + "SplitL")));
@@ -195,6 +238,95 @@ public class SetModesReceiverDynamic extends BroadcastReceiver {
         } catch (Exception e) {
             Log.w(TAG, "mirrorDock " + slot + ": " + e.getMessage());
         }
+    }
+
+    /**
+     * Миграция со сборок, где пассажирские Air/Seat ошибочно предлагались как настраиваемые слоты.
+     * Выполняется при каждом DOCK_CONFIG, чтобы уже записанное на ГУ значение не продолжало влиять
+     * на eternalized launcher hook после обновления без очистки данных приложений.
+     */
+    static void clearLegacyPassengerDock(Context ctx) {
+        try {
+            android.content.ContentResolver cr = ctx.getContentResolver();
+            android.provider.Settings.Global.putString(cr, "voyahtune_dockPassenger1", "none");
+            android.provider.Settings.Global.putString(cr, "voyahtune_dockPassenger2", "none");
+            android.provider.Settings.Global.putString(cr, "voyahtune_dockPassenger1Dpi", "0");
+            android.provider.Settings.Global.putString(cr, "voyahtune_dockPassenger2Dpi", "0");
+        } catch (Exception e) {
+            Log.w(TAG, "clearLegacyPassengerDock: " + e.getMessage());
+        }
+    }
+
+    /** Полный event-driven снимок per-app DPI. Никакого polling: вызывается при изменении и startup/wake. */
+    static void mirrorAppDpi(Context ctx, Intent intent) {
+        String json = intent.getStringExtra("appDpiJson");
+        if (json == null) return;
+        try {
+            android.content.ContentResolver cr = ctx.getContentResolver();
+            org.json.JSONObject values = new org.json.JSONObject(json);
+            java.util.LinkedHashSet<String> next = new java.util.LinkedHashSet<>();
+            java.util.Iterator<String> keys = values.keys();
+            while (keys.hasNext()) {
+                String pkg = keys.next();
+                if (!validPackageName(pkg)) continue;
+                int dpi = sanitizeDpi(values.optInt(pkg, 0));
+                if (dpi <= 0) continue;
+                android.provider.Settings.Global.putString(cr, "voyahtune_dpi_" + pkg,
+                        String.valueOf(dpi));
+                next.add(pkg);
+            }
+
+            String previous = android.provider.Settings.Global.getString(cr,
+                    "voyahtune_dpi_packages");
+            if (previous != null && !previous.isEmpty()) {
+                for (String pkg : previous.split(",")) {
+                    if (validPackageName(pkg) && !next.contains(pkg)) {
+                        android.provider.Settings.Global.putString(cr, "voyahtune_dpi_" + pkg, "0");
+                    }
+                }
+            }
+
+            // Explicit delta closes the first-migration hole when the user changes a previously
+            // unindexed package to «Авто» and the authoritative JSON no longer contains that key.
+            String changedPkg = intent.getStringExtra("changedPkg");
+            if (validPackageName(changedPkg)) {
+                int changedDpi = sanitizeDpi(intent.getIntExtra("changedDpi", 0));
+                android.provider.Settings.Global.putString(cr, "voyahtune_dpi_" + changedPkg,
+                        String.valueOf(changedDpi));
+                if (changedDpi > 0) next.add(changedPkg); else next.remove(changedPkg);
+            }
+            android.provider.Settings.Global.putString(cr, "voyahtune_dpi_packages",
+                    android.text.TextUtils.join(",", next));
+        } catch (Exception e) {
+            Log.w(TAG, "mirrorAppDpi: " + e.getMessage());
+        }
+    }
+
+    /** Launch-time fallback for an app tile if the earlier config broadcast was missed. */
+    static boolean ensureAppDpi(Context ctx, String pkg, int dpi) {
+        if (!validPackageName(pkg)) return false;
+        dpi = sanitizeDpi(dpi);
+        try {
+            android.content.ContentResolver cr = ctx.getContentResolver();
+            String key = "voyahtune_dpi_" + pkg;
+            String wanted = String.valueOf(dpi);
+            String current = android.provider.Settings.Global.getString(cr, key);
+            if (wanted.equals(current)) return false;
+            android.provider.Settings.Global.putString(cr, key, wanted);
+            sendWinReload(ctx);
+            return true;
+        } catch (Exception e) {
+            Log.w(TAG, "ensureAppDpi " + pkg + ": " + e.getMessage());
+            return false;
+        }
+    }
+
+    private static boolean validPackageName(String pkg) {
+        return pkg != null && !pkg.isEmpty() && pkg.matches("[A-Za-z0-9_.]+") && pkg.indexOf('.') > 0;
+    }
+
+    private static int sanitizeDpi(int dpi) {
+        return dpi >= 100 && dpi <= 640 ? dpi : 0;
     }
 
     private static String nz(String s) { return s == null ? "" : s; }
@@ -231,7 +363,21 @@ public class SetModesReceiverDynamic extends BroadcastReceiver {
         return false;
     }
 
-    /** Флаг + bounds «оконного режима» → Settings.Global (читает vd_bypass.js в system_server).
+    /** Публичный launcher bridge принимает только пакет из защищённого fullscreen snapshot. */
+    private static boolean isConfiguredFullscreenPackage(Context ctx, String pkg) {
+        if (pkg == null || pkg.isEmpty()) return false;
+        try {
+            String csv = android.provider.Settings.Global.getString(
+                    ctx.getContentResolver(), "voyahtune_fullscreen_apps");
+            return FullscreenPackagePolicy.contains(csv, pkg);
+        } catch (Exception e) {
+            Log.w(TAG, "fullscreen allowlist unavailable: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /** Флаг + bounds физического «оконного режима» → Settings.Global.
+     *  Два system_server hook читают их в кэш только при attach/WIN_RELOAD, не на каждом layout.
      *  extras: on(boolean, опц.), left/top/right/bottom(int, опц., пишем только >=0). */
     static void mirrorFreeform(Context ctx, Intent intent) {
         try {
@@ -248,8 +394,23 @@ public class SetModesReceiverDynamic extends BroadcastReceiver {
         } catch (Exception e) { Log.w(TAG, "mirrorFreeform: " + e.getMessage()); }
     }
 
-    /** Разбудить system_server-хук freeform: перечитать кэш (флаг/bounds/DPI). Ресивер в vd_bypass.js
-     *  гейтит пермишеном WRITE_SECURE_SETTINGS — доставить может только наш Native (он его держит). */
+    /**
+     * Авторитетный список пакетов, которые обходят physical window clamp. Один и тот же CSV читают
+     * system_server/launcher hooks, а NativePrefs держит accessibility-сервис для forced Назад/Home.
+     */
+    static void mirrorFullscreenApps(Context ctx, Intent intent) {
+        String packages = FullscreenPackagePolicy.normalizeCsv(intent.getStringExtra("packagesCsv"));
+        try {
+            android.provider.Settings.Global.putString(
+                    ctx.getContentResolver(), "voyahtune_fullscreen_apps", packages);
+            BackButtonService.setFullscreenPackages(ctx, packages);
+        } catch (Exception e) {
+            Log.w(TAG, "mirrorFullscreenApps: " + e.getMessage());
+        }
+    }
+
+    /** Разбудить vd_bypass config receiver: перечитать кэш и переустановить WindowManager hooks.
+     *  Receiver гейтится WRITE_SECURE_SETTINGS. */
     static void sendWinReload(Context ctx) {
         try {
             Intent w = new Intent("ru.big.town.anative.WIN_RELOAD");
@@ -258,149 +419,175 @@ public class SetModesReceiverDynamic extends BroadcastReceiver {
         } catch (Exception e) { Log.w(TAG, "sendWinReload: " + e.getMessage()); }
     }
 
+    private static final Handler STEER_SEQUENCE_HANDLER = new Handler(Looper.getMainLooper());
+
+    /** Декодирует назначение и запускает каждый пункт только после terminal callback предыдущего. */
+    private static void handleSteerActions(Context ctx, String configured) {
+        List<String> actions = SteeringActionSequence.decode(configured);
+        if (actions.isEmpty()) return;
+        Log.i(TAG, "STEER_ACTION sequence start, count=" + actions.size());
+        runSteerAction(ctx.getApplicationContext(), actions, 0);
+    }
+
+    private static void runSteerAction(Context ctx, List<String> actions, int index) {
+        if (index >= actions.size()) {
+            Log.i(TAG, "STEER_ACTION sequence complete, count=" + actions.size());
+            return;
+        }
+        String action = actions.get(index);
+        Log.i(TAG, "STEER_ACTION sequence " + (index + 1) + "/" + actions.size() + ": " + action);
+        handleSteerAction(ctx, action, () -> STEER_SEQUENCE_HANDLER.post(
+                () -> runSteerAction(ctx, actions, index + 1)));
+    }
+
     /**
-     * Действие кнопки руля. Циклируем режимы ПО КРУГУ относительно ТЕКУЩЕГО СОХРАНЁННОГО режима (источник
-     * истины — pref RestoreMode, его же восстанавливает ApplyEngine и показывает UI); если текущего нет в
-     * наборе — первый. Одиночный набор → всегда этот режим. Новый режим СОХРАНЯЕМ как «последний
-     * активированный» → переживёт пробуждение и попадёт в настройки VoyahTune.
-     *   energy:&lt;режимы&gt;  — режим энергии;
-     *   drive:&lt;режимы&gt;   — режим вождения;
-     *   recycle:&lt;режимы&gt; — уровень рекуперации.
+     * Один пункт последовательности. Асинхронные CAN-действия вызывают completion через exactly-once
+     * terminal callback ApplyEngine; синхронные действия завершаются сразу после вызова API.
      */
-    private static void handleSteerAction(Context ctx, String action) {
-        if (action == null || action.isEmpty()) return;
+    private static void handleSteerAction(Context ctx, String action, Runnable completion) {
+        if (action == null || action.isEmpty()) {
+            completeSteerAction(completion);
+            return;
+        }
         if (action.startsWith("energy:")) {
-            cycleMode(ctx, action.substring("energy:".length()), "energy");
+            cycleMode(ctx, action.substring("energy:".length()), "energy", completion);
         } else if (action.startsWith("drive:")) {
-            cycleMode(ctx, action.substring("drive:".length()), "driveMode");
+            cycleMode(ctx, action.substring("drive:".length()), "driveMode", completion);
         } else if (action.startsWith("recycle:")) {
-            cycleMode(ctx, action.substring("recycle:".length()), "recycle");
+            cycleMode(ctx, action.substring("recycle:".length()), "recycle", completion);
         } else if ("toggle_forced_ev".equals(action)) {
-            toggleSetting(ctx, "forcedEv");
+            toggleSetting(ctx, "forcedEv", completion);
         } else if ("toggle_pedestrian_sound".equals(action)) {
-            toggleSetting(ctx, "disablePedestrianSound");
+            toggleSetting(ctx, "disablePedestrianSound", completion);
         } else if ("toggle_headlights".equals(action)) {
-            toggleHeadlights(ctx);
+            toggleHeadlights(ctx, completion);
         } else if ("toggle_headlights_auto".equals(action)) {
-            toggleHeadlightsAuto(ctx);
-        } else if ("system_back".equals(action)) {
-            BackButtonService.performBack(ctx);
-        } else if (action.startsWith("app:")) {
-            // Открыть отдельное приложение (freeform-окно на display 0), закрыв активный сплит.
-            openFreeformApp(ctx, action.substring("app:".length()));
-            Log.i(TAG, "STEER_ACTION → приложение " + action.substring("app:".length()));
-        } else if (action.startsWith("split:")) {
-            // Backward-compatible строка: split:<L>,<R>,<ratio>,<lDpi>,<rDpi>[,<resizable>,<fraction>,<presetId>].
-            String[] p = action.substring("split:".length()).split(",");
-            if (p.length >= 3) {
-                try {
-                    int ratio = Integer.parseInt(p[2].trim());
-                    int lDpi  = p.length > 3 ? Integer.parseInt(p[3].trim()) : 0;
-                    int rDpi  = p.length > 4 ? Integer.parseInt(p[4].trim()) : 0;
-                    boolean resizable = p.length > 5 && "1".equals(p[5].trim());
-                    float fraction = p.length > 6 ? parseFloatSafe(p[6], 0f) : 0f;
-                    String presetId = p.length > 7 ? p[7].trim() : "";
-                    SplitHostActivity.launchSplit(ctx.getApplicationContext(), p[0].trim(), p[1].trim(),
-                            ratio, lDpi, rDpi, resizable, fraction, -1, presetId);
-                    Log.i(TAG, "STEER_ACTION → сплит " + p[0] + "/" + p[1] + " ratio=" + ratio);
-                } catch (Exception e) {
-                    Log.w(TAG, "STEER_ACTION split parse: " + e.getMessage());
-                }
-            }
-        } else if ("open_voyahtune".equals(action)) {
-            try {
-                Intent i = new Intent();
-                i.setClassName("ru.big.town.restoremode", "ru.big.town.restoremode.MainActivity");
-                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                DockLaunchGuard.arm(ctx, 0, "ru.big.town.restoremode");
-                android.app.ActivityOptions o = android.app.ActivityOptions.makeBasic();
-                o.setLaunchDisplayId(0);
-                ctx.startActivity(i, o.toBundle());
-                Log.i(TAG, "STEER_ACTION → открыть VoyahTune");
-            } catch (Exception e) {
-                Log.w(TAG, "open VoyahTune failed: " + e.getMessage());
-            }
+            toggleHeadlightsAuto(ctx, completion);
+        } else if (action.startsWith("can:")) {
+            sendCustomCan(action, completion);
         } else {
-            Log.i(TAG, "STEER_ACTION неизвестно: " + action);
+            try {
+                if ("system_back".equals(action)) {
+                    BackButtonService.performBack(ctx);
+                } else if (action.startsWith("app:")) {
+                    // Открыть отдельное приложение (freeform-окно на display 0), закрыв активный сплит.
+                    openFreeformApp(ctx, action.substring("app:".length()));
+                    Log.i(TAG, "STEER_ACTION → приложение " + action.substring("app:".length()));
+                } else if (action.startsWith("split:")) {
+                    launchSteerSplit(ctx, action);
+                } else if (action.startsWith("call:")) {
+                    String number = action.substring("call:".length());
+                    Intent call = new Intent("com.qinggan.broadcast.action.callfromcard");
+                    call.putExtra("dial_number", number);
+                    ctx.sendBroadcast(call);
+                    Log.i(TAG, "STEER_ACTION → вызов номера " + number);
+                } else if ("open_voyahtune".equals(action)) {
+                    openVoyahTune(ctx);
+                } else {
+                    Log.i(TAG, "STEER_ACTION неизвестно: " + action);
+                }
+            } finally {
+                completeSteerAction(completion);
+            }
         }
     }
 
-    /** Открыть приложение freeform-окном на указанном физическом экране: закрываем активный VD-сплит
-     *  (иначе его панели «уехали» бы с VD с глитчем), затем стартуем приложение обычным launch-интентом
-     *  (системный хук vd_bypass ужмёт окно). Общий путь для OPEN_FREEFORM (клик слота дока) и действия
-     *  кнопки руля «app:». */
+    private static void launchSteerSplit(Context ctx, String action) {
+        // Backward-compatible строка: split:<L>,<R>,<ratio>,<lDpi>,<rDpi>[,<resizable>,<fraction>,<presetId>].
+        String[] p = action.substring("split:".length()).split(",");
+        if (p.length >= 3) {
+            try {
+                int ratio = Integer.parseInt(p[2].trim());
+                int lDpi = p.length > 3 ? Integer.parseInt(p[3].trim()) : 0;
+                int rDpi = p.length > 4 ? Integer.parseInt(p[4].trim()) : 0;
+                boolean resizable = p.length > 5 && "1".equals(p[5].trim());
+                float fraction = p.length > 6 ? parseFloatSafe(p[6], 0f) : 0f;
+                String presetId = p.length > 7 ? p[7].trim() : "";
+                SplitHostActivity.launchSplit(ctx.getApplicationContext(), p[0].trim(), p[1].trim(),
+                        ratio, lDpi, rDpi, resizable, fraction, -1, presetId);
+                Log.i(TAG, "STEER_ACTION → сплит " + p[0] + "/" + p[1] + " ratio=" + ratio);
+            } catch (Exception e) {
+                Log.w(TAG, "STEER_ACTION split parse: " + e.getMessage());
+            }
+        }
+    }
+
+    private static void openVoyahTune(Context ctx) {
+        try {
+            Intent i = new Intent();
+            i.setClassName("ru.big.town.restoremode", "ru.big.town.restoremode.MainActivity");
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            DockLaunchGuard.arm(ctx, 0, "ru.big.town.restoremode");
+            android.app.ActivityOptions o = android.app.ActivityOptions.makeBasic();
+            o.setLaunchDisplayId(0);
+            ctx.startActivity(i, o.toBundle());
+            Log.i(TAG, "STEER_ACTION → открыть VoyahTune");
+        } catch (Exception e) {
+            Log.w(TAG, "open VoyahTune failed: " + e.getMessage());
+        }
+    }
+
+    private static void sendCustomCan(String action, Runnable completion) {
+        byte[] frame = SteeringActionSequence.parseCustomCan(action);
+        if (frame == null) {
+            Log.w(TAG, "STEER_ACTION custom CAN отклонён: " + action);
+            completeSteerAction(completion);
+            return;
+        }
+        ApplyEngine.postUserCommand("steer custom CAN", () -> {
+            boolean sent = MainActivity.setCanValues(1, new byte[][] {frame}, "steering custom CAN");
+            Log.i(TAG, "STEER_ACTION custom CAN: " + (sent ? "sent" : "failed"));
+        }, completion);
+    }
+
+    private static void completeSteerAction(Runnable completion) {
+        if (completion != null) completion.run();
+    }
+
+    /** Открыть приложение обычной задачей на физическом экране; vd_bypass.js ужмёт рамку окна. */
     static void openFreeformApp(Context context, String pkg) {
         openFreeformApp(context, pkg, 0);
     }
 
-    /**
-     * displayId: 0 — водительский экран, 1 — пассажирский.
-     *
-     * Целевой экран задаём ВСЕГДА, в том числе 0. Без явного setLaunchDisplayId startActivity с
-     * FLAG_ACTIVITY_NEW_TASK находит УЖЕ СУЩЕСТВУЮЩУЮ задачу приложения и поднимает её НА ТОМ ЭКРАНЕ,
-     * ГДЕ ОНА ЖИВЁТ, а не на дисплее по умолчанию. Из-за этого, если приложение открыто на пассажирском
-     * экране, клик по его иконке в доке главного визуально «ничего не делал»: задача поднималась на
-     * пассажирском. Сворачивание там же не помогало — задача никуда с display 1 не девалась.
-     */
+    /** Always honor the clicked physical display, including when returning from the cluster. */
     static void openFreeformApp(Context context, String pkg, int displayId) {
-        if (pkg == null || pkg.isEmpty()) return;
-        final Context app = context.getApplicationContext();
-        Intent li = app.getPackageManager().getLaunchIntentForPackage(pkg);
-        if (li == null) { Log.w(TAG, "openFreeformApp: нет launch intent для " + pkg); return; }
-        li.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        // Ставим guard ДО teardown сплита: finish SplitHost тоже может запустить dismiss дока раньше,
-        // чем Launcher успеет записать в foreground-кэш пакет нового приложения.
-        DockLaunchGuard.arm(app, displayId, pkg);
-        boolean hadSplit = SplitHostActivity.closeActiveSplit();
-        final Intent fli = li;
-        final android.os.Bundle opts;
-        {
-            android.app.ActivityOptions o = android.app.ActivityOptions.makeBasic();
-            o.setLaunchDisplayId(displayId);
-            opts = o.toBundle();
-        }
-        if (hadSplit) {
-            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                try { app.startActivity(fli, opts); } catch (Exception e) { Log.w(TAG, "openFreeformApp delayed: " + e.getMessage()); }
-            }, 500);
-        } else {
-            try { app.startActivity(fli, opts); } catch (Exception e) { Log.w(TAG, "openFreeformApp: " + e.getMessage()); }
-        }
-        Log.i(TAG, "openFreeformApp pkg=" + pkg + " display=" + displayId + " hadSplit=" + hadSplit);
+        if (pkg == null || pkg.isEmpty() || (displayId != 0 && displayId != 1)) return;
+        Context app = context.getApplicationContext();
+        ClusterMediaHostActivity.closeForPackage(pkg);
+        SplitHostActivity.closeActiveHost();
+        AppDisplayLauncher.launch(app, pkg, displayId,
+                isConfiguredFullscreenPackage(app, pkg), () -> true,
+                () -> android.widget.Toast.makeText(app, "Не удалось открыть приложение",
+                        android.widget.Toast.LENGTH_LONG).show());
     }
 
-    /**
-     * Циклировать режим по CSV-набору ОТНОСИТЕЛЬНО ТЕКУЩЕГО СОХРАНЁННОГО режима (не отдельного дрейфующего
-     * указателя) и послать CAN. Правильный UX первого клика: если сейчас уже comfort, а набор comfort,sport —
-     * первый клик уводит в sport, а не «в пустоту» обратно в comfort. Новый режим сохраняем как «последний
-     * активированный» (MainActivity.persistSavedMode → pref RestoreMode) → переживёт пробуждение + в UI.
-     */
-    private static void cycleMode(Context ctx, String csv, String modeKey) {
+    /** Cycle the vehicle state; only remember-last opt-in updates the saved UI selection. */
+    private static void cycleMode(Context ctx, String csv, String modeKey, Runnable completion) {
         final Context app = ctx.getApplicationContext();
         // Пользовательский выбор должен идти ПОСЛЕ уже запущенного wake-restore, а не параллельно с ним:
         // иначе restore успевал отправить старый snapshot поверх только что выбранного режима.
         ApplyEngine.postUserCommand("steer " + modeKey, () -> {
-            String cur = MainActivity.currentSavedMode(app, modeKey);
+            String cur = MainActivity.currentVehicleMode(app, modeKey);
             String next = SteeringActionPolicy.nextMode(csv, cur);
             if (next == null) return;
             boolean sent = "driveMode".equals(modeKey)
                     ? MainActivity.sendDriveModeCommand(app, next)
-                    : MainActivity.setCanValues(1,
-                            "energy".equals(modeKey) ? MainActivity.getEnergyCanCommand(next)
-                                    : MainActivity.getRecEnergyCanCommand(next),
-                            "steer " + modeKey + " → " + next);
+                    : "energy".equals(modeKey)
+                            ? MainActivity.sendEnergyModeCommand(app, next)
+                            : MainActivity.sendRecuperationModeCommand(app, next);
             if (!sent) {
                 Log.w(TAG, "STEER_ACTION " + modeKey + ": CAN failed, selection not persisted");
                 return;
             }
+            ApplyEngine.noteVehicleMode(modeKey, next);
             MainActivity.persistSavedMode(app, modeKey, next);
             Log.i(TAG, "STEER_ACTION " + modeKey + ": набор=" + csv
                     + " тек=" + cur + " → " + next);
-        });
+        }, completion);
     }
 
     /** Переключить бинарную настройку относительно сохранённого значения, применить CAN и сохранить новый state. */
-    private static void toggleSetting(Context ctx, String key) {
+    private static void toggleSetting(Context ctx, String key, Runnable completion) {
         final Context app = ctx.getApplicationContext();
         ApplyEngine.postUserCommand("steer " + key, () -> {
             boolean current = MainActivity.currentSavedToggle(app, key);
@@ -420,12 +607,14 @@ public class SetModesReceiverDynamic extends BroadcastReceiver {
             }
             MainActivity.persistSavedToggle(app, key, next);
             Log.i(TAG, "STEER_ACTION " + key + ": " + current + " → " + next);
-        });
+        }, completion);
     }
 
     /** Переключить фары теми же CAN-командами, которые использует автоматический свет. */
-    private static void toggleHeadlights(Context ctx) {
+    private static void toggleHeadlights(Context ctx, Runnable completion) {
         final Context app = ctx.getApplicationContext();
+        final ManualAutoGate.Ticket manualTicket =
+                LightSensorService.reserveManualHeadlightCommand();
         ApplyEngine.postUserCommand("steer headlights", () -> {
             android.content.SharedPreferences prefs =
                     app.getSharedPreferences("NativePrefs", Context.MODE_PRIVATE);
@@ -439,12 +628,17 @@ public class SetModesReceiverDynamic extends BroadcastReceiver {
             }
             prefs.edit().putBoolean("steerHeadlightsOn", next).apply();
             Log.i(TAG, "STEER_ACTION headlights: " + current + " → " + next);
+        }, () -> {
+            manualTicket.close();
+            completeSteerAction(completion);
         });
     }
 
     /** Независимая пара для руля: штатный Auto ↔ ручной ближний свет. */
-    private static void toggleHeadlightsAuto(Context ctx) {
+    private static void toggleHeadlightsAuto(Context ctx, Runnable completion) {
         final Context app = ctx.getApplicationContext();
+        final ManualAutoGate.Ticket manualTicket =
+                LightSensorService.reserveManualHeadlightCommand();
         ApplyEngine.postUserCommand("steer headlights auto/low", () -> {
             android.content.SharedPreferences prefs =
                     app.getSharedPreferences("NativePrefs", Context.MODE_PRIVATE);
@@ -461,6 +655,9 @@ public class SetModesReceiverDynamic extends BroadcastReceiver {
             Log.i(TAG, "STEER_ACTION headlights auto/low: "
                     + (currentLowBeam ? "LOW_BEAM" : "AUTO") + " → "
                     + (nextLowBeam ? "LOW_BEAM" : "AUTO"));
+        }, () -> {
+            manualTicket.close();
+            completeSteerAction(completion);
         });
     }
 

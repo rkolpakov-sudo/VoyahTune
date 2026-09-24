@@ -2,9 +2,11 @@ package ru.big.town.restoremode;
 
 import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.app.ActivityManager;
 import android.content.pm.ActivityInfo;
 import android.graphics.Color;
 import android.os.Bundle;
@@ -31,6 +33,7 @@ import android.widget.TextView;
 
 import androidx.activity.EdgeToEdge;
 import androidx.activity.OnBackPressedCallback;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
@@ -43,6 +46,10 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 
 
 public class AdvanceActivity extends AppCompatActivity {
@@ -70,8 +77,25 @@ public class AdvanceActivity extends AppCompatActivity {
     private static final String PREF_SHOW_CUSTOM_COMMANDS = "showCustomCommands";
     private int currentSection;
 
-    // Кнопки на руле — 4 кнопки-пикера действий (звёздочка/DVR × короткое/долгое). Поля/логика ниже.
-    private Button steerStarShortBtn, steerStarLongBtn, steerDvrShortBtn, steerDvrLongBtn, steerVoiceShortBtn, steerVoiceLongBtn, steerPhoneShortBtn, steerPhoneLongBtn;
+    // Диагностика ресурсов — только пока Activity RESUMED и открыт раздел «Другое».
+    private static final long SYSTEM_METRICS_INTERVAL_MS = 5_000L;
+    private TextView textRamStatus, textCpuStatus, textHookStatus;
+    private boolean activityResumed;
+    private volatile boolean systemMetricsActive;
+    private volatile long systemMetricsGeneration;
+    private final Object cpuSampleLock = new Object();
+    private long cpuBaselineGeneration = -1L;
+    private long previousCpuTotal = -1L;
+    private long previousCpuIdle = -1L;
+    private final ExecutorService systemMetricsExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread thread = new Thread(r, "VoyahTune-system-metrics");
+        thread.setPriority(Thread.MIN_PRIORITY);
+        return thread;
+    });
+
+    // Упорядоченные списки действий для 4 кнопок × короткое/долгое нажатие.
+    private LinearLayout steerStarShortList, steerStarLongList, steerDvrShortList, steerDvrLongList,
+            steerVoiceShortList, steerVoiceLongList, steerPhoneShortList, steerPhoneLongList;
 
     // DrivePreferences — единый источник настроек
     private SharedPreferences prefs;
@@ -93,76 +117,22 @@ public class AdvanceActivity extends AppCompatActivity {
     static final int MSG_CLOSE_ALL          = 27;
     static final int MSG_SET_THEME          = 28;
     static final int MSG_APPLY_FORCED_EV    = 35;
-    static final int MSG_APOLLO_QUERY       = 36;
-    static final int MSG_APOLLO_SET_TLC     = 37;
-    static final int MSG_APOLLO_SET_MASTER  = 38;
-    static final int MSG_APOLLO_SET_GLA     = 39;
-    static final int MSG_APOLLO_SET_GLA_SOUND = 40;
-    static final int MSG_APOLLO_SET_TSR     = 41;
-
-    private static final String ACTION_APOLLO_TLC_UPDATE =
-            "ru.big.town.anative.APOLLO_TLC_UPDATE";
-    private static final String ACTION_REQUEST_APOLLO_TLC_UPDATE =
-            "ru.big.town.anative.REQUEST_APOLLO_TLC_UPDATE";
     private static final String NATIVE_PACKAGE = "ru.big.town.anative";
-    private static final String NATIVE_BIND_PERMISSION =
-            "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE";
-    private static final int APOLLO_UNKNOWN = Integer.MIN_VALUE;
 
-    // Apollo Tech всегда отображает только подтверждённое Native состояние. Значения не сохраняются
-    // в RestoreMode prefs: при каждом открытии раздела выполняется read-only запрос к автомобилю.
-    private Switch switchApolloMaster, switchApolloTlc, switchApolloTrafficLights,
+    private static final String ACTION_BATTERY_HEAT_AUTO_CHANGED =
+            "ru.big.town.anative.BATTERY_HEAT_AUTO_CHANGED";
+    private static final String EXTRA_BATTERY_HEAT_AUTO_ENABLED = "autoEnabled";
+    private static final String ACTION_MODE_REMEMBER_CHANGED =
+            "ru.big.town.anative.MODE_REMEMBER_CHANGED";
+    private static final String EXTRA_MODE_KEY = "modeKey";
+    private static final String EXTRA_REMEMBER_LAST = "rememberLast";
+
+    // Apollo Tech owns persisted targets, including the stock subscription/exam UI.
+    private Switch switchApolloSettingsActivation, switchApolloTlc, switchApolloTrafficLights,
             switchApolloTrafficSigns;
     private RadioGroup apolloGreenSoundGroup;
-    private Button buttonApolloForceOff;
-    private TextView textApolloStatus, textApolloDiagnostics, textApolloFullOnly;
-    private View apolloControls;
+    private TextView textApolloSettingsActivationStatus, textApolloStatus, textApolloFullOnly;
     private View apolloGreenSoundContainer;
-    private boolean syncingApolloUi;
-    private boolean apolloHasState;
-    private boolean apolloCanConnected;
-    private boolean apolloProfileSupported;
-    private boolean apolloDirectTlcMode;
-    private boolean apolloMasterKnown;
-    private boolean apolloMasterEnabled;
-    private boolean apolloPending;
-    private int apolloPlcSwitch = APOLLO_UNKNOWN;
-    private int apolloPlcStatus = APOLLO_UNKNOWN;
-    private int apolloAnpSwitch = APOLLO_UNKNOWN;
-    private int apolloTlcCapability = APOLLO_UNKNOWN;
-    private int apolloPlcCapabilitySa = APOLLO_UNKNOWN;
-    private int apolloGear = -1;
-    private int apolloGlaSwitch = APOLLO_UNKNOWN;
-    private int apolloGlaLightChangeSwitch = APOLLO_UNKNOWN;
-    private int apolloTsrSwitch = APOLLO_UNKNOWN;
-    private String apolloError = "";
-
-    private final BroadcastReceiver apolloReceiver = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            if (!ACTION_APOLLO_TLC_UPDATE.equals(intent.getAction())) return;
-            apolloHasState = true;
-            apolloCanConnected = intent.getBooleanExtra("canConnected", false);
-            apolloProfileSupported = intent.getBooleanExtra("profileSupported", false);
-            apolloDirectTlcMode = intent.getBooleanExtra("directTlcMode", false);
-            apolloMasterKnown = intent.getBooleanExtra("masterKnown", false);
-            apolloMasterEnabled = intent.getBooleanExtra("masterEnabled", false);
-            apolloPending = intent.getBooleanExtra("pending", false);
-            apolloPlcSwitch = intent.getIntExtra("plcSwitch", APOLLO_UNKNOWN);
-            apolloPlcStatus = intent.getIntExtra("plcStatus", APOLLO_UNKNOWN);
-            apolloAnpSwitch = intent.getIntExtra("anpSwitch", APOLLO_UNKNOWN);
-            apolloTlcCapability = intent.getIntExtra("tlcCapability", APOLLO_UNKNOWN);
-            apolloPlcCapabilitySa = intent.getIntExtra("plcCapabilitySa", APOLLO_UNKNOWN);
-            apolloGear = intent.getIntExtra("gear", -1);
-            apolloGlaSwitch = intent.getIntExtra("glaSwitch", APOLLO_UNKNOWN);
-            apolloGlaLightChangeSwitch = intent.getIntExtra(
-                    "glaLightChangeSwitch", APOLLO_UNKNOWN);
-            apolloTsrSwitch = intent.getIntExtra("tsrSwitch", APOLLO_UNKNOWN);
-            String error = intent.getStringExtra("error");
-            apolloError = error == null ? "" : error;
-            updateApolloUi();
-        }
-    };
 
     // Кнопка «Применить» (верхняя панель) — блокировка + прогресс на время цикла отправки
     private Button buttonApplyAdvance;
@@ -170,6 +140,7 @@ public class AdvanceActivity extends AppCompatActivity {
     private boolean applying = false;
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
     private final Runnable applyTimeout = () -> setApplying(false);
+    private final Runnable systemMetricsTick = this::sampleSystemMetrics;
     // Свой клиент для приёма MSG_RESULT (реплай сервиса о завершении цикла)
     private final Messenger applyClient = new Messenger(new Handler(Looper.getMainLooper()) {
         @Override
@@ -201,6 +172,9 @@ public class AdvanceActivity extends AppCompatActivity {
             if (modeKey == null) {
                 modeKey = intent.getBooleanExtra("isEnergy", false) ? "energy" : "driveMode";
             }
+            String rememberKey = "energy".equals(modeKey) ? "energyRememberLast"
+                    : "recycle".equals(modeKey) ? "recycleRememberLast" : "driveRememberLast";
+            if (!prefs.getBoolean(rememberKey, true)) return;
             int groupId = "energy".equals(modeKey) ? R.id.energy_modes_group
                     : "recycle".equals(modeKey) ? R.id.recycle_modes_group
                     : R.id.drive_modes_group;
@@ -251,12 +225,7 @@ public class AdvanceActivity extends AppCompatActivity {
     }
 
     private void finishWithCustomCommands() {
-        if (!saveCustomCommands()) {
-            // Невалидный формат: не сохраняем, но НЕ запираем пользователя (иначе back-ловушка).
-            Log.w("$$$ Advance commands $$$", "Неверный формат — выход без сохранения");
-            finish();
-            return;
-        }
+        if (!saveCustomCommands()) return;
         Intent intent = new Intent();
         intent.putExtra("customCommand", canCommandsEditor.getText().toString());
         intent.putExtra("customCommandCount", pickerCustomCommandCount.getValue());
@@ -425,11 +394,9 @@ public class AdvanceActivity extends AppCompatActivity {
                 String input = s.toString().toLowerCase();
                 String filtered = input.replaceAll("[^0-9a-f,\n]", "");
                 String[] q;
-                q=filtered.split("\n", -1);
+                q=filtered.split("\n");
                 StringBuilder formatted = new StringBuilder();
-                for (int li = 0; li < q.length; li++) {
-                    String i = q[li];
-                    boolean endedWithNewline = false;
+                for(String i: q){
                     Log.i("LENGTH i",String.format("%s %d",i,i.length()));
                     for(int j=0; j<i.length(); j++){
                         if(j % 2 == 0){
@@ -438,13 +405,7 @@ public class AdvanceActivity extends AppCompatActivity {
                         formatted.append(i.charAt(j));
                         if(j >= 19){
                            formatted.append("\n");
-                           endedWithNewline = true;
                         }
-                    }
-                    // Сохраняем пользовательский перевод строки между логическими строками,
-                    // если авто-wrap (20 hex + пробелы) его уже не поставил.
-                    if (!endedWithNewline && li < q.length - 1) {
-                        formatted.append("\n");
                     }
                 }
                 Log.i("$$$ LENGTH formatted.length $$$ ",String.format("%d",formatted.length()));
@@ -490,6 +451,9 @@ public class AdvanceActivity extends AppCompatActivity {
         pageApolloTech     = findViewById(R.id.pageApolloTech);
         pageSteeringButtons = findViewById(R.id.pageSteeringButtons);
         pageOther          = findViewById(R.id.pageOther);
+        textRamStatus      = findViewById(R.id.textRamStatus);
+        textCpuStatus      = findViewById(R.id.textCpuStatus);
+        textHookStatus     = findViewById(R.id.textHookStatus);
         navMainScreen.setOnClickListener(v -> setSection(0));
         navDriveModes.setOnClickListener(v -> setSection(1));
         navSplitScreen.setOnClickListener(v -> setSection(2));
@@ -511,13 +475,19 @@ public class AdvanceActivity extends AppCompatActivity {
         }
 
         // Раздел «Главный экран»: тумблеры видимости карточек (по умолчанию все включены)
-        bindShowSwitch(R.id.switchShowTripTimer, "showTripTimer");
-        bindShowSwitch(R.id.switchShowPowerHold, "showPowerHold");
-        bindShowSwitch(R.id.switchShowWashMode,  "showWashMode");
-        bindShowSwitch(R.id.switchShowAutoLight, "showAutoLight");
-        bindShowSwitch(R.id.switchShowPedestrian, "showPedestrian");
-        bindShowSwitch(R.id.switchShowBatteryHeat, "showBatteryHeat");
-        bindShowSwitch(R.id.switchShowForcedEv,   "showForcedEv");
+        bindShowSwitch(R.id.switchShowTripTimer, "showTripTimer", true);
+        bindShowSwitch(R.id.switchShowPowerHold, "showPowerHold", true);
+        bindShowSwitch(R.id.switchShowWashMode,  "showWashMode", true);
+        bindShowSwitch(R.id.switchShowAutoLight, "showAutoLight", true);
+        bindShowSwitch(R.id.switchShowPedestrian, "showPedestrian", true);
+        bindShowSwitch(R.id.switchShowBatteryHeat, "showBatteryHeat", true);
+        bindShowSwitch(R.id.switchShowForcedEv,   "showForcedEv", false);
+        bindShowSwitch(R.id.switchShowLaunchAppsWidget, "showLaunchAppsWidget", false,
+                R.id.launchAppsSizeRow);
+        bindTileSizeSpinners(R.id.launchAppsSettingWidth, R.id.launchAppsSettingHeight,
+                TileSizeStore.LAUNCH_APPS_WIDGET_ID,
+                TileSizeStore.LAUNCH_APPS_DEFAULT_WIDTH, TileSizeStore.LAUNCH_APPS_DEFAULT_HEIGHT);
+        initDialWidgets();
 
         // Сохранение истории поездок (отдельно от таймера). Выкл → Native удалит журнал.
         Switch switchSaveHistory = findViewById(R.id.switchSaveTripHistory);
@@ -532,8 +502,10 @@ public class AdvanceActivity extends AppCompatActivity {
         // Ярлыки приложений на главном — в обоих флейворах (в light открывают приложение обычным
         // способом, в full — на VD). Пресеты сплита и per-app DPI — только в full.
         initAppShortcuts();
+        initAppWidgets();
         initDockOverride();
         if (BuildConfig.IS_FULL) {
+            initFullscreenApps();
             initSplitScreen();
             initAppDpiList();
         }
@@ -541,17 +513,25 @@ public class AdvanceActivity extends AppCompatActivity {
         // Раздел «Настройки автомобиля» (режимы + безопасность + комфорт слиты в один раздел)
         initModeRadios();
         initModeEnableToggles();
+        initModeRememberLastToggles();
+        initFragranceSettings();
         initCheckBox34();
         initPedestrianSoundGroup();
         initForcedEvGroup();
 
-        // Автоматический прогрев батареи: при <10°C на улице Native включит прогрев.
-        // Флаг читает Native из ContentProvider (колонка 17), broadcast не нужен.
+        // Автоматический прогрев батареи: при <10°C на улице Native включит прогрев. После
+        // синхронного обновления in-memory prefs отправляем точное package-targeted событие;
+        // ContentProvider остаётся startup/wake source of truth.
         Switch switchBatteryHeat = findViewById(R.id.switchBatteryHeatAuto);
         if (switchBatteryHeat != null) {
             switchBatteryHeat.setChecked(prefs.getBoolean("batteryHeatAuto", false));
-            switchBatteryHeat.setOnCheckedChangeListener((b, checked) ->
-                    prefs.edit().putBoolean("batteryHeatAuto", checked).apply());
+            switchBatteryHeat.setOnCheckedChangeListener((b, checked) -> {
+                prefs.edit().putBoolean("batteryHeatAuto", checked).apply();
+                Intent changed = new Intent(ACTION_BATTERY_HEAT_AUTO_CHANGED)
+                        .setPackage(NATIVE_PACKAGE)
+                        .putExtra(EXTRA_BATTERY_HEAT_AUTO_ENABLED, checked);
+                sendBroadcast(changed);
+            });
         }
 
         // Автосвет + сервисный режим дворников (были в «Комфорт», теперь в «Настройки автомобиля»)
@@ -577,6 +557,58 @@ public class AdvanceActivity extends AppCompatActivity {
         switchDebugMode.setOnCheckedChangeListener((b, checked) ->
                 prefs.edit().putBoolean("debugMode", checked).apply());
 
+        // Раздел «Другое»: тоггл «Полноэкранная сетка» главного экрана и число растянутых колонок
+        Switch switchFullscreenGrid = findViewById(R.id.switchFullscreenGrid);
+        NumberPicker pickerFullscreenGridColumns = findViewById(R.id.pickerFullscreenGridColumns);
+        pickerFullscreenGridColumns.setMinValue(0);
+        pickerFullscreenGridColumns.setMaxValue(12);
+        pickerFullscreenGridColumns.setTextColor(0xffffffff);
+        pickerFullscreenGridColumns.setTextSize(40f);
+        pickerFullscreenGridColumns.setValue(prefs.getInt("fullscreenGridColumns", 8));
+        pickerFullscreenGridColumns.setOnValueChangedListener((picker, oldValue, newValue) ->
+                prefs.edit().putInt("fullscreenGridColumns", newValue).apply());
+
+        switchFullscreenGrid.setChecked(prefs.getBoolean("fullscreenGrid", false));
+        // Настройка обслуживает только эту фичу: без неё растягивать нечего.
+        pickerFullscreenGridColumns.setEnabled(switchFullscreenGrid.isChecked());
+        switchFullscreenGrid.setOnCheckedChangeListener((b, checked) -> {
+            prefs.edit().putBoolean("fullscreenGrid", checked).apply();
+            pickerFullscreenGridColumns.setEnabled(checked);
+        });
+
+        // Keyboard modifications are optional full-only Frida agents. The agents overlap in the
+        // Qinggan IME, so the two switches expose one mutually-exclusive off/en/ru preference.
+        Switch switchKeyboardEnglish = findViewById(R.id.switchKeyboardEnglish);
+        Switch switchKeyboardRussian = findViewById(R.id.switchKeyboardRussian);
+        if (switchKeyboardEnglish != null && switchKeyboardRussian != null) {
+            String keyboardMode = BuildConfig.IS_FULL
+                    ? SplitConfigSync.normalizeKeyboardMode(prefs.getString("keyboardMode", "off"))
+                    : "off";
+            switchKeyboardEnglish.setChecked("en".equals(keyboardMode));
+            switchKeyboardRussian.setChecked("ru".equals(keyboardMode));
+            switchKeyboardEnglish.setEnabled(BuildConfig.IS_FULL);
+            switchKeyboardRussian.setEnabled(BuildConfig.IS_FULL);
+            final boolean[] updatingKeyboardSwitches = {false};
+            switchKeyboardEnglish.setOnCheckedChangeListener((button, checked) -> {
+                if (updatingKeyboardSwitches[0] || !BuildConfig.IS_FULL) return;
+                updatingKeyboardSwitches[0] = true;
+                if (checked) switchKeyboardRussian.setChecked(false);
+                String mode = checked ? "en" : (switchKeyboardRussian.isChecked() ? "ru" : "off");
+                prefs.edit().putString("keyboardMode", mode).apply();
+                SplitConfigSync.pushKeyboard(this, prefs);
+                updatingKeyboardSwitches[0] = false;
+            });
+            switchKeyboardRussian.setOnCheckedChangeListener((button, checked) -> {
+                if (updatingKeyboardSwitches[0] || !BuildConfig.IS_FULL) return;
+                updatingKeyboardSwitches[0] = true;
+                if (checked) switchKeyboardEnglish.setChecked(false);
+                String mode = checked ? "ru" : (switchKeyboardEnglish.isChecked() ? "en" : "off");
+                prefs.edit().putString("keyboardMode", mode).apply();
+                SplitConfigSync.pushKeyboard(this, prefs);
+                updatingKeyboardSwitches[0] = false;
+            });
+        }
+
         // Раздел «Другое»: показывать скрытый по умолчанию раздел «Собственные команды».
         Switch switchShowCustomCommands = findViewById(R.id.switchShowCustomCommands);
         switchShowCustomCommands.setChecked(prefs.getBoolean(PREF_SHOW_CUSTOM_COMMANDS, false));
@@ -593,7 +625,7 @@ public class AdvanceActivity extends AppCompatActivity {
                 // Флаг читает Native из ContentProvider (единый источник) — broadcast не нужен.
                 prefs.edit().putBoolean("autoLaunchOnWake", checked).apply());
 
-        // Раздел «Другое»: тоггл «Плавающая кнопка Назад» (по умолчанию выключено)
+        // Раздел «Другое»: тоггл плавающих кнопок Назад/Home (по умолчанию выключено)
         Switch switchFloatingBack = findViewById(R.id.switchFloatingBack);
         switchFloatingBack.setChecked(prefs.getBoolean("floatingBackButton", false));
         switchFloatingBack.setOnCheckedChangeListener((b, checked) -> {
@@ -636,6 +668,68 @@ public class AdvanceActivity extends AppCompatActivity {
         // Раздел «Кнопки на руле» (Frida-перехват кнопки-звёздочки) — только в full.
         if (BuildConfig.IS_FULL) {
             initSteeringButtons();
+        }
+    }
+
+    private void initDialWidgets() {
+        android.widget.LinearLayout container = findViewById(R.id.dialWidgetsContainer);
+        Button addButton = findViewById(R.id.buttonAddDialWidget);
+        addButton.setOnClickListener(v -> {
+            List<DialWidgetStore.Entry> entries = DialWidgetStore.load(prefs);
+            if (entries.size() >= DialWidgetStore.MAX_COUNT) {
+                android.widget.Toast.makeText(this, "Достигнут лимит 100 карточек",
+                        android.widget.Toast.LENGTH_SHORT).show();
+                return;
+            }
+            entries.add(new DialWidgetStore.Entry());
+            DialWidgetStore.save(prefs, entries);
+            TileOrderStore.sync(prefs, getPackageManager());
+            renderDialWidgets(container);
+        });
+        renderDialWidgets(container);
+    }
+
+    private void renderDialWidgets(android.widget.LinearLayout container) {
+        container.removeAllViews();
+        LayoutInflater inflater = LayoutInflater.from(this);
+        for (DialWidgetStore.Entry entry : DialWidgetStore.load(prefs)) {
+            View row = inflater.inflate(R.layout.item_dial_widget_setting, container, false);
+            EditText name = row.findViewById(R.id.dialSettingName);
+            EditText number = row.findViewById(R.id.dialSettingNumber);
+            name.setText(entry.name);
+            number.setText(entry.number);
+            row.findViewById(R.id.dialSettingSave).setOnClickListener(v -> {
+                String valueName = name.getText().toString().trim();
+                String valueNumber = number.getText().toString().replaceAll("[^0-9]", "");
+                if (valueName.isEmpty()) {
+                    name.setError("Введите имя");
+                    return;
+                }
+                if (valueNumber.length() < 4 || valueNumber.length() > 10) {
+                    number.setError("Введите от 4 до 10 цифр");
+                    return;
+                }
+                List<DialWidgetStore.Entry> entries = DialWidgetStore.load(prefs);
+                for (DialWidgetStore.Entry current : entries) {
+                    if (current.id.equals(entry.id)) {
+                        current.name = valueName;
+                        current.number = valueNumber;
+                        break;
+                    }
+                }
+                DialWidgetStore.save(prefs, entries);
+                TileOrderStore.sync(prefs, getPackageManager());
+                android.widget.Toast.makeText(this, "Карточка сохранена",
+                        android.widget.Toast.LENGTH_SHORT).show();
+            });
+            row.findViewById(R.id.dialSettingDelete).setOnClickListener(v -> {
+                List<DialWidgetStore.Entry> entries = DialWidgetStore.load(prefs);
+                entries.removeIf(current -> current.id.equals(entry.id));
+                DialWidgetStore.save(prefs, entries);
+                TileOrderStore.sync(prefs, getPackageManager());
+                renderDialWidgets(container);
+            });
+            container.addView(row);
         }
     }
 
@@ -688,21 +782,79 @@ public class AdvanceActivity extends AppCompatActivity {
         applying = on;
         if (buttonApplyAdvance != null) buttonApplyAdvance.setEnabled(!on);
         if (applyProgressAdvance != null) {
-            applyProgressAdvance.setVisibility(on && currentSection != 3 ? View.VISIBLE : View.GONE);
+            applyProgressAdvance.setVisibility(on ? View.VISIBLE : View.GONE);
         }
         uiHandler.removeCallbacks(applyTimeout);
         if (on) uiHandler.postDelayed(applyTimeout, 12000); // страховка, если MSG_RESULT не придёт
     }
 
     /** Тумблер видимости карточки на главном экране: пишет флаг в DrivePreferences (MainActivity читает в onResume). */
-    private void bindShowSwitch(int switchId, String key) {
-        Switch sw = findViewById(switchId);
-        if (sw == null) return;
-        sw.setChecked(prefs.getBoolean(key, true));
-        sw.setOnCheckedChangeListener((b, checked) -> prefs.edit().putBoolean(key, checked).apply());
+    private void bindShowSwitch(int switchId, String key, boolean def) {
+        bindShowSwitch(switchId, key, def, 0);
     }
 
-    /** Вкл/выкл плавающую кнопку «Назад» — шлём в SetModesService (тот правит secure settings). */
+    /** Вариант с зависимым блоком: он виден только когда тумблер включён. */
+    private void bindShowSwitch(int switchId, String key, boolean def, int dependentId) {
+        Switch sw = findViewById(switchId);
+        if (sw == null) return;
+        View dependent = dependentId == 0 ? null : findViewById(dependentId);
+        boolean checked = prefs.getBoolean(key, def);
+        sw.setChecked(checked);
+        if (dependent != null) dependent.setVisibility(checked ? View.VISIBLE : View.GONE);
+        sw.setOnCheckedChangeListener((b, on) -> {
+            prefs.edit().putBoolean(key, on).apply();
+            if (dependent != null) dependent.setVisibility(on ? View.VISIBLE : View.GONE);
+        });
+    }
+
+    /**
+     * Спиннеры Ш×В для плитки главного экрана: значения хранит TileSizeStore.
+     * MainActivity перечитывает размер в onResume и применяет его при следующем рендере сетки.
+     */
+    private void bindTileSizeSpinners(int widthSpinnerId, int heightSpinnerId, String widgetId,
+                                      int defaultWidth, int defaultHeight) {
+        android.widget.Spinner widthSpinner = findViewById(widthSpinnerId);
+        android.widget.Spinner heightSpinner = findViewById(heightSpinnerId);
+        if (widthSpinner == null || heightSpinner == null) return;
+
+        String[] widths = {"1 ячейка", "2 ячейки", "3 ячейки", "4 ячейки", "5 ячеек", "6 ячеек",
+                           "7 ячеек", "8 ячеек", "9 ячеек", "10 ячеек", "11 ячеек", "12 ячеек"};
+        android.widget.ArrayAdapter<String> widthAdapter =
+                new android.widget.ArrayAdapter<>(this, R.layout.spinner_item, widths);
+        widthAdapter.setDropDownViewResource(R.layout.spinner_dropdown_item);
+        widthSpinner.setAdapter(widthAdapter);
+        widthSpinner.setSelection(TileSizeStore.width(prefs, widgetId, defaultWidth) - 1);
+        widthSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view,
+                                                  int position, long id) {
+                // setSelection() при открытии экрана тоже зовёт этот колбэк — пишем только реальную смену.
+                if (TileSizeStore.width(prefs, widgetId, defaultWidth) != position + 1) {
+                    TileSizeStore.setWidth(prefs, widgetId, position + 1);
+                }
+            }
+
+            @Override public void onNothingSelected(android.widget.AdapterView<?> parent) { }
+        });
+
+        String[] heights = {"1 ячейка", "2 ячейки", "3 ячейки", "4 ячейки", "5 ячеек"};
+        android.widget.ArrayAdapter<String> heightAdapter =
+                new android.widget.ArrayAdapter<>(this, R.layout.spinner_item, heights);
+        heightAdapter.setDropDownViewResource(R.layout.spinner_dropdown_item);
+        heightSpinner.setAdapter(heightAdapter);
+        heightSpinner.setSelection(TileSizeStore.height(prefs, widgetId, defaultHeight) - 1);
+        heightSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view,
+                                                  int position, long id) {
+                if (TileSizeStore.height(prefs, widgetId, defaultHeight) != position + 1) {
+                    TileSizeStore.setHeight(prefs, widgetId, position + 1);
+                }
+            }
+
+            @Override public void onNothingSelected(android.widget.AdapterView<?> parent) { }
+        });
+    }
+
+    /** Вкл/выкл плавающие кнопки Назад/Home — шлём в SetModesService (тот правит secure settings). */
     private void sendFloatingBack(boolean enable) {
         if (!GlobalVars.isBound || GlobalVars.serviceMessenger == null) {
             Log.w("$$$ Advance floatBack $$$", "SetModesService не забинден");
@@ -815,7 +967,7 @@ public class AdvanceActivity extends AppCompatActivity {
     // -------------------------------------------------------------------------
     // Системный док — переопределение приложений в доке лаунчера (слоты 1 и 2).
     // Выбранные пакеты хранятся в DrivePreferences (dockOverride1/2 + *Label); их читает
-    // Frida-хук в процессе лаунчера, чтобы подменить ярлыки дока и открывать их на нашем VD.
+    // Frida-хук в процессе лаунчера, чтобы подменить ярлыки и запускать обычную задачу на экране водителя.
     // -------------------------------------------------------------------------
     private Button dockApp1Btn, dockApp2Btn;
     private Button dockSplit1Btn, dockSplit2Btn;
@@ -852,17 +1004,16 @@ public class AdvanceActivity extends AppCompatActivity {
     }
 
     /** Выбор сплита, открываемого долгим нажатием на слот дока. Список — только «готовые» пресеты
-     *  (оба приложения выбраны). «Нет» снимает назначение. Хранится стабильный id пресета
-     *  (dockOverride&lt;slot&gt;SplitId); legacy int-индекс dockOverride&lt;slot&gt;Split мигрирует. */
+     *  (оба приложения выбраны). «Нет» снимает назначение. Индекс пресета хранится в dockOverride&lt;slot&gt;Split. */
     private void pickDockSplit(int slot) {
         final java.util.List<SplitStore.Preset> all = SplitStore.load(prefs);
-        final java.util.List<String> readyId = new java.util.ArrayList<>();
+        final java.util.List<Integer> readyIdx = new java.util.ArrayList<>();
         final java.util.List<CharSequence> labels = new java.util.ArrayList<>();
         labels.add("Нет (только открыть приложение)");
         for (int i = 0; i < all.size(); i++) {
             SplitStore.Preset ps = all.get(i);
             if (ps.ready()) {
-                readyId.add(ps.id);
+                readyIdx.add(i);
                 labels.add((ps.ll.isEmpty() ? ps.l : ps.ll) + "  /  " + (ps.rl.isEmpty() ? ps.r : ps.rl));
             }
         }
@@ -871,11 +1022,10 @@ public class AdvanceActivity extends AppCompatActivity {
                 .setItems(labels.toArray(new CharSequence[0]), (d, which) -> {
                     if (which == 0) {
                         prefs.edit().remove("dockOverride" + slot + "Split")
-                                    .remove("dockOverride" + slot + "SplitId")
                                     .remove("dockOverride" + slot + "SplitLabel").apply();
                     } else {
-                        prefs.edit().remove("dockOverride" + slot + "Split")
-                                    .putString("dockOverride" + slot + "SplitId", readyId.get(which - 1))
+                        int idx = readyIdx.get(which - 1);
+                        prefs.edit().putInt("dockOverride" + slot + "Split", idx)
                                     .putString("dockOverride" + slot + "SplitLabel", labels.get(which).toString()).apply();
                     }
                     refreshDockButtons();
@@ -888,9 +1038,7 @@ public class AdvanceActivity extends AppCompatActivity {
     private void clearDockApp(int slot) {
         // Слот сброшен → назначение сплита на этот слот теряет смысл, чистим и его.
         prefs.edit().remove("dockOverride" + slot).remove("dockOverride" + slot + "Label")
-                    .remove("dockOverride" + slot + "Split")
-                    .remove("dockOverride" + slot + "SplitId")
-                    .remove("dockOverride" + slot + "SplitLabel").apply();
+                    .remove("dockOverride" + slot + "Split").remove("dockOverride" + slot + "SplitLabel").apply();
         refreshDockButtons();
         pushDockConfig();
         com.google.android.material.snackbar.Snackbar.make(findViewById(R.id.main),
@@ -933,17 +1081,37 @@ public class AdvanceActivity extends AppCompatActivity {
             String pkg = ri.activityInfo.packageName;
             if (!map.containsKey(pkg)) map.put(pkg, ri.loadLabel(pm).toString());
         }
+
         final java.util.List<String> pkgs = new java.util.ArrayList<>(map.keySet());
-        java.util.Collections.sort(pkgs, (a, b) -> map.get(a).compareToIgnoreCase(map.get(b)));
+
+        // Кастомная сортировка: системные в конце
+        java.util.Collections.sort(pkgs, (a, b) -> {
+            boolean aIsCom = isSystemApp(a);
+            boolean bIsCom = isSystemApp(b);
+
+            if (aIsCom && !bIsCom) return 1;  // a (com) после b (не com)
+            if (!aIsCom && bIsCom) return -1; // a (не com) перед b (com)
+
+            // Если оба com.* или оба не com.* — сортируем по имени
+            return map.get(a).compareToIgnoreCase(map.get(b));
+        });
 
         final CharSequence[] items = new CharSequence[pkgs.size()];
-        for (int i = 0; i < pkgs.size(); i++) items[i] = map.get(pkgs.get(i)) + "  ·  " + pkgs.get(i);
+        for (int i = 0; i < pkgs.size(); i++) {
+            items[i] = map.get(pkgs.get(i)) + "  ·  " + pkgs.get(i);
+        }
 
         new com.google.android.material.dialog.MaterialAlertDialogBuilder(this, R.style.DarkDialog)
                 .setTitle(title)
                 .setItems(items, (d, which) -> cb.onPicked(pkgs.get(which), map.get(pkgs.get(which))))
                 .setNegativeButton("Отмена", null)
                 .show();
+    }
+    private boolean isSystemApp(String packageName) {
+        return packageName.startsWith("com.qinggan")  || packageName.startsWith("com.bz")  || packageName.startsWith("com.android")
+                || packageName.startsWith("com.tencent")  || packageName.startsWith("com.huawei")  || packageName.startsWith("com.mega")
+                || packageName.startsWith("com.thunder")  || packageName.startsWith("com.pateo")   || packageName.startsWith("com.baidu")
+                || packageName.startsWith("com.richauto");
     }
 
     /**
@@ -976,6 +1144,8 @@ public class AdvanceActivity extends AppCompatActivity {
             if (!list.contains(pkg)) {
                 list.add(pkg);
                 AppShortcutStore.save(prefs, list);
+                // Синхронизировать порядок плиток
+                TileOrderStore.sync(prefs, getPackageManager());
                 renderAppShortcuts();
             }
         });
@@ -1005,9 +1175,261 @@ public class AdvanceActivity extends AppCompatActivity {
                 java.util.List<String> l2 = AppShortcutStore.load(prefs);
                 l2.remove(pkg);
                 AppShortcutStore.save(prefs, l2);
+                // Синхронизировать порядок плиток
+                TileOrderStore.sync(prefs, getPackageManager());
                 renderAppShortcuts();
             });
             appShortcutsContainer.addView(row);
+        }
+    }
+
+    private android.widget.LinearLayout appWidgetsContainer;
+
+    private void initAppWidgets() {
+        appWidgetsContainer = findViewById(R.id.appWidgetsContainer);
+        renderAppWidgets();
+    }
+
+    /** Создать виджет приложения через тот же picker, что и обычные ярлыки. */
+    public void onAddAppWidget(View v) {
+        if (AppWidgetStore.load(prefs).size() >= AppWidgetStore.MAX_WIDGETS) {
+            com.google.android.material.snackbar.Snackbar.make(findViewById(R.id.main),
+                    "Можно создать не более 20 виджетов", com.google.android.material.snackbar.Snackbar.LENGTH_LONG).show();
+            return;
+        }
+        showAppPicker("Приложение для виджета", (pkg, label) -> {
+            AppWidgetStore.add(prefs, pkg);
+            TileOrderStore.sync(prefs, getPackageManager());
+            renderAppWidgets();
+        });
+    }
+
+    private void renderAppWidgets() {
+        if (appWidgetsContainer == null) return;
+        appWidgetsContainer.removeAllViews();
+        android.content.pm.PackageManager pm = getPackageManager();
+        LayoutInflater inf = LayoutInflater.from(this);
+        for (AppWidgetStore.Entry entry : AppWidgetStore.load(prefs)) {
+            View row = inf.inflate(R.layout.item_app_widget_setting, appWidgetsContainer, false);
+            android.widget.ImageView icon = row.findViewById(R.id.appWidgetSettingIcon);
+            TextView label = row.findViewById(R.id.appWidgetSettingLabel);
+            ImageButton delete = row.findViewById(R.id.appWidgetSettingDelete);
+            android.widget.Spinner widthSpinner = row.findViewById(R.id.appWidgetSettingWidth);
+            android.widget.Spinner heightSpinner = row.findViewById(R.id.appWidgetSettingHeight);
+            android.widget.Switch autoStart = row.findViewById(R.id.appWidgetSettingAutoStart);
+            android.widget.LinearLayout profilesContainer = row.findViewById(R.id.appWidgetProfiles);
+            Button addProfile = row.findViewById(R.id.appWidgetAddProfile);
+            String name = entry.packageName;
+            try {
+                android.content.pm.ApplicationInfo info = pm.getApplicationInfo(entry.packageName, 0);
+                name = pm.getApplicationLabel(info).toString();
+                icon.setImageDrawable(pm.getApplicationIcon(info));
+            } catch (Exception ignored) {
+            }
+            label.setText("Виджет: " + name);
+            android.widget.ArrayAdapter<String> widthAdapter = new android.widget.ArrayAdapter<>(this,
+                    R.layout.spinner_item, new String[]{"1 ячейка", "2 ячейки",
+                    "3 ячейки", "4 ячейки", "5 ячеек",
+                    "6 ячеек", "7 ячеек", "8 ячеек",
+                    "9 ячеек", "10 ячеек", "11 ячеек",
+                    "12 ячеек"});
+            widthAdapter.setDropDownViewResource(R.layout.spinner_dropdown_item);
+            widthSpinner.setAdapter(widthAdapter);
+            widthSpinner.setSelection(AppWidgetStore.clampWidth(entry.width) - 1);
+            widthSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+                @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view,
+                                                      int position, long id) {
+                    int value = position + 1;
+                    if (entry.width != value) {
+                        entry.width = value;
+                        AppWidgetStore.update(prefs, entry);
+                        TileOrderStore.sync(prefs, getPackageManager());
+                    }
+                }
+
+                @Override public void onNothingSelected(android.widget.AdapterView<?> parent) { }
+            });
+            android.widget.ArrayAdapter<String> heightAdapter = new android.widget.ArrayAdapter<>(this,
+                    R.layout.spinner_item, new String[]{"1 ячейка", "2 ячейки",
+                    "3 ячейки", "4 ячейки", "5 ячеек"});
+            heightAdapter.setDropDownViewResource(R.layout.spinner_dropdown_item);
+            heightSpinner.setAdapter(heightAdapter);
+            heightSpinner.setSelection(AppWidgetStore.clampHeight(entry.height) - 1);
+            heightSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+                @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view,
+                                                      int position, long id) {
+                    int value = position + 1;
+                    if (entry.height != value) {
+                        entry.height = value;
+                        AppWidgetStore.update(prefs, entry);
+                        TileOrderStore.sync(prefs, getPackageManager());
+                    }
+                }
+
+                @Override public void onNothingSelected(android.widget.AdapterView<?> parent) { }
+            });
+            autoStart.setChecked(entry.autoStart);
+            
+            View delayContainer = row.findViewById(R.id.appWidgetDelayContainer);
+            android.widget.SeekBar delaySeek = row.findViewById(R.id.appWidgetSettingDelay);
+            TextView delayText = row.findViewById(R.id.appWidgetSettingDelayText);
+            
+            delayContainer.setVisibility(entry.autoStart ? View.VISIBLE : View.GONE);
+            delaySeek.setProgress(entry.autoStartDelay - 1);
+            delayText.setText(entry.autoStartDelay + " сек");
+            
+            delaySeek.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+                @Override
+                public void onProgressChanged(android.widget.SeekBar seekBar, int progress, boolean fromUser) {
+                    int val = progress + 1;
+                    delayText.setText(val + " сек");
+                    if (fromUser) {
+                        entry.autoStartDelay = val;
+                        AppWidgetStore.update(prefs, entry);
+                    }
+                }
+                @Override public void onStartTrackingTouch(android.widget.SeekBar seekBar) {}
+                @Override public void onStopTrackingTouch(android.widget.SeekBar seekBar) {}
+            });
+
+            autoStart.setOnCheckedChangeListener((button, checked) -> {
+                entry.autoStart = checked;
+                delayContainer.setVisibility(checked ? View.VISIBLE : View.GONE);
+                AppWidgetStore.update(prefs, entry);
+                TileOrderStore.sync(prefs, getPackageManager());
+            });
+            entry.ensureProfiles();
+            renderAppWidgetProfiles(profilesContainer, entry);
+            addProfile.setOnClickListener(v -> showAppPicker("Добавить приложение в виджет", (pkg, pickedLabel) -> {
+                AppWidgetStore.addProfile(entry, pkg, AppWidgetStore.DEFAULT_DPI);
+                AppWidgetStore.update(prefs, entry);
+                TileOrderStore.sync(prefs, getPackageManager());
+                renderAppWidgets();
+            }));
+            delete.setContentDescription("Убрать виджет приложения");
+            delete.setOnClickListener(v -> {
+                AppWidgetStore.remove(prefs, entry.id);
+                TileOrderStore.sync(prefs, getPackageManager());
+                renderAppWidgets();
+            });
+            appWidgetsContainer.addView(row);
+        }
+    }
+
+    private void renderAppWidgetProfiles(android.widget.LinearLayout container, AppWidgetStore.Entry entry) {
+        container.removeAllViews();
+        android.content.pm.PackageManager pm = getPackageManager();
+        for (int index = 0; index < entry.profiles.size(); index++) {
+            final int profileIndex = index;
+            AppWidgetStore.Profile profile = entry.profiles.get(index);
+            View profileView = LayoutInflater.from(this).inflate(
+                    R.layout.item_app_widget_profile, container, false);
+            android.widget.ImageView icon = profileView.findViewById(R.id.appWidgetProfileIcon);
+            TextView label = profileView.findViewById(R.id.appWidgetProfileLabel);
+            android.widget.Spinner dpi = profileView.findViewById(R.id.appWidgetProfileDpi);
+            ImageButton remove = profileView.findViewById(R.id.appWidgetProfileDelete);
+            try {
+                android.content.pm.ApplicationInfo info = pm.getApplicationInfo(profile.packageName, 0);
+                icon.setImageDrawable(pm.getApplicationIcon(info));
+                label.setText(pm.getApplicationLabel(info));
+            } catch (Exception ignored) {
+                label.setText(profile.packageName);
+            }
+            String[] labels = new String[AppWidgetStore.DPI_VALUES.length];
+            int selected = 0;
+            for (int dpiIndex = 0; dpiIndex < AppWidgetStore.DPI_VALUES.length; dpiIndex++) {
+                int value = AppWidgetStore.DPI_VALUES[dpiIndex];
+                labels[dpiIndex] = value == 0 ? "Авто" : String.valueOf(value);
+                if (value == AppWidgetStore.normalizeDpi(profile.dpi)) selected = dpiIndex;
+            }
+            android.widget.ArrayAdapter<String> dpiAdapter = new android.widget.ArrayAdapter<>(this,
+                    R.layout.spinner_item, labels);
+            dpiAdapter.setDropDownViewResource(R.layout.spinner_dropdown_item);
+            dpi.setAdapter(dpiAdapter);
+            dpi.setSelection(selected);
+            dpi.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+                @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view,
+                                                      int position, long id) {
+                    int value = AppWidgetStore.DPI_VALUES[position];
+                    if (profile.dpi != value) {
+                        profile.dpi = value;
+                        AppWidgetStore.update(prefs, entry);
+                        TileOrderStore.sync(prefs, getPackageManager());
+                    }
+                }
+
+                @Override public void onNothingSelected(android.widget.AdapterView<?> parent) { }
+            });
+            remove.setVisibility(entry.profiles.size() > 1 ? View.VISIBLE : View.GONE);
+            remove.setOnClickListener(v -> {
+                AppWidgetStore.removeProfile(entry, profileIndex);
+                AppWidgetStore.update(prefs, entry);
+                TileOrderStore.sync(prefs, getPackageManager());
+                renderAppWidgets();
+            });
+            container.addView(profileView);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Полноэкранные приложения — исключения из physical window clamp
+    // -------------------------------------------------------------------------
+    private android.widget.LinearLayout fullscreenAppsContainer;
+
+    private void initFullscreenApps() {
+        fullscreenAppsContainer = findViewById(R.id.fullscreenAppsContainer);
+        renderFullscreenApps();
+    }
+
+    public void onAddFullscreenApp(View v) {
+        showAppPicker("Добавить полноэкранное приложение", (pkg, label) -> {
+            if (pkg.startsWith("ru.big.town")) {
+                com.google.android.material.snackbar.Snackbar.make(
+                        findViewById(R.id.main),
+                        "Экраны VoyahTune используют собственную системную раскладку",
+                        com.google.android.material.snackbar.Snackbar.LENGTH_LONG).show();
+                return;
+            }
+            java.util.List<String> packages = FullscreenAppStore.load(prefs);
+            if (!packages.contains(pkg)) {
+                packages.add(pkg);
+                saveFullscreenApps(packages);
+            }
+        });
+    }
+
+    private void saveFullscreenApps(java.util.List<String> packages) {
+        FullscreenAppStore.save(prefs, packages);
+        SplitConfigSync.pushFullscreenApps(this, prefs);
+        renderFullscreenApps();
+    }
+
+    private void renderFullscreenApps() {
+        if (fullscreenAppsContainer == null) return;
+        fullscreenAppsContainer.removeAllViews();
+        java.util.List<String> packages = FullscreenAppStore.load(prefs);
+        android.content.pm.PackageManager pm = getPackageManager();
+        LayoutInflater inflater = LayoutInflater.from(this);
+        for (String pkg : packages) {
+            View row = inflater.inflate(R.layout.item_app_shortcut, fullscreenAppsContainer, false);
+            android.widget.ImageView icon = row.findViewById(R.id.shortcutIco);
+            TextView label = row.findViewById(R.id.shortcutLabel);
+            ImageButton delete = row.findViewById(R.id.shortcutDelete);
+            String name = pkg;
+            try {
+                android.content.pm.ApplicationInfo info = pm.getApplicationInfo(pkg, 0);
+                name = pm.getApplicationLabel(info).toString();
+                icon.setImageDrawable(pm.getApplicationIcon(info));
+            } catch (Exception ignored) {
+            }
+            label.setText(name);
+            delete.setContentDescription("Убрать из полноэкранных приложений");
+            delete.setOnClickListener(v -> {
+                java.util.List<String> next = FullscreenAppStore.load(prefs);
+                next.remove(pkg);
+                saveFullscreenApps(next);
+            });
+            fullscreenAppsContainer.addView(row);
         }
     }
 
@@ -1032,6 +1454,8 @@ public class AdvanceActivity extends AppCompatActivity {
     /** Пресеты зеркалятся в dock/steering Settings.Global, поэтому одной записи JSON недостаточно. */
     private void saveSplitPresets(java.util.List<SplitStore.Preset> list) {
         SplitStore.save(prefs, list);
+        // Синхронизировать порядок плиток
+        TileOrderStore.sync(prefs, getPackageManager());
         SplitConfigSync.pushAll(this, prefs);
     }
 
@@ -1162,7 +1586,11 @@ public class AdvanceActivity extends AppCompatActivity {
             sp.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
                 @Override
                 public void onItemSelected(android.widget.AdapterView<?> parent, View v, int pos, long id) {
-                    if (DPI_VALUES[pos] != AppDpiStore.get(prefs, fpkg)) AppDpiStore.set(prefs, fpkg, DPI_VALUES[pos]);
+                    int dpi = DPI_VALUES[pos];
+                    if (dpi != AppDpiStore.get(prefs, fpkg)) {
+                        AppDpiStore.set(prefs, fpkg, dpi);
+                        SplitConfigSync.pushAppDpi(AdvanceActivity.this, prefs, fpkg, dpi);
+                    }
                 }
                 @Override
                 public void onNothingSelected(android.widget.AdapterView<?> parent) { }
@@ -1244,507 +1672,250 @@ public class AdvanceActivity extends AppCompatActivity {
         if (navSteeringButtons != null)  navSteeringButtons.setSelected(index == 5);
         if (navOther != null)            navOther.setSelected(index == 6);
 
-        // Apollo-переключатели применяются немедленно отдельными guarded-командами.
         if (buttonApplyAdvance != null) {
-            buttonApplyAdvance.setVisibility(index == 3 ? View.GONE : View.VISIBLE);
+            buttonApplyAdvance.setVisibility(View.VISIBLE);
         }
         if (applyProgressAdvance != null) {
-            applyProgressAdvance.setVisibility(index != 3 && applying ? View.VISIBLE : View.GONE);
+            applyProgressAdvance.setVisibility(applying ? View.VISIBLE : View.GONE);
         }
-        if (index == 3) requestApolloState();
+        updateSystemMetricsPolling();
+    }
+
+    /** Старт/стоп строго следует видимости раздела; вне «Другого» callbacks полностью отсутствуют. */
+    private void updateSystemMetricsPolling() {
+        boolean shouldRun = activityResumed && currentSection == 6 && !isFinishing();
+        if (shouldRun == systemMetricsActive) return;
+        systemMetricsActive = shouldRun;
+        long generation = ++systemMetricsGeneration;
+        uiHandler.removeCallbacks(systemMetricsTick);
+        synchronized (cpuSampleLock) {
+            cpuBaselineGeneration = -1L;
+            previousCpuTotal = -1L;
+            previousCpuIdle = -1L;
+        }
+        if (shouldRun) {
+            if (textRamStatus != null) textRamStatus.setText("Используется: …\nДоступно: …");
+            if (textCpuStatus != null) textCpuStatus.setText("Измерение…");
+            if (textHookStatus != null) textHookStatus.setText("Чтение состояния…");
+            uiHandler.post(systemMetricsTick);
+        }
+    }
+
+    private void sampleSystemMetrics() {
+        if (!systemMetricsActive || currentSection != 6) return;
+        final long generation = systemMetricsGeneration;
+        try {
+            systemMetricsExecutor.execute(() -> {
+                final SystemMetricsSnapshot snapshot = readSystemMetrics(generation);
+                uiHandler.post(() -> {
+                    if (!systemMetricsActive || currentSection != 6
+                            || generation != systemMetricsGeneration) return;
+                    if (textRamStatus != null) {
+                        textRamStatus.setText("Используется: " + android.text.format.Formatter
+                                .formatFileSize(this, snapshot.usedMemoryBytes)
+                                + " из " + android.text.format.Formatter
+                                .formatFileSize(this, snapshot.totalMemoryBytes)
+                                + "\nДоступно: " + android.text.format.Formatter
+                                .formatFileSize(this, snapshot.availableMemoryBytes));
+                    }
+                    if (textCpuStatus != null) {
+                        textCpuStatus.setText(Double.isNaN(snapshot.cpuPercent)
+                                ? "Измерение…"
+                                : (snapshot.cpuPercent >= 0.0
+                                    ? String.format(Locale.getDefault(), "%.0f%%", snapshot.cpuPercent)
+                                    : "Недоступно"));
+                    }
+                    if (textHookStatus != null) {
+                        textHookStatus.setText(snapshot.hookStatusText);
+                    }
+                    uiHandler.postDelayed(systemMetricsTick, SYSTEM_METRICS_INTERVAL_MS);
+                });
+            });
+        } catch (RejectedExecutionException ignored) {
+            // Activity уже уничтожена; никаких retry/timer после shutdown не создаём.
+        }
+    }
+
+    private SystemMetricsSnapshot readSystemMetrics(long generation) {
+        long total = 0L;
+        long available = 0L;
+        try {
+            ActivityManager manager = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
+            ActivityManager.MemoryInfo info = new ActivityManager.MemoryInfo();
+            if (manager != null) {
+                manager.getMemoryInfo(info);
+                total = Math.max(0L, info.totalMem);
+                available = Math.max(0L, Math.min(total, info.availMem));
+            }
+        } catch (RuntimeException e) {
+            Log.w("SystemMetrics", "RAM read failed: " + e.getMessage());
+        }
+        double cpu = readCpuPercent(generation);
+        String hookPayload = getSharedPreferences(
+                HookStatusContract.PREFERENCES_NAME, Context.MODE_PRIVATE)
+                .getString(HookStatusContract.PAYLOAD_KEY, null);
+        String hookStatus = HookStatusContract.renderForUi(hookPayload, BuildConfig.IS_FULL);
+        return new SystemMetricsSnapshot(total, Math.max(0L, total - available), available, cpu,
+                hookStatus);
+    }
+
+    /** `/proc/stat` хранит cumulative jiffies; процент — дельта busy/total между измерениями. */
+    private double readCpuPercent(long generation) {
+        CpuTimes current = readCpuTimes();
+        if (current == null) return -1.0;
+        synchronized (cpuSampleLock) {
+            if (!systemMetricsActive || generation != systemMetricsGeneration) return -1.0;
+            if (cpuBaselineGeneration != generation || previousCpuTotal < 0L) {
+                cpuBaselineGeneration = generation;
+                previousCpuTotal = current.total;
+                previousCpuIdle = current.idle;
+                return Double.NaN;
+            }
+            long totalDelta = current.total - previousCpuTotal;
+            long idleDelta = current.idle - previousCpuIdle;
+            previousCpuTotal = current.total;
+            previousCpuIdle = current.idle;
+            if (totalDelta <= 0L) return -1.0;
+            double percent = 100.0 * (totalDelta - Math.max(0L, idleDelta)) / totalDelta;
+            return Math.max(0.0, Math.min(100.0, percent));
+        }
+    }
+
+    private static CpuTimes readCpuTimes() {
+        try (java.io.BufferedReader reader = new java.io.BufferedReader(
+                new java.io.FileReader("/proc/stat"))) {
+            String line = reader.readLine();
+            if (line == null || !line.startsWith("cpu ")) return null;
+            String[] fields = line.trim().split("\\s+");
+            if (fields.length < 5) return null;
+            long total = 0L;
+            // user,nice,system,idle,iowait,irq,softirq,steal; guest уже включён в user/nice.
+            for (int i = 1; i < fields.length && i <= 8; i++) total += Long.parseLong(fields[i]);
+            long idle = Long.parseLong(fields[4]);
+            if (fields.length > 5) idle += Long.parseLong(fields[5]);
+            return new CpuTimes(total, idle);
+        } catch (Exception e) {
+            Log.w("SystemMetrics", "CPU read failed: " + e.getMessage());
+            return null;
+        }
+    }
+
+    private static final class CpuTimes {
+        final long total;
+        final long idle;
+        CpuTimes(long total, long idle) { this.total = total; this.idle = idle; }
+    }
+
+    private static final class SystemMetricsSnapshot {
+        final long totalMemoryBytes;
+        final long usedMemoryBytes;
+        final long availableMemoryBytes;
+        final double cpuPercent;
+        final String hookStatusText;
+        SystemMetricsSnapshot(long total, long used, long available, double cpu,
+                              String hookStatusText) {
+            totalMemoryBytes = total;
+            usedMemoryBytes = used;
+            availableMemoryBytes = available;
+            cpuPercent = cpu;
+            this.hookStatusText = hookStatusText;
+        }
     }
 
     // -------------------------------------------------------------------------
-    // Apollo Tech — безопасный UI поверх подтверждённого Native/VehicleState состояния.
-    // Никаких локальных prefs: открытие страницы только читает, переключатели отправляют отдельные
-    // команды, а окончательное положение всегда приходит в ACTION_APOLLO_TLC_UPDATE.
+    // Apollo Tech — persisted subscription/exam reveal + persisted VoyahTune targets.
     // -------------------------------------------------------------------------
 
     private void initApolloTech() {
-        switchApolloMaster = findViewById(R.id.switchApolloMaster);
+        switchApolloSettingsActivation = findViewById(R.id.switchApolloSettingsActivation);
         switchApolloTlc = findViewById(R.id.switchApolloTlc);
         switchApolloTrafficLights = findViewById(R.id.switchApolloTrafficLights);
         switchApolloTrafficSigns = findViewById(R.id.switchApolloTrafficSigns);
         apolloGreenSoundGroup = findViewById(R.id.apolloGreenSoundGroup);
         apolloGreenSoundContainer = findViewById(R.id.apolloGreenSoundContainer);
-        buttonApolloForceOff = findViewById(R.id.buttonApolloForceOff);
+        textApolloSettingsActivationStatus = findViewById(
+                R.id.textApolloSettingsActivationStatus);
         textApolloStatus = findViewById(R.id.textApolloStatus);
-        textApolloDiagnostics = findViewById(R.id.textApolloDiagnostics);
         textApolloFullOnly = findViewById(R.id.textApolloFullOnly);
-        apolloControls = findViewById(R.id.apolloControls);
 
-        syncingApolloUi = true;
-        try {
-            if (switchApolloMaster != null) {
-                switchApolloMaster.setChecked(false);
-                switchApolloMaster.setEnabled(false);
-            }
-            if (switchApolloTlc != null) {
-                switchApolloTlc.setChecked(false);
-                switchApolloTlc.setEnabled(false);
-            }
-            if (switchApolloTrafficLights != null) {
-                switchApolloTrafficLights.setChecked(false);
-                switchApolloTrafficLights.setEnabled(false);
-            }
-            if (switchApolloTrafficSigns != null) {
-                switchApolloTrafficSigns.setChecked(false);
-                switchApolloTrafficSigns.setEnabled(false);
-            }
-            if (apolloGreenSoundGroup != null) {
-                apolloGreenSoundGroup.clearCheck();
-                apolloGreenSoundGroup.setEnabled(false);
-            }
-        } finally {
-            syncingApolloUi = false;
+        if (switchApolloSettingsActivation != null) {
+            switchApolloSettingsActivation.setChecked(prefs.getBoolean(
+                    ApolloSettings.STOCK_UI, ApolloSettings.DEFAULT_ENABLED));
+            switchApolloSettingsActivation.setEnabled(BuildConfig.IS_FULL);
+            switchApolloSettingsActivation.setOnCheckedChangeListener((button, checked) -> {
+                prefs.edit().putBoolean(ApolloSettings.STOCK_UI, checked).apply();
+                updateApolloUi();
+            });
         }
+        bindApolloSwitch(switchApolloTlc, ApolloSettings.TLC);
+        bindApolloSwitch(switchApolloTrafficSigns, ApolloSettings.TRAFFIC_SIGNS);
+        bindApolloSwitch(switchApolloTrafficLights, ApolloSettings.TRAFFIC_LIGHTS);
 
-        if (switchApolloMaster != null) {
-            switchApolloMaster.setOnCheckedChangeListener((button, checked) -> {
-                if (syncingApolloUi) return;
-                if (!canChangeApolloMaster(checked)) {
-                    updateApolloUi();
-                    return;
-                }
-                updateApolloUi();
-                if (checked) showApolloMasterEnableDialog();
-                else sendApolloCommand(MSG_APOLLO_SET_MASTER, false);
-            });
-        }
-        if (switchApolloTlc != null) {
-            switchApolloTlc.setOnCheckedChangeListener((button, checked) -> {
-                if (syncingApolloUi) return;
-                if (!canChangeApolloTlc(checked)) {
-                    updateApolloUi();
-                    return;
-                }
-                updateApolloUi();
-                if (checked) showApolloTlcEnableDialog();
-                else sendApolloCommand(MSG_APOLLO_SET_TLC, false);
-            });
-        }
-        if (switchApolloTrafficLights != null) {
-            switchApolloTrafficLights.setOnCheckedChangeListener((button, checked) -> {
-                if (syncingApolloUi) return;
-                if (!canChangeApolloTrafficLights()) {
-                    updateApolloUi();
-                    return;
-                }
-                updateApolloUi();
-                sendApolloCommand(MSG_APOLLO_SET_GLA, checked);
-            });
-        }
-        if (switchApolloTrafficSigns != null) {
-            switchApolloTrafficSigns.setOnCheckedChangeListener((button, checked) -> {
-                if (syncingApolloUi) return;
-                if (!canChangeApolloTrafficSigns()) {
-                    updateApolloUi();
-                    return;
-                }
-                updateApolloUi();
-                sendApolloCommand(MSG_APOLLO_SET_TSR, checked);
-            });
-        }
+        boolean greenSound = prefs.getBoolean(
+                ApolloSettings.GREEN_SOUND, ApolloSettings.DEFAULT_ENABLED);
         if (apolloGreenSoundGroup != null) {
+            apolloGreenSoundGroup.check(greenSound
+                    ? R.id.apolloGreenSoundOn : R.id.apolloGreenSoundOff);
             apolloGreenSoundGroup.setOnCheckedChangeListener((group, checkedId) -> {
-                if (syncingApolloUi || checkedId == -1) return;
-                if (!canChangeApolloGreenSound()) {
-                    updateApolloUi();
-                    return;
-                }
-                boolean enabled = checkedId == R.id.apolloGreenSoundOn;
-                sendApolloCommand(MSG_APOLLO_SET_GLA_SOUND, enabled);
-            });
-        }
-        if (buttonApolloForceOff != null) {
-            buttonApolloForceOff.setOnClickListener(v -> {
-                if (canForceApolloMasterOff()) {
-                    sendApolloCommand(MSG_APOLLO_SET_MASTER, false);
-                }
+                if (checkedId != R.id.apolloGreenSoundOn
+                        && checkedId != R.id.apolloGreenSoundOff) return;
+                prefs.edit().putBoolean(ApolloSettings.GREEN_SOUND,
+                        checkedId == R.id.apolloGreenSoundOn).apply();
             });
         }
         updateApolloUi();
     }
 
-    /** Read-only запрос при открытии Apollo Tech: Messenger основной, broadcast — fallback. */
-    private void requestApolloState() {
-        if (!BuildConfig.HAS_DIRECT_APOLLO) {
-            updateApolloUi();
-            return;
-        }
-        if (!apolloHasState && textApolloStatus != null) {
-            textApolloStatus.setText("Запрашиваем состояние Apollo Tech у Native…");
-        }
-        boolean messengerReady = GlobalVars.isBound && GlobalVars.serviceMessenger != null;
-        boolean messengerDelivered = false;
-        if (messengerReady) {
-            try {
-                GlobalVars.serviceMessenger.send(Message.obtain(null, MSG_APOLLO_QUERY));
-                messengerDelivered = true;
-            } catch (RemoteException e) {
-                Log.w("$$$ Advance Apollo $$$", "Не удалось отправить MSG_APOLLO_QUERY", e);
-            }
-        }
-        if (shouldUseApolloBroadcastFallback(messengerReady, messengerDelivered)) {
-            Intent request = new Intent(ACTION_REQUEST_APOLLO_TLC_UPDATE)
-                    .setPackage(NATIVE_PACKAGE);
-            sendBroadcast(request);
-        }
-    }
-
-    static boolean shouldUseApolloBroadcastFallback(boolean messengerReady,
-                                                     boolean messengerDelivered) {
-        return !messengerReady || !messengerDelivered;
-    }
-
-    private void sendApolloCommand(int what, boolean enabled) {
-        if (!BuildConfig.HAS_DIRECT_APOLLO
-                || !GlobalVars.isBound || GlobalVars.serviceMessenger == null) {
-            apolloError = "Сервис Native не готов";
-            updateApolloUi();
-            return;
-        }
-        try {
-            // Локально блокируем повторный тап. Checkbox не считается источником истины и немедленно
-            // возвращается к последнему feedback; новое значение покажет только Native broadcast.
-            apolloPending = true;
-            apolloError = "";
-            updateApolloUi();
-            GlobalVars.serviceMessenger.send(Message.obtain(null, what, enabled ? 1 : 0, 0));
-        } catch (RemoteException e) {
-            apolloPending = false;
-            apolloError = "Не удалось отправить команду в Native";
-            updateApolloUi();
-            Log.w("$$$ Advance Apollo $$$", "Ошибка команды what=" + what, e);
-        }
-    }
-
-    private boolean isApolloServiceReady() {
-        return GlobalVars.isBound && GlobalVars.serviceMessenger != null;
-    }
-
-    private boolean canChangeApolloMaster(boolean desiredEnabled) {
-        return false;
-    }
-
-    /** Separate emergency path: an unreadable master must never remove the ability to force OFF. */
-    private boolean canForceApolloMasterOff() {
-        return BuildConfig.HAS_DIRECT_APOLLO && apolloHasState && !apolloMasterKnown
-                && isApolloServiceReady();
-    }
-
-    private boolean canChangeApolloTlc(boolean desiredEnabled) {
-        return BuildConfig.HAS_DIRECT_APOLLO && apolloHasState && isApolloServiceReady()
-                && apolloCanConnected && apolloProfileSupported && apolloDirectTlcMode
-                && (apolloPlcSwitch == 1 || apolloPlcSwitch == 2)
-                && !apolloPending && apolloGear == 0;
-    }
-
-    private boolean canChangeApolloTrafficLights() {
-        return BuildConfig.HAS_DIRECT_APOLLO && apolloHasState && isApolloServiceReady()
-                && apolloCanConnected && apolloProfileSupported && apolloDirectTlcMode
-                && (apolloGlaSwitch == 1 || apolloGlaSwitch == 2)
-                && !apolloPending;
-    }
-
-    private boolean canChangeApolloGreenSound() {
-        return canChangeApolloTrafficLights() && apolloGlaSwitch == 2
-                && (apolloGlaLightChangeSwitch == 1
-                || apolloGlaLightChangeSwitch == 2);
-    }
-
-    private boolean canChangeApolloTrafficSigns() {
-        return BuildConfig.HAS_DIRECT_APOLLO && apolloHasState && isApolloServiceReady()
-                && apolloCanConnected && apolloProfileSupported && apolloDirectTlcMode
-                && (apolloTsrSwitch == 1 || apolloTsrSwitch == 2)
-                && !apolloPending;
-    }
-
-    private boolean isApolloPlcStatusValid() {
-        // В штатном binding 7 означает unavailable. Integer.MIN_VALUE — общий sentinel Native,
-        // когда VehicleState ещё не прочитан; pinned Native принимает только диапазон 0..7.
-        return apolloPlcStatus >= 0 && apolloPlcStatus < 7;
-    }
-
-    private boolean isApolloSnapshotValid() {
-        return isApolloPlcStatusValid()
-                && (apolloPlcSwitch == 1 || apolloPlcSwitch == 2)
-                && (apolloAnpSwitch == 1 || apolloAnpSwitch == 2)
-                // На точном H97X-профиле entitlement-поля равны -1 до первой master-активации.
-                // Это допустимо только для master; TLC ниже всё равно требует подтверждённые 2/2.
-                && (apolloTlcCapability == -1
-                    || apolloTlcCapability == 1 || apolloTlcCapability == 2)
-                && (apolloPlcCapabilitySa == -1
-                    || apolloPlcCapabilitySa == 1 || apolloPlcCapabilitySa == 2);
+    private void bindApolloSwitch(Switch target, String preference) {
+        if (target == null) return;
+        target.setChecked(prefs.getBoolean(preference, ApolloSettings.DEFAULT_ENABLED));
+        target.setEnabled(true);
+        target.setOnCheckedChangeListener((button, checked) -> {
+            prefs.edit().putBoolean(preference, checked).apply();
+            if (ApolloSettings.TRAFFIC_LIGHTS.equals(preference)) updateApolloUi();
+        });
     }
 
     private void updateApolloUi() {
-        boolean directApolloAvailable = BuildConfig.HAS_DIRECT_APOLLO;
         if (textApolloFullOnly != null) {
-            textApolloFullOnly.setVisibility(
-                    directApolloAvailable ? View.GONE : View.VISIBLE);
-        }
-        if (apolloControls != null) {
-            apolloControls.setAlpha(directApolloAvailable ? 1f : 0.45f);
+            textApolloFullOnly.setVisibility(BuildConfig.IS_FULL ? View.GONE : View.VISIBLE);
         }
 
-        syncingApolloUi = true;
-        try {
-            if (switchApolloMaster != null) {
-                switchApolloMaster.setChecked(false);
-                switchApolloMaster.setEnabled(false);
+        if (textApolloSettingsActivationStatus != null) {
+            if (!BuildConfig.IS_FULL) {
+                textApolloSettingsActivationStatus.setText(
+                        "Недоступно в Light-версии: в ней нет Frida hook-loader.");
+            } else if (switchApolloSettingsActivation != null
+                    && switchApolloSettingsActivation.isChecked()) {
+                textApolloSettingsActivationStatus.setText(
+                        "Включено. Применяется вместе с остальными настройками.");
+            } else {
+                textApolloSettingsActivationStatus.setText(
+                        "Выключено. Применяется вместе с остальными настройками.");
             }
-            if (switchApolloTlc != null) {
-                switchApolloTlc.setChecked(apolloHasState && apolloPlcSwitch == 2);
-                switchApolloTlc.setEnabled(canChangeApolloTlc(apolloPlcSwitch != 2));
-            }
-            if (switchApolloTrafficLights != null) {
-                switchApolloTrafficLights.setChecked(
-                        apolloHasState && apolloGlaSwitch == 2);
-                switchApolloTrafficLights.setEnabled(canChangeApolloTrafficLights());
-            }
-            if (switchApolloTrafficSigns != null) {
-                // TSR has the inverse OEM encoding: 1=enabled, 2=disabled.
-                switchApolloTrafficSigns.setChecked(
-                        apolloHasState && apolloTsrSwitch == 1);
-                switchApolloTrafficSigns.setEnabled(canChangeApolloTrafficSigns());
-            }
-            if (apolloGreenSoundGroup != null) {
-                if (apolloGlaLightChangeSwitch == 1) {
-                    apolloGreenSoundGroup.check(R.id.apolloGreenSoundOff);
-                } else if (apolloGlaLightChangeSwitch == 2) {
-                    apolloGreenSoundGroup.check(R.id.apolloGreenSoundOn);
-                } else {
-                    apolloGreenSoundGroup.clearCheck();
-                }
-                boolean soundEnabled = canChangeApolloGreenSound();
-                apolloGreenSoundGroup.setEnabled(soundEnabled);
-                findViewById(R.id.apolloGreenSoundOff).setEnabled(soundEnabled);
-                findViewById(R.id.apolloGreenSoundOn).setEnabled(soundEnabled);
-            }
-        } finally {
-            syncingApolloUi = false;
         }
 
-        if (buttonApolloForceOff != null) {
-            boolean canForceOff = canForceApolloMasterOff();
-            buttonApolloForceOff.setVisibility(canForceOff ? View.VISIBLE : View.GONE);
-            buttonApolloForceOff.setEnabled(canForceOff);
-        }
-        if (apolloGreenSoundContainer != null) {
-            apolloGreenSoundContainer.setAlpha(
-                    apolloHasState && apolloGlaSwitch == 2 ? 1f : 0.45f);
+        boolean trafficLightsEnabled = switchApolloTrafficLights != null
+                && switchApolloTrafficLights.isChecked();
+        if (apolloGreenSoundGroup != null) apolloGreenSoundGroup.setEnabled(trafficLightsEnabled);
+        if (apolloGreenSoundContainer != null && apolloGreenSoundGroup != null) {
+            apolloGreenSoundContainer.setAlpha(trafficLightsEnabled ? 1f : 0.45f);
+            for (int i = 0; i < apolloGreenSoundGroup.getChildCount(); i++) {
+                apolloGreenSoundGroup.getChildAt(i).setEnabled(trafficLightsEnabled);
+            }
         }
 
         if (textApolloStatus != null) {
-            textApolloStatus.setText(buildApolloStatus(directApolloAvailable));
+            textApolloStatus.setText(
+                    "VoyahTune хранит выбранные значения без чтения текущего состояния автомобиля. "
+                            + "Они применяются кнопкой «Применить» и автоматически через 10 секунд "
+                            + "после пробуждения.");
         }
-        if (textApolloDiagnostics != null) textApolloDiagnostics.setText(buildApolloDiagnostics());
-    }
-
-    private String buildApolloStatus(boolean directApolloAvailable) {
-        if (!directApolloAvailable) return "Функция недоступна в этой версии VoyahTune.";
-        if (!apolloHasState) return "Получаем состояние автомобиля…";
-        if (!apolloError.isEmpty()) return formatApolloError(apolloError);
-        if (!isApolloServiceReady()) return "Нет связи с автомобилем.";
-        if (apolloPending) return "Применяем настройку…";
-        if (!apolloCanConnected) {
-            return "Нет связи с автомобилем.";
-        }
-        if (!apolloProfileSupported || !apolloDirectTlcMode)
-            return "Функция пока недоступна для этой версии автомобиля.";
-        if (apolloPlcSwitch != 1 && apolloPlcSwitch != 2) {
-            return "Не удалось определить состояние TLC.";
-        }
-        if ((apolloGlaSwitch != 1 && apolloGlaSwitch != 2)
-                || (apolloGlaLightChangeSwitch != 1
-                && apolloGlaLightChangeSwitch != 2)) {
-            return "Не удалось определить состояние распознавания светофоров.";
-        }
-        if (apolloTsrSwitch != 1 && apolloTsrSwitch != 2) {
-            return "Не удалось определить состояние распознавания дорожных знаков.";
-        }
-        if (apolloGear != 0) {
-            return "Изменять TLC можно только на стоянке в положении P.";
-        }
-        return "Настройки синхронизированы с автомобилем.";
-    }
-
-    private String buildApolloDiagnostics() {
-        if (!apolloHasState) {
-            return "Диагностика: соединение, селектор передач и состояние TLC ещё неизвестны.";
-        }
-        return "Диагностика Native:\n"
-                + "CAN (автомобильная шина): " + (apolloCanConnected ? "подключена" : "нет подключения")
-                + " · прямой режим TLC: " + (apolloDirectTlcMode ? "доступен" : "недоступен")
-                + " · ожидание ответа: " + (apolloPending ? "да" : "нет") + "\n"
-                + "Селектор передач: " + formatApolloGear(apolloGear)
-                + " · PLC_SWITCH (штатное состояние TLC): "
-                + formatApolloSwitch(apolloPlcSwitch)
-                + (apolloError.isEmpty() ? "" : "\nДиагностика: " + formatApolloError(apolloError));
-    }
-
-    private String formatApolloGear(int value) {
-        if (value == 0) return "Parking/P (0)";
-        if (value == -1) return "неизвестно (-1)";
-        return String.valueOf(value);
-    }
-
-    private String formatApolloSwitch(int value) {
-        if (value == 1) return "выкл (1)";
-        if (value == 2) return "вкл (2)";
-        return formatApolloValue(value);
-    }
-
-    private String formatApolloValue(int value) {
-        return value < 0 ? "неизвестно" : String.valueOf(value);
-    }
-
-    /** Переводит внутренние fail-closed коды Native в понятное сообщение для водителя. */
-    private String formatApolloError(String error) {
-        switch (error) {
-            case "Сервис Native не готов":
-            case "Не удалось отправить команду в Native":
-                return error + ".";
-            case "unsupported_light":
-                return "Функция недоступна в этой версии VoyahTune.";
-            case "profile_check_pending":
-                return "Проверяем совместимость с автомобилем…";
-            case "profile_hash_mismatch":
-            case "profile_vehicle_setting_hash_mismatch":
-            case "profile_canbus_hash_mismatch":
-            case "profile_apk_not_found":
-            case "profile_vehicle_setting_apk_not_found":
-            case "profile_canbus_apk_not_found":
-            case "profile_hash_failed":
-            case "profile_vehicle_setting_hash_failed":
-            case "profile_canbus_hash_failed":
-            case "profile_canbus_revalidation_pending":
-            case "profile_vehicle_setting_hash_unavailable":
-                return "Функция пока недоступна для этой версии автомобиля.";
-            case "profile_heartbeat_missing":
-            case "profile_heartbeat_future":
-            case "profile_heartbeat_stale":
-            case "profile_heartbeat_read_failed":
-            case "profile_not_confirmed":
-            case "profile_unsupported":
-                return "Функция пока недоступна для этой версии автомобиля.";
-            case "profile_runtime_mismatch":
-            case "profile_callback_mismatch":
-            case "profile_callback_malformed":
-            case "profile_binder_descriptor_mismatch":
-            case "profile_gear_parcel_mismatch":
-                return "Функция пока недоступна для этой версии автомобиля.";
-            case "can_disconnected":
-            case "can_descriptor_failed":
-                return "Нет связи с автомобилем.";
-            case "callback_unavailable":
-            case "callback_register_failed":
-                return "Не удалось получить подтверждение состояния от автомобиля.";
-            case "write_permission_missing":
-                return "Функция установлена некорректно. Переустановите VoyahTune.";
-            case "master_disabled":
-                return "Основной переключатель Apollo Tech выключен.";
-            case "write_pending":
-                return "Предыдущая команда ещё ожидает подтверждения автомобиля.";
-            case "state_read_failed":
-            case "prewrite_read_failed":
-            case "immediate_readback_failed":
-            case "delayed_readback_failed":
-                return "Не удалось подтвердить текущее состояние автомобиля; повторная запись не выполняется.";
-            case "readback_mismatch":
-                return "Автомобиль не подтвердил запрошенное состояние; повторная запись не выполняется.";
-            case "gear_not_parking":
-                return "Изменять TLC можно только на стоянке в положении P.";
-            case "invalid_plc_switch":
-            case "invalid_switch_state":
-            case "invalid_plc_status":
-            case "plc_status_error":
-                return "Не удалось определить состояние TLC.";
-            case "invalid_anp_switch":
-                return "ANP (штатный навигационный пилот) вернул неизвестное состояние.";
-            case "invalid_tlc_capability":
-            case "invalid_plc_capability_sa":
-            case "capability_disabled":
-                return "Автомобиль не подтвердил необходимые разрешения доступности TLC.";
-            case "anp_must_be_off":
-                return "Сначала выключите ANP (штатный навигационный пилот) штатными средствами.";
-            case "traffic_light_recognition_disabled":
-                return "Сначала включите распознавание светофоров.";
-            case "traffic_light_entitlement_rejected":
-            case "traffic_light_entitlement_tx_failed":
-            case "traffic_light_entitlement_disable_rejected":
-            case "traffic_light_entitlement_disable_tx_failed":
-            case "feature_entitlement_rejected":
-            case "feature_entitlement_tx_failed":
-            case "feature_entitlement_disable_rejected":
-            case "feature_entitlement_disable_tx_failed":
-            case "feature_entitlement_reassert_rejected":
-            case "feature_entitlement_reassert_tx_failed":
-                return "Не удалось полностью изменить настройку. Попробуйте ещё раз.";
-            case "composite_switch_state_unknown":
-                return "Не удалось определить текущее состояние функций. Попробуйте ещё раз.";
-            case "tx58_failed":
-                return "Автомобиль не принял настройку. Попробуйте ещё раз.";
-            case "invalid_argument":
-                return "Получена некорректная команда; запись не выполнялась.";
-            case "master_write_failed":
-            case "master_clear_failed":
-                return "Не удалось безопасно изменить основной переключатель Apollo Tech. "
-                        + "Показано фактически прочитанное состояние; повторите выключение.";
-            case "master_read_failed":
-                return "Состояние основного переключателя Apollo Tech неизвестно. TLC заблокирован; "
-                        + "используйте кнопку «Принудительно выключить Apollo».";
-            case "request_receiver_failed":
-                return "Не удалось запустить защищённый канал диагностики Apollo Tech.";
-            default:
-                return "Не удалось выполнить операцию. Попробуйте ещё раз.";
-        }
-    }
-
-    private void showApolloMasterEnableDialog() {
-        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this, R.style.DarkDialog)
-                .setTitle("Включить Apollo Tech?")
-                .setMessage("Штатному менеджеру Baidu Apollo будет передано состояние активной "
-                        + "подписки, после чего он обновит пакет из 18 разрешений доступности. "
-                        + "Это меняет доступность комплекта функций интеллектуального вождения. "
-                        + "Используйте их только там, где это безопасно и разрешено. Продолжить?")
-                .setPositiveButton("Включить", (dialog, which) -> {
-                    if (canChangeApolloMaster(true)) sendApolloCommand(MSG_APOLLO_SET_MASTER, true);
-                    else updateApolloUi();
-                })
-                .setNegativeButton("Отмена", null)
-                .show();
-    }
-
-    private void showApolloTlcEnableDialog() {
-        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this, R.style.DarkDialog)
-                .setTitle("Включить TLC?")
-                .setMessage("TLC помогает выполнять перестроение по запросу или подтверждению "
-                        + "водителя. Водитель всегда отвечает за безопасность манёвра. Продолжить?")
-                .setPositiveButton("Включить", (dialog, which) -> {
-                    if (canChangeApolloTlc(true)) sendApolloCommand(MSG_APOLLO_SET_TLC, true);
-                    else updateApolloUi();
-                })
-                .setNegativeButton("Отмена", null)
-                .show();
-    }
-
-    private void showApolloAnpDependencyDialog() {
-        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this, R.style.DarkDialog)
-                .setTitle("Нельзя выключить TLC")
-                .setMessage("ANP — штатное кодовое обозначение навигационного пилота — сейчас "
-                        + "активен. Точная буквенная расшифровка ANP в приложении производителя "
-                        + "отсутствует. Штатная логика автомобиля требует сначала выключить ANP. "
-                        + "VoyahTune не изменяет ANP автоматически.")
-                .setPositiveButton("Понятно", null)
-                .show();
     }
 
     // -------------------------------------------------------------------------
-    // Кнопки на руле — назначение действий на короткое/долгое нажатие.
-    // Дефолт "none" = «Не менять» → штатное системное поведение (Frida-хук пропускает кнопку).
-    // Идентификатор выбранного действия хранится в prefs и исполняется Native через STEER_ACTION.
+    // Кнопки на руле — упорядоченные списки действий на короткое/долгое нажатие.
+    // Пустой список кодируется как "none" → Frida-хук сохраняет штатное системное поведение.
     // -------------------------------------------------------------------------
 
     // {id, ярлык}. Для energy:<режимы> последовательное нажатие циклирует режимы по кругу
@@ -1794,66 +1965,95 @@ public class AdvanceActivity extends AppCompatActivity {
     };
 
     private void initSteeringButtons() {
-        steerStarShortBtn = findViewById(R.id.steerStarShortBtn);
-        steerStarLongBtn  = findViewById(R.id.steerStarLongBtn);
-        steerDvrShortBtn  = findViewById(R.id.steerDvrShortBtn);
-        steerDvrLongBtn   = findViewById(R.id.steerDvrLongBtn);
-        steerVoiceShortBtn  = findViewById(R.id.steerVoiceShortBtn);
-        steerVoiceLongBtn   = findViewById(R.id.steerVoiceLongBtn);
-        steerPhoneShortBtn  = findViewById(R.id.steerPhoneShortBtn);
-        steerPhoneLongBtn   = findViewById(R.id.steerPhoneLongBtn);
-        refreshSteerButtons();
-        pushSteerConfig();   // синхронизируем выбор в Native при открытии раздела
+        steerStarShortList = findViewById(R.id.steerStarShortList);
+        steerStarLongList = findViewById(R.id.steerStarLongList);
+        steerDvrShortList = findViewById(R.id.steerDvrShortList);
+        steerDvrLongList = findViewById(R.id.steerDvrLongList);
+        steerVoiceShortList = findViewById(R.id.steerVoiceShortList);
+        steerVoiceLongList = findViewById(R.id.steerVoiceLongList);
+        steerPhoneShortList = findViewById(R.id.steerPhoneShortList);
+        steerPhoneLongList = findViewById(R.id.steerPhoneLongList);
+        refreshSteerActions();
+        pushSteerConfig();
     }
 
-    public void onPickSteerStarShort(View v) { pickSteerAction("steerStarShort", steerStarShortBtn); }
-    public void onPickSteerStarLong(View v)  { pickSteerAction("steerStarLong",  steerStarLongBtn); }
-    public void onPickSteerVoiceShort(View v) { pickSteerAction("steerVoiceShort", steerVoiceShortBtn); }
-    public void onPickSteerVoiceLong(View v)  { pickSteerAction("steerVoiceLong",  steerVoiceLongBtn); }
-    public void onPickSteerDvrShort(View v)  { pickSteerAction("steerDvrShort",  steerDvrShortBtn); }
-    public void onPickSteerDvrLong(View v)   { pickSteerAction("steerDvrLong",   steerDvrLongBtn); }
-    public void onPickSteerPhoneShort(View v) { pickSteerAction("steerPhoneShort", steerPhoneShortBtn); }
-    public void onPickSteerPhoneLong(View v)  { pickSteerAction("steerPhoneLong",  steerPhoneLongBtn); }
+    public void onPickSteerStarShort(View v) { pickSteerAction("steerStarShort"); }
+    public void onPickSteerStarLong(View v) { pickSteerAction("steerStarLong"); }
+    public void onPickSteerVoiceShort(View v) { pickSteerAction("steerVoiceShort"); }
+    public void onPickSteerVoiceLong(View v) { pickSteerAction("steerVoiceLong"); }
+    public void onPickSteerDvrShort(View v) { pickSteerAction("steerDvrShort"); }
+    public void onPickSteerDvrLong(View v) { pickSteerAction("steerDvrLong"); }
+    public void onPickSteerPhoneShort(View v) { pickSteerAction("steerPhoneShort"); }
+    public void onPickSteerPhoneLong(View v) { pickSteerAction("steerPhoneLong"); }
 
-    /** Диалог выбора действия для слота; сохраняет id в prefs, обновляет подпись кнопки. Помимо статических
-     *  действий (STEER_ACTIONS) есть два динамических: «Открыть сплит…» и «Открыть приложение…» — они
-     *  открывают под-пикер и сохраняют id вида «split:&lt;index&gt;» / «app:&lt;pkg&gt;». */
-    private void pickSteerAction(String key, Button btn) {
-        final int nStatic = STEER_ACTIONS.length;
-        final CharSequence[] labels = new CharSequence[nStatic + 2];
-        for (int i = 0; i < nStatic; i++) labels[i] = STEER_ACTIONS[i][1];
-        labels[nStatic]     = "Открыть сплит…";
-        labels[nStatic + 1] = "Открыть приложение…";
+    /** Добавляет ещё одно действие в конец списка слота. */
+    private void pickSteerAction(String key) {
+        final int staticCount = STEER_ACTIONS.length - 1; // "none" задаётся пустым списком
+        final CharSequence[] labels = new CharSequence[staticCount + 4];
+        for (int i = 0; i < staticCount; i++) labels[i] = STEER_ACTIONS[i + 1][1];
+        labels[staticCount] = "Открыть сплит…";
+        labels[staticCount + 1] = "Открыть приложение…";
+        labels[staticCount + 2] = "Набрать номер…";
+        labels[staticCount + 3] = "Своя CAN-команда…";
         new com.google.android.material.dialog.MaterialAlertDialogBuilder(this, R.style.DarkDialog)
-                .setTitle("Действие")
+                .setTitle("Добавить действие")
                 .setItems(labels, (d, which) -> {
-                    if (which < nStatic) {
-                        prefs.edit().putString(key, STEER_ACTIONS[which][0]).apply();
-                        setSteerButtonText(btn, key);
-                        pushSteerConfig();
-                    } else if (which == nStatic) {
-                        pickSteerSplit(key, btn);
+                    if (which < staticCount) {
+                        appendSteerAction(key, STEER_ACTIONS[which + 1][0]);
+                    } else if (which == staticCount) {
+                        pickSteerSplit(key);
+                    } else if (which == staticCount + 1) {
+                        pickSteerApp(key);
+                    } else if (which == staticCount + 2) {
+                        pickSteerDial(key);
                     } else {
-                        pickSteerApp(key, btn);
+                        showCustomSteerCommandDialog(key);
                     }
                 })
                 .setNegativeButton("Отмена", null)
                 .show();
     }
 
-    /** Под-пикер «Открыть сплит»: список готовых пресетов → id «splitid:&lt;uuid&gt;» (legacy «split:N» принимается). */
-    private void pickSteerSplit(String key, Button btn) {
+    /** Выбрать сохранённую dial-карточку и назначить её номер на кнопку руля. */
+    private void pickSteerDial(String key) {
+        List<DialWidgetStore.Entry> entries = DialWidgetStore.load(prefs);
+        if (entries.isEmpty()) {
+            android.widget.Toast.makeText(this, "Сначала создайте карточку набора номера",
+                    android.widget.Toast.LENGTH_SHORT).show();
+            return;
+        }
+        CharSequence[] labels = new CharSequence[entries.size()];
+        for (int i = 0; i < entries.size(); i++) {
+            DialWidgetStore.Entry entry = entries.get(i);
+            labels[i] = (entry.name.isEmpty() ? "Без имени" : entry.name)
+                    + " — " + entry.number;
+        }
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this, R.style.DarkDialog)
+                .setTitle("Выбрать номер для кнопки руля")
+                .setItems(labels, (dialog, which) -> {
+                    String number = entries.get(which).number.replaceAll("[^0-9]", "");
+                    if (number.length() >= 4 && number.length() <= 10) {
+                        if (number.length() == 10) number = "8" + number;
+                        appendSteerAction(key, "call:" + number);
+                    }
+                })
+                .setNegativeButton("Отмена", null)
+                .show();
+    }
+
+    /** Под-пикер «Открыть сплит»: список готовых пресетов → id «split:&lt;index&gt;». */
+    private void pickSteerSplit(String key) {
         final java.util.List<SplitStore.Preset> all = SplitStore.load(prefs);
-        final java.util.List<String> readyId = new java.util.ArrayList<>();
+        final java.util.List<Integer> readyIdx = new java.util.ArrayList<>();
         final java.util.List<CharSequence> labels = new java.util.ArrayList<>();
         for (int i = 0; i < all.size(); i++) {
             SplitStore.Preset ps = all.get(i);
             if (ps.ready()) {
-                readyId.add(ps.id);
+                readyIdx.add(i);
                 labels.add((ps.ll.isEmpty() ? ps.l : ps.ll) + "  /  " + (ps.rl.isEmpty() ? ps.r : ps.rl));
             }
         }
-        if (readyId.isEmpty()) {
+        if (readyIdx.isEmpty()) {
             com.google.android.material.snackbar.Snackbar.make(findViewById(R.id.main),
                     "Нет готовых сплитов — сначала настройте сплит в «Приложения и разделение экрана»",
                     com.google.android.material.snackbar.Snackbar.LENGTH_LONG).show();
@@ -1861,54 +2061,135 @@ public class AdvanceActivity extends AppCompatActivity {
         }
         new com.google.android.material.dialog.MaterialAlertDialogBuilder(this, R.style.DarkDialog)
                 .setTitle("Открыть сплит")
-                .setItems(labels.toArray(new CharSequence[0]), (d, which) -> {
-                    prefs.edit().putString(key, "splitid:" + readyId.get(which)).apply();
-                    setSteerButtonText(btn, key);
-                    pushSteerConfig();
-                })
+                .setItems(labels.toArray(new CharSequence[0]),
+                        (d, which) -> appendSteerAction(key, "split:" + readyIdx.get(which)))
                 .setNegativeButton("Отмена", null)
                 .show();
     }
 
     /** Под-пикер «Открыть приложение»: список приложений → id «app:&lt;pkg&gt;». */
-    private void pickSteerApp(String key, Button btn) {
-        showAppPicker("Открыть приложение", (pkg, label) -> {
-            prefs.edit().putString(key, "app:" + pkg).apply();
-            setSteerButtonText(btn, key);
-            pushSteerConfig();
+    private void pickSteerApp(String key) {
+        showAppPicker("Открыть приложение",
+                (pkg, label) -> appendSteerAction(key, "app:" + pkg));
+    }
+
+    /** Редактор одной CAN-команды с тем же live-форматированием, что и текстовый профиль команд. */
+    private void showCustomSteerCommandDialog(String key) {
+        View content = LayoutInflater.from(this)
+                .inflate(R.layout.dialog_steering_can_command, null, false);
+        EditText editor = content.findViewById(R.id.steerCanCommandInput);
+        TextView error = content.findViewById(R.id.steerCanCommandError);
+        AlertDialog dialog = new com.google.android.material.dialog.MaterialAlertDialogBuilder(
+                this, R.style.DarkDialog)
+                .setTitle("Своя CAN-команда")
+                .setView(content)
+                .setPositiveButton("Добавить", null)
+                .setNegativeButton("Отмена", null)
+                .create();
+        dialog.setOnShowListener(ignored -> {
+            Button add = dialog.getButton(DialogInterface.BUTTON_POSITIVE);
+            TextWatcher watcher = new TextWatcher() {
+                private boolean formatting;
+
+                @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+
+                @Override
+                public void onTextChanged(CharSequence s, int start, int before, int count) {
+                    if (formatting) return;
+                    String formatted = SteeringCanCommandPolicy.format(s.toString());
+                    if (!formatted.contentEquals(s)) {
+                        formatting = true;
+                        editor.setText(formatted);
+                        editor.setSelection(formatted.length());
+                        formatting = false;
+                    }
+                    updateCustomCanValidation(editor, error, add);
+                }
+
+                @Override public void afterTextChanged(Editable s) {}
+            };
+            editor.addTextChangedListener(watcher);
+            updateCustomCanValidation(editor, error, add);
+            add.setOnClickListener(v -> {
+                if (!SteeringCanCommandPolicy.isValid(editor.getText().toString())) return;
+                appendSteerAction(key,
+                        SteeringCanCommandPolicy.actionId(editor.getText().toString()));
+                dialog.dismiss();
+            });
+            editor.requestFocus();
         });
+        dialog.show();
     }
 
-    private void refreshSteerButtons() {
-        setSteerButtonText(steerStarShortBtn, "steerStarShort");
-        setSteerButtonText(steerStarLongBtn,  "steerStarLong");
-        setSteerButtonText(steerDvrShortBtn,  "steerDvrShort");
-        setSteerButtonText(steerDvrLongBtn,   "steerDvrLong");
-        setSteerButtonText(steerVoiceShortBtn,  "steerVoiceShort");
-        setSteerButtonText(steerVoiceLongBtn,   "steerVoiceLong");
-        setSteerButtonText(steerPhoneShortBtn,  "steerPhoneShort");
-        setSteerButtonText(steerPhoneLongBtn,   "steerPhoneLong");
+    private void updateCustomCanValidation(EditText editor, TextView error, Button add) {
+        String compact = SteeringCanCommandPolicy.compact(editor.getText().toString());
+        boolean valid = compact.length() == SteeringCanCommandPolicy.HEX_LENGTH;
+        editor.setBackgroundColor(valid ? Color.WHITE : 0xffffafaf);
+        error.setText(valid ? "Команда готова"
+                : "Нужно 20 hex-символов (10 байт). Сейчас: " + compact.length());
+        error.setTextColor(valid ? 0xff8bc9a3 : 0xffff8a80);
+        add.setEnabled(valid);
+        add.setAlpha(valid ? 1f : 0.4f);
     }
 
-    private void setSteerButtonText(Button b, String key) {
-        if (b == null) return;
-        b.setText(steerActionLabel(prefs.getString(key, "none")));
+    private void appendSteerAction(String key, String action) {
+        List<String> actions = SteeringActionStore.load(prefs, key);
+        actions.add(action);
+        SteeringActionStore.save(prefs, key, actions);
+        refreshSteerActions();
+        pushSteerConfig();
     }
 
-    /** Человекочитаемая подпись действия: статические — из STEER_ACTIONS; «splitid:uuid» / legacy «split:N» — пресет;
-     *  «app:pkg» — имя приложения. */
+    private void refreshSteerActions() {
+        renderSteerActionList("steerStarShort", steerStarShortList);
+        renderSteerActionList("steerStarLong", steerStarLongList);
+        renderSteerActionList("steerDvrShort", steerDvrShortList);
+        renderSteerActionList("steerDvrLong", steerDvrLongList);
+        renderSteerActionList("steerVoiceShort", steerVoiceShortList);
+        renderSteerActionList("steerVoiceLong", steerVoiceLongList);
+        renderSteerActionList("steerPhoneShort", steerPhoneShortList);
+        renderSteerActionList("steerPhoneLong", steerPhoneLongList);
+    }
+
+    private void renderSteerActionList(String key, LinearLayout container) {
+        if (container == null) return;
+        container.removeAllViews();
+        List<String> actions = SteeringActionStore.load(prefs, key);
+        if (actions.isEmpty()) {
+            TextView empty = new TextView(this);
+            empty.setText("Действия не назначены");
+            empty.setTextColor(0xff888888);
+            empty.setTextSize(18f);
+            int top = Math.round(getResources().getDisplayMetrics().density * 8f);
+            empty.setPadding(4, top, 4, 0);
+            container.addView(empty);
+            return;
+        }
+        LayoutInflater inflater = LayoutInflater.from(this);
+        for (int i = 0; i < actions.size(); i++) {
+            final int index = i;
+            View row = inflater.inflate(R.layout.item_steering_action, container, false);
+            TextView label = row.findViewById(R.id.steerActionLabel);
+            ImageButton delete = row.findViewById(R.id.steerActionDelete);
+            label.setText((i + 1) + ". " + steerActionLabel(actions.get(i)));
+            delete.setOnClickListener(v -> {
+                List<String> current = SteeringActionStore.load(prefs, key);
+                if (index < 0 || index >= current.size()) return;
+                current.remove(index);
+                SteeringActionStore.save(prefs, key, current);
+                refreshSteerActions();
+                pushSteerConfig();
+            });
+            container.addView(row);
+        }
+    }
+
+    /** Человекочитаемая подпись действия: статические — из STEER_ACTIONS; «split:N» — из пресета сплита;
+     *  «app:pkg» — имя приложения; «can:hex» — отформатированная своя команда. */
     private String steerActionLabel(String id) {
         if (id == null || id.isEmpty()) return "Не менять";
         for (String[] a : STEER_ACTIONS) if (a[0].equals(id)) return a[1];
-        if (id.startsWith("splitid:")) {
-            SplitStore.Preset ps = SplitStore.findById(prefs, id.substring("splitid:".length()));
-            if (ps != null) {
-                return "Сплит: " + (ps.ll.isEmpty() ? ps.l : ps.ll) + " / " + (ps.rl.isEmpty() ? ps.r : ps.rl);
-            }
-            return "Сплит (не найден)";
-        }
         if (id.startsWith("split:")) {
-            // Legacy индекс — принимаем, при следующем выборе перепишем на splitid.
             try {
                 int n = Integer.parseInt(id.substring("split:".length()));
                 java.util.List<SplitStore.Preset> all = SplitStore.load(prefs);
@@ -1926,7 +2207,16 @@ public class AdvanceActivity extends AppCompatActivity {
                 return "Приложение: " + pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString();
             } catch (Exception e) { return "Приложение: " + pkg; }
         }
-        return "Не менять";
+        if (id.startsWith("call:")) {
+            return "Набрать номер: " + id.substring("call:".length());
+        }
+        if (id.startsWith("can:")) {
+            String command = id.substring("can:".length());
+            return command.length() == SteeringCanCommandPolicy.HEX_LENGTH
+                    ? "Своя команда: " + SteeringCanCommandPolicy.format(command)
+                    : "Своя команда (неверный формат)";
+        }
+        return "Неизвестное действие: " + id;
     }
 
     /** Зеркалим выбор действий кнопок в Native (он пишет их в Settings.Global — оттуда читает keymng2.js). */
@@ -2027,6 +2317,90 @@ public class AdvanceActivity extends AppCompatActivity {
         setupEnableSwitch(R.id.switchRecycle,    R.id.recycle_modes_group, "recycleEnabled");
     }
 
+    private void initModeRememberLastToggles() {
+        bindRememberLastSwitch(
+                R.id.switchDriveRememberLast, "driveRememberLast", "driveMode");
+        bindRememberLastSwitch(
+                R.id.switchEnergyRememberLast, "energyRememberLast", "energy");
+        bindRememberLastSwitch(
+                R.id.switchRecycleRememberLast, "recycleRememberLast", "recycle");
+    }
+
+    /**
+     * Remember-last is opt-out: an absent preference (including an upgraded installation) is on.
+     * Native also receives the change immediately so already-running vehicle feedback cannot move
+     * the selector after the user explicitly switches this off.
+     */
+    private void bindRememberLastSwitch(int switchId, String prefKey, String modeKey) {
+        Switch sw = findViewById(switchId);
+        if (sw == null) return;
+        sw.setChecked(prefs.getBoolean(prefKey, true));
+        sw.setOnCheckedChangeListener((button, checked) -> {
+            prefs.edit().putBoolean(prefKey, checked).apply();
+            Intent changed = new Intent(ACTION_MODE_REMEMBER_CHANGED)
+                    .setPackage(NATIVE_PACKAGE)
+                    .putExtra(EXTRA_MODE_KEY, modeKey)
+                    .putExtra(EXTRA_REMEMBER_LAST, checked);
+            sendBroadcast(changed);
+        });
+    }
+
+    /**
+     * Отдельный opt-in снимок ароматизатора. Селекторы только сохраняют желаемые параметры:
+     * никаких CAN-подписок и немедленной отправки здесь нет. Native прочитает снимок через provider
+     * при «Применить» либо на пробуждении.
+     */
+    private void initFragranceSettings() {
+        Switch enabledSwitch = findViewById(R.id.switchFragrance);
+        RadioGroup tasteGroup = findViewById(R.id.fragranceTasteGroup);
+        RadioGroup durationGroup = findViewById(R.id.fragranceDurationGroup);
+        RadioGroup intensityGroup = findViewById(R.id.fragranceIntensityGroup);
+
+        int taste = FragranceSettings.normalizeTaste(prefs.getInt(
+                FragranceSettings.TASTE, FragranceSettings.DEFAULT_TASTE));
+        int duration = FragranceSettings.normalizeDuration(prefs.getInt(
+                FragranceSettings.DURATION, FragranceSettings.DEFAULT_DURATION));
+        int intensity = FragranceSettings.normalizeIntensity(prefs.getInt(
+                FragranceSettings.INTENSITY, FragranceSettings.DEFAULT_INTENSITY));
+        checkRadioByTag(tasteGroup, String.valueOf(taste));
+        checkRadioByTag(durationGroup, String.valueOf(duration));
+        checkRadioByTag(intensityGroup, String.valueOf(intensity));
+
+        bindIntRadio(tasteGroup, FragranceSettings.TASTE);
+        bindIntRadio(durationGroup, FragranceSettings.DURATION);
+        bindIntRadio(intensityGroup, FragranceSettings.INTENSITY);
+
+        boolean enabled = prefs.getBoolean(
+                FragranceSettings.ENABLED, FragranceSettings.DEFAULT_ENABLED);
+        if (enabledSwitch != null) {
+            enabledSwitch.setChecked(enabled);
+            enabledSwitch.setOnCheckedChangeListener((button, checked) -> {
+                prefs.edit().putBoolean(FragranceSettings.ENABLED, checked).apply();
+                applyFragranceEnabled(checked);
+            });
+        }
+        applyFragranceEnabled(enabled);
+    }
+
+    private void bindIntRadio(RadioGroup group, String key) {
+        if (group == null) return;
+        group.setOnCheckedChangeListener((g, checkedId) -> {
+            View selected = findViewById(checkedId);
+            if (selected == null || selected.getTag() == null) return;
+            try {
+                prefs.edit().putInt(key, Integer.parseInt(selected.getTag().toString())).apply();
+            } catch (NumberFormatException e) {
+                Log.e("$$$ Advance fragrance $$$", "Invalid " + key + " tag", e);
+            }
+        });
+    }
+
+    private void applyFragranceEnabled(boolean enabled) {
+        applyModeToggle(R.id.fragranceTasteGroup, enabled);
+        applyModeToggle(R.id.fragranceDurationGroup, enabled);
+        applyModeToggle(R.id.fragranceIntensityGroup, enabled);
+    }
+
     private void setupEnableSwitch(int switchId, int groupId, String key) {
         Switch sw = findViewById(switchId);
         if (sw == null) return;
@@ -2114,29 +2488,35 @@ public class AdvanceActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        activityResumed = true;
+        updateSystemMetricsPolling();
         IntentFilter filter = new IntentFilter("ru.big.town.anative.LUX_UPDATE");
-        ContextCompat.registerReceiver(this, luxReceiver, filter,
-                NATIVE_BIND_PERMISSION, null, ContextCompat.RECEIVER_EXPORTED);
-        ContextCompat.registerReceiver(this, modeSyncReceiver, new IntentFilter("ru.big.town.anative.MODE_SYNCED"),
-                NATIVE_BIND_PERMISSION, null, ContextCompat.RECEIVER_EXPORTED);
-        ContextCompat.registerReceiver(this, settingSyncReceiver, new IntentFilter("ru.big.town.anative.SETTING_SYNCED"),
-                NATIVE_BIND_PERMISSION, null, ContextCompat.RECEIVER_EXPORTED);
-        if (BuildConfig.HAS_DIRECT_APOLLO) {
-            ContextCompat.registerReceiver(this, apolloReceiver, new IntentFilter(ACTION_APOLLO_TLC_UPDATE),
-                    NATIVE_BIND_PERMISSION, null, ContextCompat.RECEIVER_EXPORTED);
-        }
+        registerReceiver(luxReceiver, filter, RECEIVER_EXPORTED);
+        registerReceiver(modeSyncReceiver, new IntentFilter("ru.big.town.anative.MODE_SYNCED"), RECEIVER_EXPORTED);
+        registerReceiver(settingSyncReceiver, new IntentFilter("ru.big.town.anative.SETTING_SYNCED"),
+                "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE", null, RECEIVER_EXPORTED);
         Intent req = new Intent("ru.big.town.anative.REQUEST_LUX_UPDATE");
         req.setPackage("ru.big.town.anative");
-        sendBroadcast(req, NATIVE_BIND_PERMISSION);
-        if (currentSection == 3) requestApolloState();
+        sendBroadcast(req);
     }
 
     @Override
     protected void onPause() {
+        activityResumed = false;
+        updateSystemMetricsPolling();
         super.onPause();
         try { unregisterReceiver(luxReceiver); } catch (Exception ignored) {}
         try { unregisterReceiver(modeSyncReceiver); } catch (Exception ignored) {}
         try { unregisterReceiver(settingSyncReceiver); } catch (Exception ignored) {}
-        try { unregisterReceiver(apolloReceiver); } catch (Exception ignored) {}
+    }
+
+    @Override
+    protected void onDestroy() {
+        activityResumed = false;
+        systemMetricsActive = false;
+        ++systemMetricsGeneration;
+        uiHandler.removeCallbacks(systemMetricsTick);
+        systemMetricsExecutor.shutdownNow();
+        super.onDestroy();
     }
 }

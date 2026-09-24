@@ -2,18 +2,20 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
     <uses-permission android:name="ru.big.town.anative.permission.BIND_SET_MODES_SERVICE" />
     <!-- Список установленных приложений для «Выдать права на установку» -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
 
     <queries>
+        <package android:name="ru.big.town.restoremode" />
         <!-- Нужно для bindService к SetModesService (видимость пакетов, API 30+) -->
         <package android:name="ru.big.town.anative" />
     </queries>
 
     <application
-        android:allowBackup="false"
+        android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_restoremode"
@@ -46,14 +48,18 @@
             </intent-filter>
         </receiver>
 
-        <!-- R3/C1: экспорт только для Native с BIND_SET_MODES_SERVICE (signature). -->
+        <!-- Explicit-only startup/wake request from Native. The signature permission prevents
+             other applications from forcing preference reads or configuration broadcasts. -->
+        <receiver
+            android:name=".SavedConfigSyncReceiver"
+            android:exported="true"
+            android:permission="ru.big.town.anative.permission.BIND_SET_MODES_SERVICE" />
+
         <provider
             android:name=".RestoreModeContentProvider"
             android:authorities="ru.big.town.restoremode.restoremodecontentprovider"
             android:enabled="true"
-            android:exported="true"
-            android:readPermission="ru.big.town.anative.permission.BIND_SET_MODES_SERVICE"
-            android:writePermission="ru.big.town.anative.permission.BIND_SET_MODES_SERVICE" />
+            android:exported="true" />
 
         <activity
             android:name=".MainActivity"

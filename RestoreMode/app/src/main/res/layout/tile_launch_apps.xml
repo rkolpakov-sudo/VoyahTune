@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/launchAppsWidget"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/card_dark_ripple"
+    android:clickable="true"
+    android:focusable="true">
+
+    <!-- Вертикальный скролл: сетка приложений не влезает в плитку целиком.
+         Внешний скролл главного экрана горизонтальный, поэтому оси не конфликтуют. -->
+    <ScrollView
+        android:id="@+id/launchAppsScroll"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clipToPadding="false"
+        android:overScrollMode="never"
+        android:paddingHorizontal="8dp"
+        android:paddingVertical="4dp"
+        android:scrollbars="none">
+
+        <GridLayout
+            android:id="@+id/launchAppsGrid"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:alignmentMode="alignMargins"
+            android:useDefaultMargins="false" />
+
+    </ScrollView>
+
+</FrameLayout>

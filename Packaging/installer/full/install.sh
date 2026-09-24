@@ -3,10 +3,9 @@
 # Ставит: Native (priv-app) + RestoreMode, whitelist привилегий, freeform, и Frida-обвязку —
 #   1) кнопки руля (steeringwheelkeys.js в keymanager: звёздочка 3090 и DVR 173, один onKeyEvent),
 #   2) VirtualDisplay-сплит (vd_bypass.js в system_server: обход ADD_TRUSTED_DISPLAY/INJECT_EVENTS),
-#   3) dormant legacy Apollo diagnostic (direct-only не инжектит VehicleSetting).
+#   3) boot-scoped Apollo UI hook (apollo_tech.js; включается вручную в VoyahTune).
 # Boot-хук = свои RC-сервисы /system/etc/init/voyahtune.*.rc (setenforce 0 + load.bin watchdog).
 # Штатный /system/etc/init.logcat.sh не меняем, кроме узкой миграции нашего legacy-файла.
-cd "$(dirname "$0")" || exit 1
 if [ ! -f ./dns-overlay.sh ]; then
     echo "!!! Не найден ./dns-overlay.sh — установка прервана до изменения устройства."
     exit 1
@@ -26,9 +25,13 @@ if ! ydns_prepare_helper; then
     exit 1
 fi
 
-# Полный локальный preflight до первого ADB-вызова: legacy-hook нельзя убирать, если архив неполон.
+# Полный локальный preflight до первого ADB-вызова.
 for FULL_REQUIRED_ASSET in load.bin steeringwheelkeys.js launcherdock.js multidisplay.js vd_bypass.js \
-        apollo_tech.js frida-inject-16.2.1-android-arm64 voyahtune.load.rc \
+        app_client.js \
+        apollo_tech.js keyboard_lock_en.js keyboard_ru.js \
+        voyahtune_keyboard_en_config.json \
+        voyahtune_keyboard_ru_config.json voyahtune_skb_qwerty_ru.json \
+        frida-inject-16.2.1-android-arm64 voyahtune.load.rc \
         voyahtune.load.sh init.logcat.original.sh native.apk restore_mode.apk \
         privapp-permissions-ru.big.town.anative.xml; do
     if [ ! -s "$FULL_REQUIRED_ASSET" ]; then
@@ -38,29 +41,104 @@ for FULL_REQUIRED_ASSET in load.bin steeringwheelkeys.js launcherdock.js multidi
 done
 
 adb root
-wait_adb_device || exit 1
+adb wait-for-device
 adb root
 
-# Direct-only update не наследует legacy opt-in/stale gate. До disable-verity и любых
-# /system mutations принудительно пишем и читаем обратно все fail-closed ключи.
-echo "=== Preflight direct-only Apollo (VehicleSetting hook OFF) ==="
-for APOLLO_SAFE_KEY in \
-        open_voyah_apollo_legacy_hook_enabled \
-        open_voyah_apollo_master \
-        open_voyah_apollo_profile_supported \
-        open_voyah_apollo_profile_heartbeat; do
-    if ! adb shell settings put global "$APOLLO_SAFE_KEY" 0; then
-        echo "!!! Не удалось записать $APOLLO_SAFE_KEY=0 — установка прервана до записи в /system."
-        exit 1
+# Просим Android init остановить текущий loader перед публикацией нового комплекта. Это best-effort:
+# каждый файл публикуется atomic mv, а финальный reboot гарантирует запуск уже новой версии.
+# Не сканируем/не убиваем PID: Android 11 toybox даёт ложные self/zombie matches.
+stop_hook_runtime_for_update() {
+    adb shell '
+        setprop ctl.stop voyahtune_load 2>/dev/null || exit 1
+        stop_wait=0
+        while [ "$(getprop init.svc.voyahtune_load)" != "stopped" ]; do
+            [ "$stop_wait" -lt 5 ] || exit 1
+            sleep 1
+            stop_wait=$((stop_wait + 1))
+        done
+        rm -f /data/local/tmp/voyahtune_load.v2.lock \
+            /data/local/tmp/voyah_load.v2.lock
+        rm -rf /data/local/tmp/voyah_load.lock
+    '
+}
+
+HOOK_UPDATE_BARRIER_ARMED=0
+full_install_exit() {
+    FULL_INSTALL_EXIT_STATUS=$?
+    trap - 0
+    if [ "$HOOK_UPDATE_BARRIER_ARMED" = 1 ]; then
+        echo "  ПРЕДУПРЕЖДЕНИЕ: установка прервана после stop; пробуем вернуть hook-loader."
+        adb shell 'setprop ctl.start voyahtune_load 2>/dev/null || true' >/dev/null 2>&1 || true
     fi
-    APOLLO_SAFE_STATE=$(adb shell settings get global "$APOLLO_SAFE_KEY" 2>/dev/null \
-        | tr -d '\r')
-    if [ "$APOLLO_SAFE_STATE" != "0" ]; then
-        echo "!!! $APOLLO_SAFE_KEY не подтвердил 0 — установка прервана до записи в /system."
-        exit 1
+    exit "$FULL_INSTALL_EXIT_STATUS"
+}
+trap full_install_exit 0
+
+# Android 11 package data is owned by PackageManager/installd and mirrored through /data_mirror.
+# After a clean remove, Native can remain a known-but-uninstalled system package until the new
+# /system APK is scanned. A post-reboot install-existing creates CE+DE through installd. The -k
+# cycle is used only as self-healing when an older remover already left installed=true with one
+# of the encrypted data roots missing; it preserves any surviving preferences.
+wait_for_android_boot() {
+    adb wait-for-device || return 1
+    BOOT_WAIT=0
+    while [ "$BOOT_WAIT" -lt 60 ]; do
+        [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ] && break
+        sleep 5
+        BOOT_WAIT=$((BOOT_WAIT + 1))
+    done
+    [ "$BOOT_WAIT" -lt 60 ] || return 1
+    adb root >/dev/null 2>&1 || return 1
+    adb wait-for-device || return 1
+    adb root >/dev/null 2>&1 || return 1
+}
+
+native_user_data_ready() {
+    [ "$(adb shell '
+        if pm list packages --user 0 2>/dev/null | grep -qx "package:ru.big.town.anative" \
+                && pm path ru.big.town.anative 2>/dev/null | grep -q "^package:" \
+                && [ -d /data/user/0/ru.big.town.anative ] \
+                && [ -d /data/user_de/0/ru.big.town.anative ]; then
+            echo READY
+        else
+            echo BROKEN
+        fi
+    ' 2>/dev/null | tr -d '\r')" = "READY" ]
+}
+
+ensure_native_user_ready() {
+    echo "=== Проверка PackageManager data Native (Android 11 CE+DE) ==="
+    if ! native_user_data_ready; then
+        echo "  Native не зарегистрирован полностью — восстанавливаем через installd."
+        adb shell "pm uninstall -k --user 0 ru.big.town.anative >/dev/null 2>&1 || true" || return 1
+        NATIVE_INSTALL_RESULT=$(adb shell \
+            "cmd package install-existing --user 0 --wait ru.big.town.anative" 2>&1) || {
+            echo "!!! install-existing Native завершился ошибкой: $NATIVE_INSTALL_RESULT"
+            return 1
+        }
+        echo "  $NATIVE_INSTALL_RESULT"
     fi
-done
-echo "  Legacy opt-in, master, profile и heartbeat закрыты."
+    if ! native_user_data_ready; then
+        echo "!!! Native APK найден, но PackageManager не создал оба CE/DE data-каталога."
+        return 1
+    fi
+
+    # BOOT_COMPLETED мог пройти до install-existing. Поднимаем тот же штатный receiver один раз и
+    # проверяем фактический process attach, чтобы installer не объявил успех при zygote crash-loop.
+    adb shell "am broadcast -a com.qinggan.intent.QINGGAN_BOOT_COMPLETE -n ru.big.town.anative/.SetModesReceiverStatic >/dev/null" \
+        || return 1
+    NATIVE_START_WAIT=0
+    while [ "$NATIVE_START_WAIT" -lt 20 ]; do
+        [ -n "$(adb shell pidof ru.big.town.anative 2>/dev/null | tr -d '\r')" ] && {
+            echo "  Native запущен; CE/DE и process attach подтверждены."
+            return 0
+        }
+        sleep 1
+        NATIVE_START_WAIT=$((NATIVE_START_WAIT + 1))
+    done
+    echo "!!! Native не запустился после восстановления package data; установка не подтверждена."
+    return 1
+}
 
 # Native in both flavors self-owns the signature permission needed by its fail-closed CAN writer. Android keeps
 # the first installed declaration: an old VoyahTweaks owner would silently make our Native incompatible.
@@ -112,14 +190,14 @@ adb disable-verity 2>&1 | sed 's/^/  /'
 if ! system_is_writable; then
     echo "  /system ещё read-only → перезагрузка ОДИН раз (применяем disable-verity)..."
     adb reboot
-    ADB_WAIT_TIMEOUT=120 wait_adb_device || exit 1
+    adb wait-for-device
     i=0
     while [ $i -lt 60 ]; do
         [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ] && break
         sleep 5; i=$((i + 1))
     done
     sleep 3
-    adb root >/dev/null 2>&1; wait_adb_device || exit 1; adb root >/dev/null 2>&1
+    adb root >/dev/null 2>&1; adb wait-for-device; adb root >/dev/null 2>&1
 fi
 if ! system_is_writable; then
     echo "!!! /system ОСТАЁТСЯ read-only — установка прервана (в /system ничего не тронуто)."
@@ -398,7 +476,7 @@ boot_hook_cleanup_snapshot() {
 }
 
 boot_hook_final_state() {
-    BOOT_HOOK_FINAL_STATE=$(adb shell "if [ -x /system/etc/init.voyahtune.load.sh ] && grep -qF '/data/local/bin/load.bin' /system/etc/init.voyahtune.load.sh && [ -r /system/etc/init/voyahtune.load.rc ] && grep -qF 'on post-fs-data' /system/etc/init/voyahtune.load.rc && grep -qF '/system/bin/setenforce 0' /system/etc/init/voyahtune.load.rc && grep -qF 'service voyahtune_load' /system/etc/init/voyahtune.load.rc && grep -qF 'on property:sys.boot_completed=1' /system/etc/init/voyahtune.load.rc && grep -qF 'enable voyahtune_load' /system/etc/init/voyahtune.load.rc; then echo READY; elif [ ! -e /system/etc/init.voyahtune.load.sh ] && [ ! -e /system/etc/init/voyahtune.setenforce.rc ] && [ ! -e /system/etc/init/voyahtune.load.rc ]; then echo ABSENT; else echo PARTIAL; fi" 2>/dev/null) || return 1
+    BOOT_HOOK_FINAL_STATE=$(adb shell "if [ -x /system/etc/init.voyahtune.load.sh ] && grep -qF '/data/local/bin/load.bin' /system/etc/init.voyahtune.load.sh && [ -r /system/etc/init/voyahtune.load.rc ] && grep -qF 'on post-fs-data' /system/etc/init/voyahtune.load.rc && grep -qF '/system/bin/setenforce 0' /system/etc/init/voyahtune.load.rc && grep -qF 'service voyahtune_load' /system/etc/init/voyahtune.load.rc && grep -qF 'MD-priority-before-app-cache-v1' /system/etc/init/voyahtune.load.rc && grep -qF 'enable voyahtune_load' /system/etc/init/voyahtune.load.rc; then echo READY; elif [ ! -e /system/etc/init.voyahtune.load.sh ] && [ ! -e /system/etc/init/voyahtune.setenforce.rc ] && [ ! -e /system/etc/init/voyahtune.load.rc ]; then echo ABSENT; else echo PARTIAL; fi" 2>/dev/null) || return 1
     BOOT_HOOK_FINAL_STATE=$(printf '%s' "$BOOT_HOOK_FINAL_STATE" | tr -d '\r')
     case "$BOOT_HOOK_FINAL_STATE" in
         READY|ABSENT|PARTIAL) return 0 ;;
@@ -447,7 +525,7 @@ install_boot_hooks() {
         return 1
     fi
 
-    if ! adb shell "chown 0:0 /system/etc/.voyahtune.load.sh.new /system/etc/.voyahtune.load.rc.new && chmod 755 /system/etc/.voyahtune.load.sh.new && chmod 644 /system/etc/.voyahtune.load.rc.new && grep -qF '/data/local/bin/load.bin' /system/etc/.voyahtune.load.sh.new && grep -qF 'on post-fs-data' /system/etc/.voyahtune.load.rc.new && grep -qF '/system/bin/setenforce 0' /system/etc/.voyahtune.load.rc.new && grep -qF 'service voyahtune_load' /system/etc/.voyahtune.load.rc.new && grep -qF 'on property:sys.boot_completed=1' /system/etc/.voyahtune.load.rc.new && grep -qF 'enable voyahtune_load' /system/etc/.voyahtune.load.rc.new && restorecon /system/etc/.voyahtune.load.sh.new /system/etc/.voyahtune.load.rc.new && sync"; then
+    if ! adb shell "chown 0:0 /system/etc/.voyahtune.load.sh.new /system/etc/.voyahtune.load.rc.new && chmod 755 /system/etc/.voyahtune.load.sh.new && chmod 644 /system/etc/.voyahtune.load.rc.new && grep -qF '/data/local/bin/load.bin' /system/etc/.voyahtune.load.sh.new && grep -qF 'on post-fs-data' /system/etc/.voyahtune.load.rc.new && grep -qF '/system/bin/setenforce 0' /system/etc/.voyahtune.load.rc.new && grep -qF 'service voyahtune_load' /system/etc/.voyahtune.load.rc.new && grep -qF 'MD-priority-before-app-cache-v1' /system/etc/.voyahtune.load.rc.new && grep -qF 'enable voyahtune_load' /system/etc/.voyahtune.load.rc.new && restorecon /system/etc/.voyahtune.load.sh.new /system/etc/.voyahtune.load.rc.new && sync"; then
         boot_hook_cleanup_stage
         echo "!!! Не удалось подготовить права/SELinux labels boot-hook — рабочая версия сохранена."
         return 1
@@ -470,7 +548,7 @@ install_boot_hooks() {
         fi
     fi
 
-    BOOT_HOOK_STATE=$(adb shell "if [ -x /system/etc/init.voyahtune.load.sh ] && grep -qF '/data/local/bin/load.bin' /system/etc/init.voyahtune.load.sh && [ -r /system/etc/init/voyahtune.load.rc ] && grep -qF 'on post-fs-data' /system/etc/init/voyahtune.load.rc && grep -qF '/system/bin/setenforce 0' /system/etc/init/voyahtune.load.rc && grep -qF 'service voyahtune_load' /system/etc/init/voyahtune.load.rc && grep -qF 'on property:sys.boot_completed=1' /system/etc/init/voyahtune.load.rc && grep -qF 'enable voyahtune_load' /system/etc/init/voyahtune.load.rc; then echo READY; else echo BROKEN; fi" 2>/dev/null) || {
+    BOOT_HOOK_STATE=$(adb shell "if [ -x /system/etc/init.voyahtune.load.sh ] && grep -qF '/data/local/bin/load.bin' /system/etc/init.voyahtune.load.sh && [ -r /system/etc/init/voyahtune.load.rc ] && grep -qF 'on post-fs-data' /system/etc/init/voyahtune.load.rc && grep -qF '/system/bin/setenforce 0' /system/etc/init/voyahtune.load.rc && grep -qF 'service voyahtune_load' /system/etc/init/voyahtune.load.rc && grep -qF 'MD-priority-before-app-cache-v1' /system/etc/init/voyahtune.load.rc && grep -qF 'enable voyahtune_load' /system/etc/init/voyahtune.load.rc; then echo READY; else echo BROKEN; fi" 2>/dev/null) || {
         if boot_hook_rollback; then
             echo "!!! ADB не смог проверить boot-hook; предыдущая версия восстановлена."
             return 1
@@ -503,17 +581,49 @@ backup_pull /data/local/bin/steeringwheelkeys.js   steeringwheelkeys.js || exit 
 backup_pull /data/local/bin/launcherdock.js        launcherdock.js || exit 1
 backup_pull /data/local/bin/multidisplay.js        multidisplay.js || exit 1
 backup_pull /data/local/bin/vd_bypass.js           vd_bypass.js || exit 1
-if ! backup_pull_with_absent /data/local/bin/apollo_tech.js apollo_tech.js; then
-    echo "!!! Apollo backup не создан — установка прервана до перезаписи файла."
-    exit 1
-fi
 backup_pull /data/local/bin/frida-inject           frida-inject || exit 1
 backup_pull /system/priv-app/Native/Native.apk     Native.apk || exit 1
 backup_pull /system/etc/permissions/privapp-permissions-ru.big.town.anative.xml privapp-permissions-ru.big.town.anative.xml || exit 1
 
+# Последний возможный verity-reboot уже позади, все read-only preflight/backup завершены. Армим
+# exit-recovery ДО stop: даже частичный stop обязан попытаться вернуть прежний/новый init-service.
+echo "=== Остановка hook-loader на время атомарного обновления ==="
+HOOK_UPDATE_BARRIER_ARMED=1
+if ! stop_hook_runtime_for_update; then
+    echo "  ПРЕДУПРЕЖДЕНИЕ: init не подтвердил остановку hook-loader; продолжаем атомарную публикацию и обязательный reboot."
+fi
+
+# Одноразовая миграция: сначала заставляем старый eternalized agent уйти в pass-through,
+# затем выгружаем его host-процесс и удаляем скрипт/маркеры/устаревшие Settings.Global.
+echo "=== Удаление старого Apollo VehicleSetting hook ==="
+for APOLLO_SAFE_KEY in \
+        open_voyah_apollo_legacy_hook_enabled \
+        open_voyah_apollo_master \
+        open_voyah_apollo_profile_supported \
+        open_voyah_apollo_profile_heartbeat; do
+    if ! adb shell settings put global "$APOLLO_SAFE_KEY" 0; then
+        echo "!!! Не удалось записать $APOLLO_SAFE_KEY=0 — hook-loader будет возвращён."
+        exit 1
+    fi
+    APOLLO_SAFE_STATE=$(adb shell settings get global "$APOLLO_SAFE_KEY" 2>/dev/null \
+        | tr -d '\r')
+    if [ "$APOLLO_SAFE_STATE" != "0" ]; then
+        echo "!!! $APOLLO_SAFE_KEY не подтвердил 0 — hook-loader будет возвращён."
+        exit 1
+    fi
+done
+adb shell am force-stop com.qinggan.app.vehiclesetting 2>/dev/null
+adb shell "rm -f /data/local/bin/apollo_tech.js /data/local/bin/apollo_tech.js.new /data/local/tmp/voyahtune_apollo.pid /data/local/tmp/voyahtune_apollo.attempt /data/local/tmp/voyahtune_apollo.txt /data/local/tmp/voyahtune_apollo.txt.try /data/local/tmp/voyah_apollo.pid /data/local/tmp/voyah_apollo.down /data/local/tmp/voyah_apollo.disabled /data/local/tmp/voyah_apollo.txt /data/local/tmp/voyah_apollo.txt.1 /data/local/tmp/voyah_apollo.txt.try" 2>/dev/null
+for APOLLO_OLD_KEY in open_voyah_apollo_legacy_hook_enabled open_voyah_apollo_master \
+        open_voyah_apollo_asc open_voyah_apollo_sdb open_voyah_apollo_profile_supported \
+        open_voyah_apollo_profile_heartbeat; do
+    adb shell settings delete global "$APOLLO_OLD_KEY" 2>/dev/null
+done
+echo "  Старый agent, маркеры и ключи удалены; новый Apollo hook будет выключен до явного opt-in."
+
 # ВАЖНО: всё в /data/local/bin доступно загрузочному RC-сервису.
 # /sdcard монтируется позже, поэтому load.bin ТАМ держать нельзя (не запустится на буте).
-echo "=== Frida-инфраструктура (руль + VirtualDisplay + dormant Apollo diagnostic) ==="
+echo "=== Frida-инфраструктура (руль + VirtualDisplay + boot-scoped Apollo) ==="
 if ! adb shell "mkdir -p /data/local/bin"; then
     echo "!!! Не удалось подготовить /data/local/bin — установка прервана."
     exit 1
@@ -523,8 +633,49 @@ install_required_data_file steeringwheelkeys.js /data/local/bin/steeringwheelkey
 install_required_data_file launcherdock.js /data/local/bin/launcherdock.js 644 || exit 1
 install_required_data_file multidisplay.js /data/local/bin/multidisplay.js 644 || exit 1
 install_required_data_file vd_bypass.js /data/local/bin/vd_bypass.js 644 || exit 1
+install_required_data_file app_client.js /data/local/bin/app_client.js 644 || exit 1
 install_required_data_file apollo_tech.js /data/local/bin/apollo_tech.js 644 || exit 1
+install_required_data_file keyboard_lock_en.js /data/local/bin/keyboard_lock_en.js 644 || exit 1
+install_required_data_file keyboard_ru.js /data/local/bin/keyboard_ru.js 644 || exit 1
+install_required_data_file voyahtune_keyboard_en_config.json /data/local/bin/voyahtune_keyboard_en_config.json 644 || exit 1
+install_required_data_file voyahtune_keyboard_ru_config.json /data/local/bin/voyahtune_keyboard_ru_config.json 644 || exit 1
+install_required_data_file voyahtune_skb_qwerty_ru.json /data/local/bin/voyahtune_skb_qwerty_ru.json 644 || exit 1
 install_required_data_file frida-inject-16.2.1-android-arm64 /data/local/bin/frida-inject 755 || exit 1
+
+# app_client.js заменяет прежний fullscreen_client.js. Сначала новый файл опубликован атомарно,
+# затем выгружаем возможные legacy-agent процессы и удаляем старый файл/оба поколения маркеров.
+echo "=== Миграция client-agent fullscreen_client.js -> app_client.js ==="
+if ! adb shell '
+    fullscreen_csv=$(settings get global voyahtune_fullscreen_apps 2>/dev/null)
+    old_ifs=$IFS
+    IFS=,
+    for app_client_pkg in $fullscreen_csv; do
+        IFS=$old_ifs
+        case "$app_client_pkg" in
+            ""|null|.*|*.|*..*|*[!A-Za-z0-9._]*) IFS=,; continue ;;
+        esac
+        am force-stop "$app_client_pkg" >/dev/null 2>&1
+        IFS=,
+    done
+    IFS=$old_ifs
+    for app_client_pkg in ru.yandex.yandexnavi ru.yandex.yandexmaps com.yango.maps.android; do
+        am force-stop "$app_client_pkg" >/dev/null 2>&1
+    done
+    rm -f /data/local/bin/fullscreen_client.js \
+        /data/local/bin/fullscreen_client.js.voyahtune.new \
+        /data/local/tmp/voyahtune_fullscreen_client.* \
+        /data/local/tmp/voyahtune_app_client.* || exit 1
+    [ -s /data/local/bin/app_client.js ] || exit 1
+    [ ! -e /data/local/bin/fullscreen_client.js ] || exit 1
+    [ ! -e /data/local/bin/fullscreen_client.js.voyahtune.new ] || exit 1
+    ! ls /data/local/tmp/voyahtune_fullscreen_client.* >/dev/null 2>&1 || exit 1
+    ! ls /data/local/tmp/voyahtune_app_client.* >/dev/null 2>&1 || exit 1
+'; then
+    echo "!!! Не удалось завершить миграцию app_client.js — hook-loader будет возвращён."
+    exit 1
+fi
+# Удаляем неиспользуемый manifest, оставшийся от предыдущих full-релизов.
+adb shell "rm -f /data/local/bin/voyahtune-hook-manifest.json /data/local/bin/voyahtune-hook-manifest.json.voyahtune.new" || exit 1
 
 echo "=== Миграция boot-hook предыдущего full-релиза ==="
 if ! migrate_legacy_init_logcat; then
@@ -599,6 +750,9 @@ fi
 adb shell settings put global enable_freeform_support 1
 adb shell settings put global force_resizable_activities 1
 
+# Достпу к не‑SDK‑интерфейсам
+adb shell settings put global hidden_api_policy 1
+
 if ! adb install -r -g restore_mode.apk; then
     echo "!!! RestoreMode не установлен — исправьте ошибку и повторите installer до перезагрузки."
     exit 1
@@ -644,6 +798,20 @@ case "${YDNS_REQUEST:-keep}" in
         ;;
 esac
 
-echo "Установка успешно завершена — устройство перезагружается."
-echo "После загрузки запустите verify_post_install.sh для проверки."
-adb reboot
+if ! adb reboot; then
+    echo "!!! ADB не смог перезагрузить ГУ; пробуем запустить установленный hook-loader без reboot."
+    exit 1
+fi
+# Reboot принят устройством: старый runtime уже нельзя безопасно перезапускать из exit-trap.
+# После загрузки отдельно проверяем Android package lifecycle и фактический запуск Native.
+HOOK_UPDATE_BARRIER_ARMED=0
+echo "Ожидание загрузки устройства для проверки целостности установки..."
+if ! wait_for_android_boot; then
+    echo "!!! ГУ не завершило загрузку после установки; проверьте ADB и повторите installer."
+    exit 1
+fi
+if ! ensure_native_user_ready; then
+    echo "!!! Установка файлов завершена, но Native lifecycle не восстановлен."
+    exit 1
+fi
+echo "Установка завершена и проверена."
