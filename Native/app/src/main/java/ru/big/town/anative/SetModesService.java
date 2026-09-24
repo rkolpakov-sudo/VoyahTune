@@ -685,7 +685,8 @@ public class SetModesService extends Service {
             out.putExtra("log", NativeLog.get().snapshot());
             out.putExtra("running", NativeLog.get().isRunning());
             out.putExtra("path", NativeLog.get().logFile(getApplicationContext()).getAbsolutePath());
-            sendBroadcast(out);
+            out.setPackage("ru.big.town.restoremode");
+            sendBroadcast(out, BIND_PERMISSION);
         }
     };
 
@@ -1024,7 +1025,7 @@ public class SetModesService extends Service {
             logFilter.addAction(ACTION_LOGGING_SET);
             logFilter.addAction(ACTION_LOGGING_SHARE);
             ContextCompat.registerReceiver(this, logRequestReceiver, logFilter,
-                    ContextCompat.RECEIVER_EXPORTED);
+                    BIND_PERMISSION, null, ContextCompat.RECEIVER_EXPORTED);
         } catch (Exception e) {
             Log.w(TAG, "register logRequestReceiver: " + e.getMessage());
         }

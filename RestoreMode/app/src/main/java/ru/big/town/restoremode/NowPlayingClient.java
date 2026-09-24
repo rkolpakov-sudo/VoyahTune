@@ -112,7 +112,7 @@ public final class NowPlayingClient {
         try {
             Intent i = new Intent(ACTION_REQUEST_NOW_PLAYING);
             i.setPackage("ru.big.town.anative");
-            ctx.sendBroadcast(i);
+            ctx.sendBroadcast(i, "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE");
         } catch (Exception ignored) {
         }
     }

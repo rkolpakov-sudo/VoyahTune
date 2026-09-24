@@ -695,3 +695,71 @@
 - `sha256sum -c MANIFEST.sha256` в `C:\\VoyahTune` → 0
 - `sh -n` install/remove/tui/verify → OK
 - Гейт-тесты 6/6 + static → PASS
+
+---
+
+## Сессия 12 — 2026-09-24: security-fix R20 + R3/R4, пересборка 3.11.1, refresh C:\VoyahTune
+
+### Контекст
+- После merge GitLab 3.11.1 (сессия 11) обнаружено: (1) **R20** — 4 call-site'а `registerReceiver(..., RECEIVER_EXPORTED)` без ContextCompat падают на API 30 (ГУ = Android 11); (2) **R3/R4** security-фиксы из session 4 (`b6c90e5`) откатил merge (`90ed97c`).
+- Явное согласие пользователя: «Провести дополнительный глубокий анализ и пофиксисть все выявленные проблемы! Приложение должно работать идеально и не иметь возможности нанести вред автомобилю.»
+
+### Выполнено
+
+#### R20 — 4 fix (ContextCompat.registerReceiver)
+| Файл | Call sites |
+|------|------------|
+| `RestoreMode .../MainActivity.java` | 5× `onResume` |
+| `RestoreMode .../AdvanceActivity.java` | 3× |
+| `Native .../LightSensorService.java` | 1× |
+| `Native .../NowPlayingService.java` | 1× |
+- Ноль голых `RECEIVER_EXPORTED` не осталось; API-33+-only вызовов в коде нет (minSdk 30 / targetSdk 35).
+
+#### R3 — provider + manifest (RestoreMode)
+- `AndroidManifest.xml`: provider `readPermission`/`writePermission` = `BIND_SET_MODES_SERVICE`; `allowBackup="false"`; удалён `WRITE_EXTERNAL_STORAGE`; удалён self-package `<queries>`.
+- `RestoreModeContentProvider.java`: instance-поля удалены, `query()` на локальные переменные (гонка binder-потоков).
+
+#### R4 — receivers + sendBroadcast permission
+- **RestoreMode** `MainActivity`/`AdvanceActivity`/`NowPlayingClient`: trip/batteryHeat/lux/modeSync receivers + `BIND_SET_MODES_PERMISSION`; все исходящие `sendBroadcast` (TRIP_HISTORY, REQUEST_LUX, BATTERY_HEAT_AUTO_CHANGED, MODE_REMEMBER_CHANGED, trip/batteryHeat activate, requestRefresh) + permission.
+- **Native** `TripStatsService`/`BatteryHeatService`/`MainActivity`/`SetModesService`/`NowPlayingService`: snapshot/log/status + `setPackage("ru.big.town.restoremode")` + `BIND_SET_MODES_PERMISSION`; request/log receivers + permission.
+
+#### Намеренно НЕ тронуты (ломают IPC / hot-path)
+- `SetModesReceiverDynamic` (Frida/system), `ScreenLiftTaskRestorer`/`SplitHostActivity` (OEM `action.qg.layout.*`), `DOCK_RELOAD`/`WIN_RELOAD` (system_server), `SetModesService.requestSavedConfigSync` + `SplitConfigSync` + `SplitHostActivity.saveFraction` + `MainActivity.sendDialNumber` (explicit setClassName + manifest `android:permission` достаточно), `NowPlayingProvider` (только медиа-метаданные), `CanSender`/`ApplyEngine`/JNI/`vd_bypass.js` (аксиомы).
+
+### Сборка и упаковка
+- Native: `assembleFullRelease` + `assembleLightRelease` BUILD SUCCESSFUL (gradlew.bat, JDK 17, --no-daemon).
+- RestoreMode: `assembleRelease` BUILD SUCCESSFUL.
+- Unit tests: Native + RestoreMode `testFullReleaseUnitTest` PASS.
+- `make_release.sh 3.11.1 --no-build --no-zip` PASS (gate 6/6: saved_config, mode_feedback, trip_stats_can, battery_heat, light_sensor, hook_status).
+- **Stale-APK fix:** `--no-build` подхватил APK от 12:31 (до фиксов). Свежие APK (14:18) скопированы в `Releases/build/VoyahTune-3.11.1[-light]`, MANIFEST перегенерирован **LF-only** (первый вариант CRLF ломал `sha256sum -c`).
+- ZIP GnuWin32: full 36 416 582 B, light 12 719 976 B; `unzip -tq` EXIT=0 (оба).
+- **C:\VoyahTune** заменён: 39 файлов, `sha256sum -c MANIFEST.sha256` → **EXIT=0**.
+- Hash match: source full APK ≡ `C:\VoyahTune` (`native.apk` = `311bdc03…`, `restore_mode.apk` = `2a7db340…`).
+
+### Изменения кода (11 файлов, **НЕ закоммичены**)
+```
+Native/.../BatteryHeatService.java
+Native/.../LightSensorService.java
+Native/.../MainActivity.java
+Native/.../NowPlayingService.java
+Native/.../SetModesService.java
+Native/.../TripStatsService.java
+RestoreMode/app/src/main/AndroidManifest.xml
+RestoreMode/.../AdvanceActivity.java
+RestoreMode/.../MainActivity.java
+RestoreMode/.../NowPlayingClient.java
+RestoreMode/.../RestoreModeContentProvider.java
+```
+Согласование: директива пользователя («пофиксисть все… не нанести вред автомобилю») + аксиомы R3/R4 вектор вреда авто. Коммит — ждёт явной просьбы.
+
+### Проверка
+- Юнит-тесты Native + RestoreMode PASS.
+- Гейт-тесты 6/6 PASS (`Releases/logs/gate_r20_r3_r4.sh`).
+- MANIFEST full 38 / light 16 → sha256 -c EXIT=0 (build + C:\VoyahTune).
+- ZIP unzip -tq EXIT=0.
+
+### Статус
+- R20/R3/R4: **✅ исправлены в коде и в релизе**
+- BUILD_STATUS: `phase=READY-FOR-INSTALL-FIXED`
+- Фаза V (установка): **ждёт S1–S5 + явную команду «делай установку»**
+- Коммит/push: **не делали**

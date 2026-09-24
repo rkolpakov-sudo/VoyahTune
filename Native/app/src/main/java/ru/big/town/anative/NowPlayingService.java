@@ -22,6 +22,7 @@ import android.system.Os;
 import android.util.Log;
 
 import androidx.core.app.NotificationCompat;
+import androidx.core.content.ContextCompat;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -218,9 +219,10 @@ public class NowPlayingService extends Service {
         final Handler callbacks = callbackHandler;
         dispatchWorker("initialize", () -> {
             try {
-                registerReceiver(requestReceiver,
-                        new IntentFilter(ACTION_REQUEST_NOW_PLAYING), null, callbacks,
-                        RECEIVER_EXPORTED);
+                ContextCompat.registerReceiver(this, requestReceiver,
+                        new IntentFilter(ACTION_REQUEST_NOW_PLAYING),
+                        "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE", callbacks,
+                        ContextCompat.RECEIVER_EXPORTED);
                 receiverRegistered = true;
             } catch (Exception e) {
                 Log.w(TAG, "onCreate registerReceiver: " + e.getMessage());
@@ -553,7 +555,7 @@ public class NowPlayingService extends Service {
     private static Intent buildSnapshotIntent() {
         synchronized (SNAPSHOT_COMMIT_LOCK) {
             Intent intent = new Intent(ACTION_NOW_PLAYING);
-            intent.setPackage(null);
+            intent.setPackage("ru.big.town.restoremode");
             intent.putExtra("title", sTitle);
             intent.putExtra("artist", sArtist);
             intent.putExtra("album", sAlbum);
@@ -577,7 +579,8 @@ public class NowPlayingService extends Service {
 
     private static void sendSnapshotBroadcast(BroadcastWrite request) {
         if (request == null || ACTIVE_INSTANCE.get() != request.generation) return;
-        request.app.sendBroadcast(request.intent);
+        request.app.sendBroadcast(request.intent,
+                "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE");
     }
 
     /** Сохраняет обложку в приватный файл (отдаётся наружу через NowPlayingProvider). @return есть ли обложка. */

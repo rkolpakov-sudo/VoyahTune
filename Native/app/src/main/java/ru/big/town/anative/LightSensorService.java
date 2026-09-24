@@ -24,6 +24,7 @@ import android.os.SystemClock;
 import android.util.Log;
 
 import androidx.core.app.NotificationCompat;
+import androidx.core.content.ContextCompat;
 
 import java.lang.ref.WeakReference;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -1087,8 +1088,8 @@ public class LightSensorService extends Service {
         startForeground(2, notification);
 
         IntentFilter reqFilter = new IntentFilter("ru.big.town.anative.REQUEST_LUX_UPDATE");
-        registerReceiver(requestReceiver, reqFilter,
-                "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE", null, RECEIVER_EXPORTED);
+        ContextCompat.registerReceiver(this, requestReceiver, reqFilter,
+                "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE", null, ContextCompat.RECEIVER_EXPORTED);
 
         requestCarSignalMaintenance();
         canBusSubscription = CanBusEventHub.get(this).subscribe(

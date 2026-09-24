@@ -705,6 +705,7 @@ public class BatteryHeatService extends Service {
         i.putExtra("confirmationPlatform", confirmationPlatform);
         i.putExtra("autoEnabled",   cachedAutoEnabled ? 1 : 0);
         i.putExtra("tempThreshold", AUTO_TEMP_THRESHOLD_C);
+        i.setPackage("ru.big.town.restoremode");
         Context app = getApplicationContext();
         BROADCASTS.offer(instanceGeneration, BROADCAST_REVISION.incrementAndGet(),
                 new BroadcastWrite(app, instanceGeneration, i));
@@ -713,7 +714,8 @@ public class BatteryHeatService extends Service {
     private static void sendSnapshotBroadcast(BroadcastWrite request) {
         if (request == null || ACTIVE_INSTANCE.get() != request.generation) return;
         try {
-            request.app.sendBroadcast(request.intent);
+            request.app.sendBroadcast(request.intent,
+                    "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE");
         } catch (Exception e) {
             Log.w(TAG, "broadcastUpdate: " + e.getMessage());
         }

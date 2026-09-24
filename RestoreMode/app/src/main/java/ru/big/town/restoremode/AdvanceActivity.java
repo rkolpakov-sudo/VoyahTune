@@ -496,7 +496,7 @@ public class AdvanceActivity extends AppCompatActivity {
             prefs.edit().putBoolean("saveTripHistory", checked).apply();
             Intent i = new Intent("ru.big.town.anative.TRIP_HISTORY").setPackage("ru.big.town.anative");
             i.putExtra("enabled", checked);
-            sendBroadcast(i);
+            sendBroadcast(i, "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE");
         });
 
         // Ярлыки приложений на главном — в обоих флейворах (в light открывают приложение обычным
@@ -530,7 +530,7 @@ public class AdvanceActivity extends AppCompatActivity {
                 Intent changed = new Intent(ACTION_BATTERY_HEAT_AUTO_CHANGED)
                         .setPackage(NATIVE_PACKAGE)
                         .putExtra(EXTRA_BATTERY_HEAT_AUTO_ENABLED, checked);
-                sendBroadcast(changed);
+                sendBroadcast(changed, "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE");
             });
         }
 
@@ -2341,7 +2341,7 @@ public class AdvanceActivity extends AppCompatActivity {
                     .setPackage(NATIVE_PACKAGE)
                     .putExtra(EXTRA_MODE_KEY, modeKey)
                     .putExtra(EXTRA_REMEMBER_LAST, checked);
-            sendBroadcast(changed);
+            sendBroadcast(changed, "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE");
         });
     }
 
@@ -2491,13 +2491,15 @@ public class AdvanceActivity extends AppCompatActivity {
         activityResumed = true;
         updateSystemMetricsPolling();
         IntentFilter filter = new IntentFilter("ru.big.town.anative.LUX_UPDATE");
-        registerReceiver(luxReceiver, filter, RECEIVER_EXPORTED);
-        registerReceiver(modeSyncReceiver, new IntentFilter("ru.big.town.anative.MODE_SYNCED"), RECEIVER_EXPORTED);
-        registerReceiver(settingSyncReceiver, new IntentFilter("ru.big.town.anative.SETTING_SYNCED"),
-                "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE", null, RECEIVER_EXPORTED);
+        ContextCompat.registerReceiver(this, luxReceiver, filter,
+                "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE", null, ContextCompat.RECEIVER_EXPORTED);
+        ContextCompat.registerReceiver(this, modeSyncReceiver, new IntentFilter("ru.big.town.anative.MODE_SYNCED"),
+                "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE", null, ContextCompat.RECEIVER_EXPORTED);
+        ContextCompat.registerReceiver(this, settingSyncReceiver, new IntentFilter("ru.big.town.anative.SETTING_SYNCED"),
+                "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE", null, ContextCompat.RECEIVER_EXPORTED);
         Intent req = new Intent("ru.big.town.anative.REQUEST_LUX_UPDATE");
         req.setPackage("ru.big.town.anative");
-        sendBroadcast(req);
+        sendBroadcast(req, "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE");
     }
 
     @Override

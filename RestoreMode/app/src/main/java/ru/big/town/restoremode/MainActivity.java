@@ -48,6 +48,7 @@ import android.widget.Toast;
 
 import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
@@ -462,7 +463,7 @@ public class MainActivity extends AppCompatActivity {
     public void onButtonBatteryHeat(View v) {
         Intent i = new Intent(ACTION_BATTERY_HEAT_ACTIVATE);
         i.setPackage("ru.big.town.anative");
-        sendBroadcast(i);
+        sendBroadcast(i, BIND_SET_MODES_PERMISSION);
         showSnack("Запрос отправлен, ожидаем подтверждение автомобиля…");
         Log.i(TAG, "BATTERY_HEAT_ACTIVATE отправлен");
     }
@@ -482,7 +483,7 @@ public class MainActivity extends AppCompatActivity {
                 .setPositiveButton("Сбросить", (d, w) -> {
                     Intent i = new Intent(ACTION_TRIP_RESET);
                     i.setPackage("ru.big.town.anative");
-                    sendBroadcast(i);
+                    sendBroadcast(i, BIND_SET_MODES_PERMISSION);
                     Log.i(TAG, "TRIP_RESET отправлен");
                 })
                 .setNegativeButton("Отмена", null)
@@ -1028,27 +1029,29 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        registerReceiver(tripReceiver, new IntentFilter(ACTION_TRIP_UPDATE), RECEIVER_EXPORTED);
+        ContextCompat.registerReceiver(this, tripReceiver, new IntentFilter(ACTION_TRIP_UPDATE),
+                BIND_SET_MODES_PERMISSION, null, ContextCompat.RECEIVER_EXPORTED);
         Intent req = new Intent(ACTION_REQUEST_TRIP_UPDATE);
         req.setPackage("ru.big.town.anative");
-        sendBroadcast(req);
+        sendBroadcast(req, BIND_SET_MODES_PERMISSION);
         uiHandler.removeCallbacks(tripTick);
         uiHandler.post(tripTick);
-        registerReceiver(batteryHeatReceiver, new IntentFilter(ACTION_BATTERY_HEAT_UPDATE), RECEIVER_EXPORTED);
-        registerReceiver(settingSyncReceiver, new IntentFilter("ru.big.town.anative.SETTING_SYNCED"),
-                BIND_SET_MODES_PERMISSION, null, RECEIVER_EXPORTED);
-        registerReceiver(powerHoldStatusReceiver,
+        ContextCompat.registerReceiver(this, batteryHeatReceiver, new IntentFilter(ACTION_BATTERY_HEAT_UPDATE),
+                BIND_SET_MODES_PERMISSION, null, ContextCompat.RECEIVER_EXPORTED);
+        ContextCompat.registerReceiver(this, settingSyncReceiver, new IntentFilter("ru.big.town.anative.SETTING_SYNCED"),
+                BIND_SET_MODES_PERMISSION, null, ContextCompat.RECEIVER_EXPORTED);
+        ContextCompat.registerReceiver(this, powerHoldStatusReceiver,
                 new IntentFilter(ACTION_POWER_HOLD_STATUS_UPDATE),
-                BIND_SET_MODES_PERMISSION, null, RECEIVER_EXPORTED);
-        registerReceiver(embeddedLeftReceiver,
+                BIND_SET_MODES_PERMISSION, null, ContextCompat.RECEIVER_EXPORTED);
+        ContextCompat.registerReceiver(this, embeddedLeftReceiver,
                 new IntentFilter(ACTION_EMBEDDED_TASK_LEFT),
-                BIND_SET_MODES_PERMISSION, null, RECEIVER_EXPORTED);
+                BIND_SET_MODES_PERMISSION, null, ContextCompat.RECEIVER_EXPORTED);
         Intent powerHoldRequest = new Intent(ACTION_REQUEST_POWER_HOLD_STATUS);
         powerHoldRequest.setPackage("ru.big.town.anative");
         sendBroadcast(powerHoldRequest, BIND_SET_MODES_PERMISSION);
         Intent bhReq = new Intent(ACTION_REQUEST_BATTERY_HEAT);
         bhReq.setPackage("ru.big.town.anative");
-        sendBroadcast(bhReq);
+        sendBroadcast(bhReq, BIND_SET_MODES_PERMISSION);
         refreshToggles();   // подхватить изменения, сделанные в «Дополнительно»
         applyMainScreenVisibility();
         // «Полноэкранная сетка» могла быть переключена в «Дополнительно»: вернуть верхний
