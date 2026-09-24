@@ -11,6 +11,7 @@ SERVICE="$REPO_ROOT/Native/app/src/main/java/ru/big/town/anative/SetModesService
 NATIVE_MAIN="$REPO_ROOT/Native/app/src/main/java/ru/big/town/anative/MainActivity.java"
 RESTORE_MAIN="$REPO_ROOT/RestoreMode/app/src/main/java/ru/big/town/restoremode/MainActivity.java"
 RESTORE_LAYOUT="$REPO_ROOT/RestoreMode/app/src/main/res/layout-land/activity_main.xml"
+RESTORE_TILE="$REPO_ROOT/RestoreMode/app/src/main/res/layout/tile_power_hold.xml"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 require_fixed() { grep -Fq -- "$2" "$1" || fail "missing '$2' in $1"; }
@@ -97,32 +98,44 @@ require_fixed "$SERVICE" 'sendBroadcast(update, BIND_PERMISSION);'
 require_fixed "$RESTORE_MAIN" 'new IntentFilter(ACTION_POWER_HOLD_STATUS_UPDATE)'
 require_fixed "$RESTORE_MAIN" 'sendBroadcast(powerHoldRequest, BIND_SET_MODES_PERMISSION);'
 require_fixed "$RESTORE_MAIN" 'case POWER_HOLD_ACTIVE:'
-require_fixed "$RESTORE_LAYOUT" 'android:id="@+id/powerHoldBadge"'
+# Upstream AppWidgets refactor moved the badge from the static land layout into the
+# dynamically inflated tile; MainActivity binds it via widgetView.findViewById.
+if ! grep -Fq 'android:id="@+id/powerHoldBadge"' "$RESTORE_TILE"; then
+    if grep -Fq 'android:id="@+id/powerHoldBadge"' "$RESTORE_LAYOUT"; then
+        :
+    else
+        fail "missing powerHoldBadge in $RESTORE_TILE or $RESTORE_LAYOUT"
+    fi
+fi
+require_fixed "$RESTORE_MAIN" 'powerHoldBadge = widgetView.findViewById(R.id.powerHoldBadge);'
 
 # All four locally decompiled VehicleSettings variants expose the same H97C contract. Keep this
 # comparison executable so a later firmware fixture cannot silently drift from the implementation.
+# Firmware fixtures (tmp/car_apks/decompiled) are optional offline: require them only when present.
 FIRMWARE_GLOB="$REPO_ROOT/tmp/car_apks/decompiled"
 REFERENCE_MANAGER=""
-FIRMWARE_COUNT=0
-for manager in "$FIRMWARE_GLOB"/*/sources/com/qinggan/scene/powerhold/PowerHoldModeManager.java; do
-    [ -f "$manager" ] || continue
-    FIRMWARE_COUNT=$((FIRMWARE_COUNT + 1))
-    if [ -z "$REFERENCE_MANAGER" ]; then
-        REFERENCE_MANAGER="$manager"
-    elif ! cmp -s "$REFERENCE_MANAGER" "$manager"; then
-        fail "PowerHoldModeManager firmware implementations diverged"
-    fi
-    vehicle_state=$(dirname "$(dirname "$(dirname "$manager")")")/canbus/VehicleState.java
-    [ -f "$vehicle_state" ] || fail "missing VehicleState beside $manager"
-    require_fixed "$vehicle_state" 'BMS_SOC_DISPLAY(615)'
-    require_fixed "$vehicle_state" 'SCENE_MODE_EXTENDER_SET(1127)'
-    require_fixed "$vehicle_state" 'POWER_HOLD_MODE_SWITCH(1161)'
-    require_fixed "$vehicle_state" 'POWER_HOLD_MODE_TIME(1162)'
-    require_fixed "$vehicle_state" 'POWER_HOLD_MODE_WARNING(1163)'
-    require_fixed "$manager" 'this.mCanBusManager.getVehicleState(DFVehicleState.BMS_SOC_DISPLAY) < 15'
-    require_fixed "$manager" 'bundle.putInt(VehicleState.POWER_HOLD_MODE_SWITCH.toString(), 1);'
-    require_fixed "$manager" 'this.mCanBusManager.setVehicleAndAirConditionBundleState(null, bundle);'
-done
-[ "$FIRMWARE_COUNT" -eq 4 ] || fail "expected 4 Power Hold firmware fixtures, found $FIRMWARE_COUNT"
+if [ -d "$FIRMWARE_GLOB" ]; then
+    FIRMWARE_COUNT=0
+    for manager in "$FIRMWARE_GLOB"/*/sources/com/qinggan/scene/powerhold/PowerHoldModeManager.java; do
+        [ -f "$manager" ] || continue
+        FIRMWARE_COUNT=$((FIRMWARE_COUNT + 1))
+        if [ -z "$REFERENCE_MANAGER" ]; then
+            REFERENCE_MANAGER="$manager"
+        elif ! cmp -s "$REFERENCE_MANAGER" "$manager"; then
+            fail "PowerHoldModeManager firmware implementations diverged"
+        fi
+        vehicle_state=$(dirname "$(dirname "$(dirname "$manager")")")/canbus/VehicleState.java
+        [ -f "$vehicle_state" ] || fail "missing VehicleState beside $manager"
+        require_fixed "$vehicle_state" 'BMS_SOC_DISPLAY(615)'
+        require_fixed "$vehicle_state" 'SCENE_MODE_EXTENDER_SET(1127)'
+        require_fixed "$vehicle_state" 'POWER_HOLD_MODE_SWITCH(1161)'
+        require_fixed "$vehicle_state" 'POWER_HOLD_MODE_TIME(1162)'
+        require_fixed "$vehicle_state" 'POWER_HOLD_MODE_WARNING(1163)'
+        require_fixed "$manager" 'this.mCanBusManager.getVehicleState(DFVehicleState.BMS_SOC_DISPLAY) < 15'
+        require_fixed "$manager" 'bundle.putInt(VehicleState.POWER_HOLD_MODE_SWITCH.toString(), 1);'
+        require_fixed "$manager" 'this.mCanBusManager.setVehicleAndAirConditionBundleState(null, bundle);'
+    done
+    [ "$FIRMWARE_COUNT" -eq 4 ] || fail "expected 4 Power Hold firmware fixtures, found $FIRMWARE_COUNT"
+fi
 
 echo "PASS: Power Hold uses bounded OEM activation and shared event-driven status"
