@@ -506,8 +506,136 @@
 
 ### Коммит (2026-09-24)
 - `8fcd452` — build+UI: lint/TLS, make_release perl CRLF, align RestoreMode tile headers, HISTORY s6–s7.
-- Пуш: `fork/master` (`rkolpakov-sudo/VoyahTune`) b6c90e5→8fcd452. Ветка `master`, upstream=fork.
-- Dirty tree после коммита: **clean** (BUILD_STATUS/logs не в git).
+- `cc816d8` — docs: HISTORY note.
+- Пуш: `fork/master` (`rkolpakov-sudo/VoyahTune`) → cc816d8. Ветка `master`, upstream=fork.
+- Dirty tree: clean (BUILD_STATUS/logs не в git).
+
+---
+
+## 2026-09-24 — Сессия 8: подготовка live-установки на авто (Фаза V pre-flight)
+
+### Контекст
+- Директива: «подготовка к установке на автомобиль»; пользователь даст команду **после** подключения ПК↔ГУ. Сама установка **до команды не выполняется**.
+
+### Выполнено (без мутаций устройства)
+1. **Целостность релиза 3.7.1:** ZIP full/light на месте; MANIFEST full **31/31 OK**; light OK; `bash -n` все .sh OK; Apollo `test_apollo_direct_only.sh` **PASS**.
+2. **Распаковка:** full → **`C:\VoyahTune`** (плоско, 32 файла, короткий путь по README). ZIP содержит вложенную папку — развёрнута в корень.
+3. **TUI dry-run из `C:\VoyahTune`:** exit **0** — bundle OK, MANIFEST OK, adb=./adb.exe, «нет устройств» (до подключения), план 12 фаз.
+4. **adb:** эмулятор **kill** (`adb emu kill`) — `adb devices` пуст → при подключении ГУ будет ровно один serial (нет конфликта ADB_SERIAL).
+5. **Док:** создан `docs/agent/live-install-checklist.md` — S-условия, preflight, 12 фаз, verify, откат, full vs light.
+6. **Статус:** `Releases/logs/BUILD_STATUS.txt` → `phase=READY-FOR-CAR`.
+
+### Изменения кода
+- **Нет** (только docs/agent + логи). Устройство не менялось.
+
+### Как продолжится (по команде пользователя)
+1. Подключить Type-A↔A, `adb devices` → one `device`.
+2. Агент: read-only preflight (getprop, dry-run TUI).
+3. Явное «делай» → `C:\VoyahTune\install-tui.bat` (full) или light по явному выбору.
+4. 1–2 reboot → verify → `install.log` → HISTORY Фаза V.
+
+### Открытые вопросы
+1. **full или light** при подключении? (по умолчанию full — подготовлен в `C:\VoyahTune`)
+2. Yandex DNS — ставить после install или keep? (меню в движке)
+3. Live-матрица совместимости — заполнять по факту Sport+ 2026.
+
+### Статус фаз плана
+- 0: ✅ · 1–2: 🟡 · 3–4: 🟡 (частично) · install-track V: **pre-flight DONE, live ожидает команду**.
+
+### MAX CONTROL (та же сессия, директива)
+- Пользователь: «Усиль контроль… Максимальная степень контроля и обратная связь».
+- В `docs/agent/live-install-checklist.md` §5: протокол (BUILD_STATUS schema, C0–C16 checkpoints, STOP-гейты, heartbeat 3–15 с).
+- Создан read-only `Docs/agent/live_watchdog.ps1` — polling adb/boot/install.log, пишет `Releases/logs/live-watchdog.log` + переписывает `BUILD_STATUS.txt`; **не** мутирует ГУ.
+- Запуск watchdog: отдельное окно **до** install; stop: `Releases/logs/watchdog.stop`.
+- **Watchdog запущен** pid **21684** (read-only, poll 3–5 с): пишет `live-watchdog.log` + `BUILD_STATUS` phase=WAIT-CABLE. Проверка smoke: SYNTAX_OK, START/STOP/END.
+
+---
+
+## 2026-09-24 — Сессия 9: GitLab = актуальный upstream (deep compare)
+
+### Контекст
+- Пользователь: актуальный git — `https://gitlab.com/openvoyah/voyahtune`; мы работали с устаревшим GitHub-клоном.
+- Добавлен remote `gitlab` (fetch only). Рабочее дерево **не переключали**, коммитов в gitlab **не делали**.
+
+### Факты
+| Метрика | Значение |
+|---------|----------|
+| merge-base HEAD ↔ `gitlab/master` | **`45beee4`** (наш старый audit base) |
+| `gitlab/master` | **`e334cd9`** — *docs: … 3.11.1 release notes* |
+| Только у нас | **4** коммита (`f1a10a9`…`cc816d8`) |
+| Только на GitLab | **104** коммита |
+| Diff tree HEAD↔gitlab | **450** paths: 338 A / 77 M / 33 D / 2 R |
+| Обе стороны меняли с `45beee4` | **25** файлов (конфликт ~36 markers) |
+| Remote `origin` (GitHub nexron171) после `fetch` | **== gitlab master `e334cd9`** (0/0) — зеркало/mirror; локальный ref `origin/master` был протухшим на `45beee4` |
+| Теги GitLab | `v3.7`…**`v3.11.1`** |
+| versionName GitLab | **3.11.1**; наш HEAD versionName **1.0**; сборка релиза **3.7.1** (make_release) |
+
+### Hot-path: GitLab сильно ушёл вперёд (45beee4 → gitlab)
+- `ApplyEngine.java` **−486/+171**, `DriveModeCanTransport` **−258/+48**, `CanSender` **+50**, `SetModesService` **+563/−135**
+- `SetModesService`: upstream **`CAR_WAIT_TIMEOUT_DO_NOT_WAIT` + worker + `startForeground`** — ANR, который мы root-cause-или на эмуляторе, **в upstream уже не тот код**
+- `vd_bypass.js` **+311/−59**, `load.bin` большой binary diff, `install.sh` **+201/−30**, `make_release.sh` **+49/−4**
+- **Удалены в upstream:** `ApolloTlcPolicy.java`, `ApolloTlcService.java`, `ApolloTlcPolicyTest` (у нас ещё есть — obsolete)
+- **Новый upstream:** `ApolloRestorePolicy`, `ApolloSettingsRuntime*`, mode memory, widgets, dock/fullscreen, wiper/autolight notes в hownews до v3.2+
+
+### Устаревшие/неактуальные у НАС (relative to GitLab)
+1. **Вся база кода** до `45beee4` + наши 4 коммита поверх неё — **stale vs 3.11.1**
+2. **`ApolloTlc*`** — удалены upstream
+3. **`Packaging/installer/full/install-tui.*`, `tui-lib.sh`, `verify_post_install.*`** — только у нас; upstream: классические install/remove + **новый `Installer/` (Rust CLI + Tauri/Svelte GUI, `make_release --installers`)**; README: *«Старые install/remove — эталон Rust-порта»*
+4. **Наша custom TUI/D6 MANIFEST/preflight** — не в upstream как TUI; upstream имеет свой preflight/atomic hook manifest в install.sh
+5. **Релиз `3.7.1` + `C:\VoyahTune` payload** — собран из **stale** ветки; официальный latest **3.11.1**
+6. **Только у нас (не в GitLab):** `AGENTS.md`, `Docs/agent/**`, `Docs/audit/**`, `Qwen_markdown_*.md` — наш process/audit, не «продукт»; при merge сохранять как our-side
+7. **UI-fix `layout-land/activity_main.xml`** — обе стороны правили; upstream дальше менял RestoreMode UI (widgets v3.0+) — **наш top-align может конфликтовать/быть superseded**
+8. **make_release CRLF/perl fix** — upstream тоже правил make_release; сверить, не потерять наш offline/CRLF verify
+9. Feature-branch ветки GitLab в основном **ahead=0** (slugs history); активные: `CHINA`+4, `master-china`+6, `play-info`+3, `new-split`+1
+
+### Решения (без правок кода)
+- **Не** вливать gitlab в рабочее дерево и **не** ставить `C:\VoyahTune` 3.7.1 на авто без отдельной команды.
+- Live-установка **только после** согласования: rebase/merge на `e334cd9` или clear отдельного worktree от GitLab + повторный audit наших 4 коммитов (что переносить: docs/audit, UI-fix, make_release, install fixes — TUI, вероятно, отдельно/upstream弃).
+
+### Открытые вопросы
+1. Переносим ли наши 4 коммита на GitLab (rebase) или только документацию/audit?
+2. TUI из Packaging — оставить как наш fork-фичу или считать superseded `Installer/`?
+3. `C:\VoyahTune` / live Phase V — **пересобирать от 3.11.1**?
+
+---
+
+## 2026-09-24 — Сессия 10: MERGE GitLab 3.11.1 → fork (ветка `merge/gitlab-3.11.1`)
+
+### Решение пользователя
+«Наша разработка отдельна, на моём git. Обновляем улучшенные компоненты из GitLab в наш fork. TUI и улучшенная установка остаются; расхождения выясняем.»
+
+### Выполнено
+- Remote `gitlab` fetch-only; ветка **`merge/gitlab-3.11.1`**; merge commit **`90ed97c`** (parents: `cc816d8` + `e334cd9`).
+- **Не** трогали remotes push; **не** пушили; `master` не переключали (stash агент-docs → pop на merge-ветке).
+
+### Правило разбора 24 конфликтов
+| Группа | Решение |
+|--------|---------|
+| versionName, hot-path Native, RestoreMode product, Installer docs | **gitlab** |
+| `NativeLog.java` (app-private storage / FileProvider) | **ours** |
+| `make_release.sh` verify payload | **union**: GitLab keyboard/app_client + **наши TUI/verify_post_install** |
+| TUI (`install-tui.*`, `tui-lib`, `verify_post_install`) | **оставлены** (не в upstream) |
+| `AGENTS.md`, `Docs/agent/**`, `Docs/audit/**` | **оставлены** (наши) |
+
+### Важные факты после merge
+- **`SetModesService`**: `CAR_WAIT_TIMEOUT_DO_NOT_WAIT` + worker (ANR-фикс upstream) — **принят**.
+- **`ApolloTlc*`** удалены upstream — принято.
+- **`Installer/`** (Rust+Tauri) добавлен; **наша TUI** параллельно в `Packaging/installer/full/`.
+- **layout-land**: gitlab убрал статические trip/batteryHeat из XML (виджеты через GridLayout) — **принят gitlab**; наши старые id в этом layout больше нет.
+- **RestoreModeContentProvider**: gitlab instance-поля (не локальные) — принят как upstream; **риск**: гонка binder-threads (наш прежний локальный-fix переопределен).
+- **Security**: часть `sendBroadcast(..., BIND_SET_MODES_SERVICE)` в gitlab заменена на plain/exported ContextCompat — **принято как upstream**; R3-замечания аудита **частично неактуальны**, нужен re-audit.
+
+### Верификация
+- `compileFullDebugJavaWithJavac` **Native=0**, **RestoreMode=0** (offline).
+- `sh -n` install/remove full+light, `make_release.sh` **OK**.
+- Unit tests offline: **fail только на `junit:4.13.2` cache** (не код).
+- Conflict markers: **0**; unmerged: **0**; files in merge: **408** (~+50k/−9k).
+
+### Не сделано / дальше
+- Merge **не влит в `master`** и **не запушен** (нужна явная команда).
+- Пересборка релиза 3.11.1 + `C:\VoyahTune` — **не делали**.
+- Re-audit security (broadcast permission) и сверка TUI ↔ `Installer/`.
+- Live Phase V — ставить только свежий 3.11.1 после твоего «делай».
 
 ---
 
