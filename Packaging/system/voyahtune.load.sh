@@ -9,4 +9,5 @@ logi () { /system/bin/log -t $LOG_TAG -p i "$@"; }
 mkdir -p /data/local/bin/
 
 logi "starting load.bin watchdog"
+/system/bin/sh /data/local/bin/apollo-persist.sh &
 exec /system/bin/sh /data/local/bin/load.bin >> /data/local/tmp/voyahtune_load.txt 2>&1
