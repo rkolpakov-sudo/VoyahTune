@@ -3,7 +3,7 @@
 **Версия документа:** 1.0 · **Дата:** 2026-09-23  
 **Статус:** актуален; **эталон исправности:** Voyah Free Sport+ 2026 (OD Sport+ 26)  
 **База кода:** `master` @ `45beee4` (+ незакоммиченные артефакты аудита/D2)  
-**Приоритет инструкций:** `AGENTS.md` (аксиомы) → **этот документ** → `Qwen_markdown_20260923_r7xvknhqu.md` (исходник) → общие правила opencode.
+**Приоритет инструкций:** `AGENTS.md` (аксиомы) → **этот документ** → общие правила opencode.
 
 > Документ сводит: исходный план 7 фаз, Фазу 0 (аудит), глубокое ревью (BUG/ARCH/UX/R1–R26), дизайн TUI установки (D0–D7) и журнал `HISTORY.md`.  
 > **Код менять только после явного «да» по пункту** (`AGENTS.md` §2.2–2.3).
@@ -477,7 +477,6 @@ bash Packaging/tests/test_apollo_direct_only.sh   # PASS
 | `docs/audit/code-review-*.md` | детали по модулям |
 | `docs/audit/compatibility-matrix.md` | прошивки × функции (draft) |
 | `docs/audit/architecture-diagrams.md` | диаграммы |
-| `Qwen_markdown_20260923_r7xvknhqu.md` | исходный план 7 фаз (переосмыслен в §5–6) |
 | `Packaging/README.txt`, `readme.md`, `hownews.md` | офиц. доки, справочники |
 | `Docs/CAN-команды.odt`, `Docs/can.pdf` | CAN — **только чтение** |
 

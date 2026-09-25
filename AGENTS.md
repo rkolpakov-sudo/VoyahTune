@@ -1,6 +1,6 @@
 # AGENTS.md — VoyahTune (обязательные инструкции агента)
 
-> Этот файл читается **каждой сессией** в начале работы. Приоритет инструкций: **1) аксиомы ниже → 2) единый план `docs/agent/REFACTOR_PLAN.md` → 3) исходный план `Qwen_markdown_20260923_r7xvknhqu.md` → 4) общие правила opencode.**
+> Этот файл читается **каждой сессией** в начале работы. Приоритет инструкций: **1) аксиомы ниже → 2) единый план `docs/agent/REFACTOR_PLAN.md` → 3) общие правила opencode.**
 
 ---
 
@@ -67,7 +67,6 @@
 | `docs/audit/deep-review-2.md` | BUG/ARCH/UX каталог (повторное глубокое ревью) |
 | `docs/audit/compatibility-matrix.md` | Совместимость; эталон — Sport+ 2026, остальное «не проверено» |
 | `docs/agent/design-install-tui.md` | Дизайн TUI установки (D0–D7, G0–G8) |
-| `Qwen_markdown_20260923_r7xvknhqu.md` | Исходный план рефакторинга (7 фаз) — вторичен относительно REFACTOR_PLAN |
 | `readme.md`, `hownews.md` | Официальная документация проекта |
 | `Packaging/README.md`, `README.txt` | Релизный процесс и инструкции конечному пользователю |
 | `Native/`, `RestoreMode/` | Java-приложения (33 + 13 файлов) |
