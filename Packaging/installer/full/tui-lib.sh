@@ -262,6 +262,41 @@ tui_device_profile() {
     return 0
 }
 
+# FIX-10/R-A12: гейт батареи/места ПЕРЕД мутациями — те же пороги, что device_health_warn
+# в dns-overlay.sh (батарея <20%, свободно в /data <200MB). Порог нарушен → отказ; данные
+# нечитаемы → только предупреждение (не фейлим вслепую). Модель здесь намеренно НЕ блокируется
+# (только warn в tui_device_profile): ожидаемая строка модели не верифицирована — аксиома 4.
+tui_device_health() {
+    [ -n "$TUI_ADB" ] || return 0
+    tui_dh_bad=0
+    tui_dh_level="$("$TUI_ADB" shell dumpsys battery 2>/dev/null | sed -n 's/^ *level: *//p' | tr -d '\r')"
+    if [ -n "$tui_dh_level" ] && [ "$tui_dh_level" -eq "$tui_dh_level" ] 2>/dev/null; then
+        tui_info "заряд батареи: $tui_dh_level%"
+        if [ "$tui_dh_level" -lt 20 ]; then
+            tui_err "батарея $tui_dh_level% < 20% — установка не запускается (зарядите ГУ)."
+            tui_dh_bad=1
+        fi
+    else
+        tui_warn "не удалось прочитать уровень батареи — проверка пропущена."
+    fi
+    tui_dh_data_k="$("$TUI_ADB" shell 'df -k /data 2>/dev/null' | awk '$NF=="/data"{print $4; exit}' | tr -d '\r')"
+    if [ -n "$tui_dh_data_k" ] && [ "$tui_dh_data_k" -eq "$tui_dh_data_k" ] 2>/dev/null; then
+        tui_dh_data_mb=$((tui_dh_data_k / 1024))
+        tui_info "свободно в /data: ${tui_dh_data_mb}MB"
+        if [ "$tui_dh_data_mb" -lt 200 ]; then
+            tui_err "в /data всего ${tui_dh_data_mb}MB < 200MB — установка не запускается (освободите место)."
+            tui_dh_bad=1
+        fi
+    else
+        tui_warn "не удалось прочитать свободное место /data — проверка пропущена."
+    fi
+    if [ "$tui_dh_bad" = 1 ]; then
+        return 1
+    fi
+    tui_ok "батарея и место в /data в норме"
+    return 0
+}
+
 tui_show_safety() {
     tui_title "ВАЖНО — безопасность"
     cat <<'EOF'
@@ -325,12 +360,64 @@ tui_show_menu() {
                 tui_pause
                 ;;
             4)
-                if [ -f ./install-yandex-dns.sh ] || [ -f ./dns-overlay.sh ]; then
-                    if tui_confirm "Запустить установку Yandex DNS-overlay?"; then
-                        if [ -f ./install-yandex-dns.sh ]; then
-                            sh ./install-yandex-dns.sh
+                if [ -f ./install-yandex-dns.sh ]; then
+                    if tui_confirm "Запустить установку Yandex DNS-overlay (install-yandex-dns.sh)?"; then
+                        sh ./install-yandex-dns.sh
+                    fi
+                elif [ -f ./dns-overlay.sh ]; then
+                    # FIX-8/R-A10: раньше здесь выполнялся `sh ./dns-overlay.sh` — это no-op
+                    # (файл содержит только функции, при прямом запуске он ничего не делает и
+                    # молча «успевает»). Теперь source + тот же query/choose/apply, что в install.sh
+                    # (без финального reboot — TUI-пункт управляет DNS независимо от установки).
+                    if tui_confirm "Установить/отключить Yandex DNS-overlay (функции dns-overlay.sh)?"; then
+                        if . ./dns-overlay.sh; then
+                            tui_dns_rc=0
+                            tui_dns_state="$(ydns_query_state 2>/dev/null)" || tui_dns_rc=1
+                            tui_dns_state="$(printf '%s' "$tui_dns_state" | tr -d '\r')"
+                            if [ "$tui_dns_rc" = 0 ]; then
+                                case "$tui_dns_state" in
+                                    on|off|external|broken)
+                                        tui_info "состояние DNS-overlay: $tui_dns_state"
+                                        ;;
+                                    *)
+                                        tui_err "DNS-overlay helper вернул неизвестное состояние: $tui_dns_state"
+                                        tui_dns_rc=1
+                                        ;;
+                                esac
+                            else
+                                tui_err "не удалось определить состояние DNS-overlay (adb/подключение?)"
+                            fi
+                            if [ "$tui_dns_rc" = 0 ]; then
+                                YDNS_REQUEST=keep
+                                if choose_yandex_dns "$tui_dns_state"; then
+                                    case "${YDNS_REQUEST:-keep}" in
+                                        on)
+                                            if install_yandex_dns; then
+                                                tui_ok "DNS-overlay установлен"
+                                            else
+                                                tui_err "установка DNS-overlay завершилась ошибкой"
+                                            fi
+                                            ;;
+                                        off)
+                                            if disable_yandex_dns; then
+                                                tui_ok "DNS-overlay отключён"
+                                            else
+                                                tui_err "отключение DNS-overlay завершилось ошибкой"
+                                            fi
+                                            ;;
+                                        keep)
+                                            tui_info "DNS-overlay: состояние без изменений."
+                                            ;;
+                                        *)
+                                            tui_err "неизвестный выбор DNS-overlay: ${YDNS_REQUEST:-<пусто>}"
+                                            ;;
+                                    esac
+                                else
+                                    tui_err "не удалось получить выбор DNS-overlay"
+                                fi
+                            fi
                         else
-                            sh ./dns-overlay.sh
+                            tui_err "не удалось загрузить ./dns-overlay.sh"
                         fi
                     fi
                 else
@@ -348,6 +435,10 @@ tui_show_menu() {
                     if tui_find_adb; then
                         tui_check_device || dev_rc=1
                         [ "$dev_rc" = 0 ] && tui_device_profile || true
+                        # FIX-10: dry-run обязан отработать как полный preflight — батарея/место.
+                        if [ "$dev_rc" = 0 ]; then
+                            tui_device_health || dev_rc=1
+                        fi
                     else
                         tui_warn "adb не найден — device check пропущен (bundle OK)"
                     fi
@@ -387,6 +478,10 @@ tui_run_install_flow() {
     if [ "$bundle_rc" = 0 ]; then
         tui_check_device || dev_rc=1
         [ "$dev_rc" = 0 ] && tui_device_profile || true
+        # FIX-10: гейт до мутаций — батарея <20% / мало места в /data → стоп до запуска install.sh.
+        if [ "$dev_rc" = 0 ]; then
+            tui_device_health || dev_rc=1
+        fi
     fi
     if [ "$bundle_rc" != 0 ] || [ "$dev_rc" != 0 ]; then
         tui_title "Стоп до мутаций"

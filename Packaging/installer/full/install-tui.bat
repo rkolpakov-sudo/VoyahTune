@@ -3,7 +3,30 @@ setlocal EnableExtensions DisableDelayedExpansion
 rem install-tui.bat - interactive menu around full install.bat (ASCII/CRLF only).
 rem Does not change engine phases. Logging uses PowerShell Tee-Object when available.
 rem Preflight (G1/G2): bundle files before menu; device state before mutations. Exit 3 = stop before /system.
+rem Flags: --dry-run (read-only preflight + phase plan, no mutations), --help. Parity with install-tui.sh.
 cd /d "%~dp0" || exit /b 1
+
+rem --- CLI flags (parity with install-tui.sh): parsed before preflight ---
+set "TUI_DRY_RUN=0"
+if "%~1"=="" goto :args_done
+if /i "%~1"=="--help" goto :args_help
+if /i "%~1"=="-h" goto :args_help
+if /i "%~1"=="--dry-run" goto :args_dry_run
+echo Unknown flag: %~1. See --help
+exit /b 1
+:args_help
+echo Usage: install-tui.bat [--dry-run] [--help]
+echo   --dry-run  read-only preflight bundle+MANIFEST+device and install.bat phase plan.
+echo              Engine is NOT started; device is NOT changed.
+exit /b 0
+:args_dry_run
+if not "%~2"=="" (
+    echo Unknown flag: %~2. See --help
+    exit /b 1
+)
+set "TUI_DRY_RUN=1"
+goto :args_done
+:args_done
 
 rem --- G1: local bundle preflight (read-only, no ADB) ---
 set "TUI_BUNDLE_MISSING=0"
@@ -39,6 +62,14 @@ if errorlevel 1 (
     exit /b 3
 )
 
+if "%TUI_DRY_RUN%"=="1" (
+    echo [SAFETY] Dry-run mode: read-only checks only. install.bat will NOT run.
+    call :preflight_device_soft
+    call :show_plan
+    echo [OK] dry-run: preflight completed; engine was NOT started. Device not changed.
+    exit /b 0
+)
+
 :tui_main
 cls
 echo ============================================================
@@ -48,10 +79,12 @@ echo   1  Install full (install.bat + install.log)
 echo   2  Verify post-install (read-only; Full or Light profile)
 echo   3  Remove / restore (remove.bat)
 echo   4  Yandex DNS only (install-yandex-dns.bat)
-echo   5  Exit
+echo   5  Dry-run preflight only (read-only, no mutations)
+echo   6  Exit
 echo ------------------------------------------------------------
-choice /c 12345 /n /m "Select option [1-5]: "
-if errorlevel 5 goto :eof
+choice /c 123456 /n /m "Select option [1-6]: "
+if errorlevel 6 goto :eof
+if errorlevel 5 goto :dryrun
 if errorlevel 4 goto :dns
 if errorlevel 3 goto :remove
 if errorlevel 2 goto :verify
@@ -163,6 +196,16 @@ echo.
 pause
 goto :tui_main
 
+:dryrun
+echo.
+echo [SAFETY] Dry-run mode: read-only checks only. install.bat will NOT run.
+call :preflight_device_soft
+call :show_plan
+echo [OK] dry-run: preflight completed; engine was NOT started. Device not changed.
+echo.
+pause
+goto :tui_main
+
 rem --- G2: read-only device preflight (exit 3 on fail) ---
 :preflight_device
 if exist "adb.exe" (
@@ -196,6 +239,65 @@ if /i not "%TUI_DEV_STATE%"=="device" (
     exit /b 3
 )
 echo [OK] one device, state=device
+exit /b 0
+
+rem --- dry-run device preflight: read-only, WARN only, never fails (parity with install-tui.sh --dry-run) ---
+:preflight_device_soft
+if exist "adb.exe" (
+    set "TUI_ADB=adb.exe"
+) else (
+    where adb >nul 2>nul
+    if errorlevel 1 (
+        echo [WARN] adb not found - device check skipped (bundle OK)
+        exit /b 0
+    )
+    set "TUI_ADB=adb"
+)
+set "TUI_DEV_COUNT=0"
+set "TUI_DEV_STATE="
+for /f "skip=1 tokens=1,2" %%a in ('"%TUI_ADB%" devices 2^>nul') do (
+    if not "%%a"=="" (
+        set /a TUI_DEV_COUNT+=1
+        set "TUI_DEV_STATE=%%b"
+    )
+)
+if "%TUI_DEV_COUNT%"=="0" (
+    echo [WARN] no device: check Type-A^<-^>A cable, port, driver, USB debugging. Dry-run continues.
+    exit /b 0
+)
+if not "%TUI_DEV_COUNT%"=="1" (
+    echo [WARN] %TUI_DEV_COUNT% devices connected - dry-run does not resolve which one. Dry-run continues.
+    exit /b 0
+)
+if /i not "%TUI_DEV_STATE%"=="device" (
+    echo [WARN] device state=%TUI_DEV_STATE% - unlock HU and confirm RSA key before the real install. Dry-run continues.
+    exit /b 0
+)
+echo [OK] one device, state=device
+exit /b 0
+
+rem --- read-only plan of install.bat phases (parity with install-tui.sh tui_show_plan) ---
+:show_plan
+echo ============================================================
+echo  Plan of install.bat (engine runs ONLY after confirmation)
+echo ============================================================
+echo   [1]  Preflight: WRITE_CANBUS owner check + bundle re-check
+echo   [2]  adb root + wait-for-device
+echo   [3]  Prepare writable /system (disable-verity + overlay remount)
+echo   [4]  Backup touched files to .\backup\
+echo   [5]  Stop hook-loader; remove old Apollo VehicleSetting hook
+echo   [6]  Frida infrastructure (steering wheel + VirtualDisplay + Apollo)
+echo   [7]  Migrate client agent fullscreen_client.js -^> app_client.js
+echo   [8]  Boot hook: dedicated RC services (setenforce 0 + load.bin)
+echo   [9]  Native.apk + privapp whitelist + leavecar + freeform + RestoreMode
+echo   [10] Reboot + verify installation integrity
+echo   [11] Yandex DNS afterwards (optional, install-yandex-dns.bat)
+echo ------------------------------------------------------------
+if exist "backup" (
+    echo [WARN] .\backup already exists - a previous backup will be overwritten.
+) else (
+    echo [INFO] backup will be created in .\backup during install.
+)
 exit /b 0
 
 rem --- G1b: verify MANIFEST.sha256 if present (PowerShell Get-FileHash) ---

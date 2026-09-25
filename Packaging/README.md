@@ -18,16 +18,16 @@
 Следующий пример описывает формат по умолчанию — архивы со скриптами.
 
 ```bash
-./make_release.sh 3.2.2
+./make_release.sh 3.12.0
 ```
 
 Результат:
 
 ```text
-Releases/build/VoyahTune-3.2.2/
-Releases/build/VoyahTune-3.2.2-light/
-Releases/dist/VoyahTune-3.2.2.zip
-Releases/dist/VoyahTune-3.2.2-light.zip
+Releases/build/VoyahTune-3.12.0/
+Releases/build/VoyahTune-3.12.0-light/
+Releases/dist/VoyahTune-3.12.0.zip
+Releases/dist/VoyahTune-3.12.0-light.zip
 ```
 
 Флаги: `--full-only`, `--light-only`, `--no-build`, `--no-zip`.

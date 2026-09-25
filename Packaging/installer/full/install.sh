@@ -6,6 +6,9 @@
 #   3) boot-scoped Apollo UI hook (apollo_tech.js; включается вручную в VoyahTune).
 # Boot-хук = свои RC-сервисы /system/etc/init/voyahtune.*.rc (setenforce 0 + load.bin watchdog).
 # Штатный /system/etc/init.logcat.sh не меняем, кроме узкой миграции нашего legacy-файла.
+# FIX-1: работаем из папки скрипта — относительные пути (./dns-overlay.sh, ./backup, MANIFEST.sha256,
+# assets) обязаны резолвиться одинаково при запуске из любого CWD (регрессия b6c90e5, merge 90ed97c).
+cd "$(dirname "$0")" || exit 1
 if [ ! -f ./dns-overlay.sh ]; then
     echo "!!! Не найден ./dns-overlay.sh — установка прервана до изменения устройства."
     exit 1
@@ -14,7 +17,9 @@ fi
     echo "!!! Не удалось загрузить ./dns-overlay.sh — установка прервана."
     exit 1
 }
-for ydns_required in ydns_prepare_helper ydns_query_state choose_yandex_dns install_yandex_dns disable_yandex_dns; do
+# Проверяем все функции common-либы, от которых зависит движок (в т.ч. FIX-1/4/9/10 хелперы).
+for ydns_required in ydns_prepare_helper ydns_query_state choose_yandex_dns install_yandex_dns \
+        disable_yandex_dns wait_adb_device device_health_warn check_release_manifest; do
     if ! command -v "$ydns_required" >/dev/null 2>&1; then
         echo "!!! dns-overlay.sh не содержит $ydns_required — установка прервана."
         exit 1
@@ -40,9 +45,15 @@ for FULL_REQUIRED_ASSET in load.bin steeringwheelkeys.js launcherdock.js multidi
     fi
 done
 
+# FIX-9/R-A11: сверка MANIFEST.sha256 в direct-flow (функция в dns-overlay.sh, паритет TUI).
+check_release_manifest || exit 1
+
 adb root
-adb wait-for-device
+# FIX-4: wait с таймаутом (B3) вместо вечного блокирующего adb wait-for-device.
+wait_adb_device || exit 1
 adb root
+# FIX-10: только предупреждения о батарее/месте/модели; блокирует только TUI-гейт (tui-lib).
+device_health_warn
 
 # Просим Android init остановить текущий loader перед публикацией нового комплекта. Это best-effort:
 # каждый файл публикуется atomic mv, а финальный reboot гарантирует запуск уже новой версии.
@@ -80,7 +91,9 @@ trap full_install_exit 0
 # cycle is used only as self-healing when an older remover already left installed=true with one
 # of the encrypted data roots missing; it preserves any surviving preferences.
 wait_for_android_boot() {
-    adb wait-for-device || return 1
+    # FIX-4: пост-ребутное ожидание — щедрый таймаут 180с (холодная загрузка ГУ дольше дефолтных 60с).
+    ADB_WAIT_TIMEOUT=180
+    wait_adb_device || return 1
     BOOT_WAIT=0
     while [ "$BOOT_WAIT" -lt 60 ]; do
         [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ] && break
@@ -89,7 +102,7 @@ wait_for_android_boot() {
     done
     [ "$BOOT_WAIT" -lt 60 ] || return 1
     adb root >/dev/null 2>&1 || return 1
-    adb wait-for-device || return 1
+    wait_adb_device || return 1
     adb root >/dev/null 2>&1 || return 1
 }
 
@@ -190,14 +203,16 @@ adb disable-verity 2>&1 | sed 's/^/  /'
 if ! system_is_writable; then
     echo "  /system ещё read-only → перезагрузка ОДИН раз (применяем disable-verity)..."
     adb reboot
-    adb wait-for-device
+    # FIX-4: пост-ребут — таймаут 180с; наследуется и строкой ожидания ниже.
+    ADB_WAIT_TIMEOUT=180
+    wait_adb_device || exit 1
     i=0
     while [ $i -lt 60 ]; do
         [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ] && break
         sleep 5; i=$((i + 1))
     done
     sleep 3
-    adb root >/dev/null 2>&1; adb wait-for-device; adb root >/dev/null 2>&1
+    adb root >/dev/null 2>&1; wait_adb_device || exit 1; adb root >/dev/null 2>&1
 fi
 if ! system_is_writable; then
     echo "!!! /system ОСТАЁТСЯ read-only — установка прервана (в /system ничего не тронуто)."
@@ -576,14 +591,19 @@ install_boot_hooks() {
 }
 
 echo "=== Бэкап перезаписываемых файлов в $BACKUP_DIR/ ==="
-backup_pull /data/local/bin/load.bin               load.bin || exit 1
-backup_pull /data/local/bin/steeringwheelkeys.js   steeringwheelkeys.js || exit 1
-backup_pull /data/local/bin/launcherdock.js        launcherdock.js || exit 1
-backup_pull /data/local/bin/multidisplay.js        multidisplay.js || exit 1
-backup_pull /data/local/bin/vd_bypass.js           vd_bypass.js || exit 1
-backup_pull /data/local/bin/frida-inject           frida-inject || exit 1
-backup_pull /system/priv-app/Native/Native.apk     Native.apk || exit 1
-backup_pull /system/etc/permissions/privapp-permissions-ru.big.town.anative.xml privapp-permissions-ru.big.town.anative.xml || exit 1
+# FIX-11/R-A3: симметричный backup с .absent-маркером. Без него повторная установка сохранила бы
+# наш предыдущий файл как «оригинал», и remove восстановил бы его в /data вместо удаления.
+backup_pull_with_absent /data/local/bin/load.bin               load.bin || exit 1
+backup_pull_with_absent /data/local/bin/steeringwheelkeys.js   steeringwheelkeys.js || exit 1
+backup_pull_with_absent /data/local/bin/launcherdock.js        launcherdock.js || exit 1
+backup_pull_with_absent /data/local/bin/multidisplay.js        multidisplay.js || exit 1
+backup_pull_with_absent /data/local/bin/vd_bypass.js           vd_bypass.js || exit 1
+backup_pull_with_absent /data/local/bin/frida-inject           frida-inject || exit 1
+# FIX-7/R-A3: новый системный файл (обычно отсутствует на чистом устройстве) — только симметричный
+# backup: без .absent маркера повторная установка сохранила бы наш предыдущий APK как «оригинал»,
+# и remove восстановил бы его вместо удаления.
+backup_pull_with_absent /system/priv-app/Native/Native.apk     Native.apk || exit 1
+backup_pull_with_absent /system/etc/permissions/privapp-permissions-ru.big.town.anative.xml privapp-permissions-ru.big.town.anative.xml || exit 1
 
 # Последний возможный verity-reboot уже позади, все read-only preflight/backup завершены. Армим
 # exit-recovery ДО stop: даже частичный stop обязан попытаться вернуть прежний/новый init-service.

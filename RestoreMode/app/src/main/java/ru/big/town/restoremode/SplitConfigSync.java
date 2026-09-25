@@ -13,6 +13,8 @@ import java.util.List;
 final class SplitConfigSync {
     private static final String NATIVE_PKG = "ru.big.town.anative";
     private static final String CONFIG_RECEIVER = "ru.big.town.anative.SetModesConfigReceiver";
+    private static final String BIND_SET_MODES_PERMISSION =
+            "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE";
 
     private SplitConfigSync() {}
 
@@ -27,7 +29,7 @@ final class SplitConfigSync {
     static void pushFullscreenApps(Context context, SharedPreferences prefs) {
         Intent i = configIntent("ru.big.town.anative.FULLSCREEN_APPS_CONFIG");
         i.putExtra("packagesCsv", FullscreenAppStore.snapshotCsv(prefs));
-        context.sendBroadcast(i);
+        context.sendBroadcast(i, BIND_SET_MODES_PERMISSION);
     }
 
     /** Публикует полный DPI snapshot; changedPkg нужен, чтобы надёжно передать переход в «Авто» (0). */
@@ -38,7 +40,7 @@ final class SplitConfigSync {
             i.putExtra("changedPkg", changedPkg);
             i.putExtra("changedDpi", Math.max(0, changedDpi));
         }
-        context.sendBroadcast(i);
+        context.sendBroadcast(i, BIND_SET_MODES_PERMISSION);
     }
 
     static void pushDock(Context context, SharedPreferences prefs) {
@@ -51,7 +53,7 @@ final class SplitConfigSync {
         i.putExtra("dock2Dpi", p2.isEmpty() ? 0 : AppDpiStore.get(prefs, p2));
         addDockSplitExtras(i, 1, p1, prefs);
         addDockSplitExtras(i, 2, p2, prefs);
-        context.sendBroadcast(i);
+        context.sendBroadcast(i, BIND_SET_MODES_PERMISSION);
     }
 
     static void pushSteering(Context context, SharedPreferences prefs) {
@@ -65,7 +67,7 @@ final class SplitConfigSync {
                 ? VoiceCommands.START : resolveSteerActions(prefs.getString("steerVoiceLong", "none"), prefs));
         i.putExtra("steerPhoneShort", resolveSteerActions(prefs.getString("steerPhoneShort", "none"), prefs));
         i.putExtra("steerPhoneLong", resolveSteerActions(prefs.getString("steerPhoneLong", "none"), prefs));
-        context.sendBroadcast(i);
+        context.sendBroadcast(i, BIND_SET_MODES_PERMISSION);
     }
 
     /**
@@ -77,7 +79,7 @@ final class SplitConfigSync {
         String mode = normalizeKeyboardMode(prefs.getString("keyboardMode", "off"));
         Intent i = configIntent("ru.big.town.anative.KEYBOARD_CONFIG");
         i.putExtra("keyboardMode", mode);
-        context.sendBroadcast(i);
+        context.sendBroadcast(i, BIND_SET_MODES_PERMISSION);
     }
 
     static String normalizeKeyboardMode(String mode) {

@@ -55,7 +55,7 @@ public class AdvanceActivityStarButton extends AppCompatActivity {
                 msg.arg1=1;
                 GlobalVars.serviceMessenger.send(msg);
             } catch (RemoteException e) {
-                e.printStackTrace();
+                Log.e("$$$ StarButton1 $$$", "MSG_APPLY_DRIVE_MODES_STAR_BUTTON send failed", e);
             }
         }
     }
@@ -68,7 +68,7 @@ public class AdvanceActivityStarButton extends AppCompatActivity {
                 msg.arg1=2;
                 GlobalVars.serviceMessenger.send(msg);
             } catch (RemoteException e) {
-                e.printStackTrace();
+                Log.e("$$$ StarButton2 $$$", "MSG_APPLY_DRIVE_MODES_STAR_BUTTON send failed", e);
             }
         }
     }

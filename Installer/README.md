@@ -19,9 +19,9 @@
 ## Сборка релиза
 
 ```sh
-./make_release.sh 3.3.0                # Full/Light ZIP со скриптами
-./make_release.sh 3.3.0 --installers   # три автономных GUI/CLI-установщика
-./make_release.sh 3.3.0 --mac          # только macOS Universal; также --windows, --linux
+./make_release.sh 3.12.0                # Full/Light ZIP со скриптами
+./make_release.sh 3.12.0 --installers   # три автономных GUI/CLI-установщика
+./make_release.sh 3.12.0 --mac          # только macOS Universal; также --windows, --linux
 ```
 
 Флаги платформ можно сочетать. Повторная сборка заменяет локальный выпуск той же

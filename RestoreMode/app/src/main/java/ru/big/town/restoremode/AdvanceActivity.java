@@ -787,7 +787,7 @@ public class AdvanceActivity extends AppCompatActivity {
             GlobalVars.serviceMessenger.send(msg);
             setApplying(true);
         } catch (RemoteException e) {
-            e.printStackTrace();
+            Log.e("$$$ Advance apply $$$", "MSG_APPLY_DRIVE_MODES send failed", e);
         }
     }
 
@@ -876,7 +876,7 @@ public class AdvanceActivity extends AppCompatActivity {
         try {
             GlobalVars.serviceMessenger.send(Message.obtain(null, MSG_FLOATING_BACK, enable ? 1 : 0, 0));
         } catch (RemoteException e) {
-            e.printStackTrace();
+            Log.e("$$$ Advance floatingBack $$$", "MSG_FLOATING_BACK send failed", e);
         }
     }
 
@@ -889,7 +889,7 @@ public class AdvanceActivity extends AppCompatActivity {
         try {
             GlobalVars.serviceMessenger.send(Message.obtain(null, MSG_SET_THEME, mode, 0));
         } catch (RemoteException e) {
-            e.printStackTrace();
+            Log.e("$$$ Advance theme $$$", "MSG_SET_THEME send failed", e);
         }
     }
 
@@ -948,7 +948,7 @@ public class AdvanceActivity extends AppCompatActivity {
         try {
             GlobalVars.serviceMessenger.send(Message.obtain(null, MSG_FLOATING_BACK_SIDE, side, 0));
         } catch (RemoteException e) {
-            e.printStackTrace();
+            Log.e("$$$ Advance floatingBackSide $$$", "MSG_FLOATING_BACK_SIDE send failed", e);
         }
     }
 
@@ -964,7 +964,7 @@ public class AdvanceActivity extends AppCompatActivity {
                             GlobalVars.serviceMessenger.send(Message.obtain(null, MSG_CLOSE_ALL));
                             ok = true;
                         } catch (RemoteException e) {
-                            e.printStackTrace();
+                            Log.e("$$$ Advance closeAll $$$", "MSG_CLOSE_ALL send failed", e);
                         }
                     }
                     com.google.android.material.snackbar.Snackbar.make(
@@ -1634,7 +1634,7 @@ public class AdvanceActivity extends AppCompatActivity {
             GlobalVars.serviceMessenger.send(m);
             Log.i("$$$ Advance grantInstall $$$", "MSG_GRANT_INSTALL pkg=" + pkg + " uid=" + uid);
         } catch (RemoteException e) {
-            e.printStackTrace();
+            Log.e("$$$ Advance grantInstall $$$", "MSG_GRANT_INSTALL send failed", e);
         }
     }
 
@@ -1649,7 +1649,7 @@ public class AdvanceActivity extends AppCompatActivity {
                             GlobalVars.serviceMessenger.send(Message.obtain(null, MSG_REBOOT));
                             Log.i("$$$ Advance reboot $$$", "MSG_REBOOT sent");
                         } catch (RemoteException e) {
-                            e.printStackTrace();
+                            Log.e("$$$ Advance reboot $$$", "MSG_REBOOT send failed", e);
                         }
                     } else {
                         Log.w("$$$ Advance reboot $$$", "SetModesService не забинден");
@@ -2309,7 +2309,7 @@ public class AdvanceActivity extends AppCompatActivity {
         try {
             GlobalVars.serviceMessenger.send(Message.obtain(null, MSG_APPLY_FORCED_EV, on ? 1 : 0, 0));
         } catch (RemoteException e) {
-            e.printStackTrace();
+            Log.e("$$$ Advance forcedEv $$$", "MSG_APPLY_FORCED_EV send failed", e);
         }
     }
 
@@ -2518,7 +2518,7 @@ public class AdvanceActivity extends AppCompatActivity {
         try {
             GlobalVars.serviceMessenger.send(Message.obtain(null, what));
         } catch (RemoteException e) {
-            e.printStackTrace();
+            Log.e("$$$ Advance autolight $$$", "MSG_AUTO_LIGHT send failed", e);
         }
     }
 

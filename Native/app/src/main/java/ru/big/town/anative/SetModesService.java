@@ -62,6 +62,7 @@ public class SetModesService extends Service {
     static final int MSG_LEAVE_CAR                  = 20; // быстрая активация leave car / power hold
     static final int MSG_APPLY_PEDESTRIAN           = 21; // применить звук пешеходов (arg1: 1=заглушить)
     static final int MSG_APPLY_FORCED_EV           = 35; // форсированный электрорежим (arg1: 1=вкл)
+    static final int MSG_VOICE_SESSION             = 36; // голосовой сеанс (зеркало RestoreMode VoiceCommands.MESSAGE)
     static final int MSG_REBOOT                     = 22; // перезагрузка системы (голова)
     static final int MSG_WASH_MODE                  = 23; // активация режима мойки
     static final int MSG_FLOATING_BACK              = 24; // плавающие Назад/Home (arg1: 1=вкл)
@@ -105,7 +106,7 @@ public class SetModesService extends Service {
         @Override
         public void handleMessage(Message msg) {
             switch (msg.what) {
-                case 36: // Signature-protected voice session protocol.
+                case MSG_VOICE_SESSION: // Signature-protected voice session protocol.
                     try {
                         voiceCommands.handle(msg.getData());
                     } catch (android.os.BadParcelableException e) {

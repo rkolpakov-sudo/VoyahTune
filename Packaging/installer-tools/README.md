@@ -4,8 +4,8 @@
 Ручной реестр tooling.json больше не используется.
 
 ```sh
-./make_release.sh 3.3.0 --installers
-./make_release.sh 3.3.0 --mac  # только macOS; также --windows и --linux
+./make_release.sh 3.12.0 --installers
+./make_release.sh 3.12.0 --mac  # только macOS; также --windows и --linux
 ```
 
 Команда собирает из исходников три установщика со встроенными APK, ADB и остальными

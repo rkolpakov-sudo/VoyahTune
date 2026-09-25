@@ -26,6 +26,75 @@ wait_adb_device() {
     return 1
 }
 
+# FIX-10/R-A12: read-only проверка здоровья устройства для движков — ТОЛЬКО предупреждения (не блокирует
+# и не меняет состояние). Пороги согласованы с tui_device_health (tui-lib.sh): батарея <20%,
+# свободно в /data <200MB. Нечитаемые данные → пропуск с пометкой, никогда не фейл (возврат 0).
+device_health_warn() {
+    dh_model="$("$YDNS_ADB" shell getprop ro.product.marketname 2>/dev/null | tr -d '\r')"
+    [ -n "$dh_model" ] || dh_model="$("$YDNS_ADB" shell getprop ro.product.model 2>/dev/null | tr -d '\r')"
+    if [ -n "$dh_model" ]; then
+        echo "  Устройство: $dh_model"
+    fi
+    dh_level="$("$YDNS_ADB" shell dumpsys battery 2>/dev/null | sed -n 's/^ *level: *//p' | tr -d '\r')"
+    if [ -n "$dh_level" ] && [ "$dh_level" -eq "$dh_level" ] 2>/dev/null; then
+        echo "  Заряд батареи: $dh_level%"
+        if [ "$dh_level" -lt 20 ]; then
+            echo "!!! НИЗКИЙ ЗАРЯД (<20%) — установка может прерваться посреди перезагрузок; зарядите ГУ (движок продолжает — это предупреждение)."
+        fi
+    else
+        echo "  Заряд батареи: не удалось определить — проверка пропущена."
+    fi
+    dh_data_k="$("$YDNS_ADB" shell 'df -k /data 2>/dev/null' | awk '$NF=="/data"{print $4; exit}' | tr -d '\r')"
+    if [ -n "$dh_data_k" ] && [ "$dh_data_k" -eq "$dh_data_k" ] 2>/dev/null; then
+        dh_data_mb=$((dh_data_k / 1024))
+        echo "  Свободно в /data: ${dh_data_mb}MB"
+        if [ "$dh_data_mb" -lt 200 ]; then
+            echo "!!! МАЛО МЕСТА В /data (<200MB) — pm install может прерваться (движок продолжает — это предупреждение)."
+        fi
+    else
+        echo "  Свободно в /data: не удалось определить — проверка пропущена."
+    fi
+    return 0
+}
+
+# FIX-9/R-A11: сверка MANIFEST.sha256 перед первым ADB — паритет tui_check_manifest (тот же формат
+# "<hash>  <file>"): манифеста нет → warning (старый zip / сборка без D6), hash mismatch/пустой файл
+# → отказ (вызывающий обязан exit 1). Проверяются файлы на ХОСТЕ, adb не используется.
+check_release_manifest() {
+    if [ ! -s MANIFEST.sha256 ]; then
+        echo "ПРЕДУПРЕЖДЕНИЕ: MANIFEST.sha256 отсутствует — сверка целостности пропущена (соберите релиз: make_release.sh)"
+        return 0
+    fi
+    if ! command -v sha256sum >/dev/null 2>&1 && ! command -v shasum >/dev/null 2>&1; then
+        echo "ПРЕДУПРЕЖДЕНИЕ: нет sha256sum/shasum — сверка MANIFEST.sha256 пропущена"
+        return 0
+    fi
+    manifest_bad=0
+    while read -r expected name; do
+        [ -z "${expected:-}" ] && continue
+        if [ ! -s "$name" ]; then
+            echo "!!! MANIFEST: нет или пуст $name"
+            manifest_bad=1
+            continue
+        fi
+        actual="$(ydns_host_hash "$name")" || {
+            echo "!!! MANIFEST: не удалось хешировать $name"
+            manifest_bad=1
+            continue
+        }
+        if [ "$actual" != "$expected" ]; then
+            echo "!!! MANIFEST: hash mismatch $name"
+            manifest_bad=1
+        fi
+    done < MANIFEST.sha256
+    if [ "$manifest_bad" = 1 ]; then
+        echo "!!! MANIFEST.sha256 не сошёлся — прервано до изменения устройства. Распакуйте ZIP полностью."
+        return 1
+    fi
+    echo "  MANIFEST.sha256: файлы совпали."
+    return 0
+}
+
 ydns_release_dir() {
     CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd
 }

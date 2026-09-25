@@ -1,16 +1,16 @@
 # Подготовка окружения и выпуск VoyahTune
 
 Актуально на 9 сентября 2026 года. Команды выполняются из корня репозитория.
-`3.10.0` в примерах замените номером своего релиза.
+`3.12.0` в примерах замените номером своего релиза.
 
 ## 1. Выбрать формат релиза
 
 | Формат | Команда | Результат |
 | --- | --- | --- |
-| По старому, со скриптами | `./make_release.sh 3.10.0` | Отдельные Full и Light ZIP с install/remove |
-| По новому, с GUI и CLI | `./make_release.sh 3.10.0 --installers` | Три ZIP: macOS Universal, Windows x64, Linux x64 |
-| Только GUI для macOS | `./make_release.sh 3.10.0 --mac` | Один ZIP для Apple Silicon и Intel |
-| Только GUI для Windows/Linux | `./make_release.sh 3.10.0 --windows --linux` | Два ZIP для x64 |
+| По старому, со скриптами | `./make_release.sh 3.12.0` | Отдельные Full и Light ZIP с install/remove |
+| По новому, с GUI и CLI | `./make_release.sh 3.12.0 --installers` | Три ZIP: macOS Universal, Windows x64, Linux x64 |
+| Только GUI для macOS | `./make_release.sh 3.12.0 --mac` | Один ZIP для Apple Silicon и Intel |
+| Только GUI для Windows/Linux | `./make_release.sh 3.12.0 --windows --linux` | Два ZIP для x64 |
 
 Без флагов всегда используется старый формат. Флаги платформ сами включают новый
 формат и могут сочетаться. Windows ARM и Linux ARM не собираются.
@@ -104,7 +104,7 @@ npm --version
 Desktop-зависимости устанавливаются автоматически через `npm ci` во время сборки.
 Глобально устанавливать Tauri CLI не требуется.
 
-Теперь можно выполнять `./make_release.sh 3.10.0 --mac`. При выборе только macOS
+Теперь можно выполнять `./make_release.sh 3.12.0 --mac`. При выборе только macOS
 Docker/Colima не проверяются и не запускаются.
 
 ### 2.4. Дополнительно для Windows/Linux из macOS
@@ -190,7 +190,7 @@ GUI выполняет перенесённую в Rust логику класс�
 
 ### Версии и подписи
 
-1. Выберите SemVer-версию комплекта, например `3.10.0`. Она передаётся аргументом
+1. Выберите SemVer-версию комплекта, например `3.12.0`. Она передаётся аргументом
    `make_release.sh`; `@VERSION@` в исходных скриптах заменяется автоматически.
 2. Для изменившихся APK увеличьте `versionCode` относительно опубликованного
    выпуска и задайте `versionName` в `Native/app/build.gradle.kts` и
@@ -218,17 +218,17 @@ APK. Изменённое рабочее дерево даёт revision с `-dir
 ## 4. Собрать по старому: ZIP со скриптами
 
 ```sh
-./make_release.sh 3.10.0
+./make_release.sh 3.12.0
 ```
 
 Скрипт запускает проверки Packaging, собирает Full/Light APK обоих приложений,
 раскладывает файлы и создаёт:
 
 ```text
-Releases/dist/VoyahTune-3.10.0.zip
-Releases/dist/VoyahTune-3.10.0-light.zip
-Releases/build/VoyahTune-3.10.0/
-Releases/build/VoyahTune-3.10.0-light/
+Releases/dist/VoyahTune-3.12.0.zip
+Releases/dist/VoyahTune-3.12.0-light.zip
+Releases/build/VoyahTune-3.12.0/
+Releases/build/VoyahTune-3.12.0-light/
 ```
 
 В каждом ZIP — плоская папка с APK, ресурсами, `install.sh/.bat`, `remove.sh/.bat`
@@ -237,10 +237,10 @@ Releases/build/VoyahTune-3.10.0-light/
 
 | Команда | Назначение |
 | --- | --- |
-| `./make_release.sh 3.10.0 --full-only` | Только Full |
-| `./make_release.sh 3.10.0 --light-only` | Только Light |
-| `./make_release.sh 3.10.0 --no-zip` | Собрать APK и папки, без новых ZIP |
-| `./make_release.sh 3.10.0 --no-build` | Перепаковать с APK из существующих папок этой версии в `Releases/build/` |
+| `./make_release.sh 3.12.0 --full-only` | Только Full |
+| `./make_release.sh 3.12.0 --light-only` | Только Light |
+| `./make_release.sh 3.12.0 --no-zip` | Собрать APK и папки, без новых ZIP |
+| `./make_release.sh 3.12.0 --no-build` | Перепаковать с APK из существующих папок этой версии в `Releases/build/` |
 
 `--no-build` не обновляет APK из изменённых исходников; для нового выпуска
 используйте обычную команду. `--legacy VERSION` остаётся совместимым псевдонимом
@@ -249,33 +249,33 @@ Releases/build/VoyahTune-3.10.0-light/
 ## 5. Собрать по новому: автономные GUI/CLI
 
 ```sh
-./make_release.sh 3.10.0 --installers
+./make_release.sh 3.12.0 --installers
 ```
 
 Команда собирает четыре APK с метаданными выпуска, формирует и проверяет payload,
 пересобирает desktop-приложения и встраивает файлы с ADB:
 
 ```text
-Releases/dist/VoyahTune-3.10.0-installers/
-  VoyahTune-3.10.0-macos.zip
-  VoyahTune-3.10.0-windows.zip
-  VoyahTune-3.10.0-linux.zip
+Releases/dist/VoyahTune-3.12.0-installers/
+  VoyahTune-3.12.0-macos.zip
+  VoyahTune-3.12.0-windows.zip
+  VoyahTune-3.12.0-linux.zip
   SHA256SUMS
   release.json
-Releases/build/installer-payload-3.10.0/
+Releases/build/installer-payload-3.12.0/
 ```
 
 В macOS ZIP находится `.app`, в Windows ZIP — NSIS `.exe`, в Linux ZIP — `.run`.
 Каждый включает полный payload и выбор Full/Light/удаления. Папку
-`installer-payload-3.10.0` пользователю передавать не нужно.
+`installer-payload-3.12.0` пользователю передавать не нужно.
 
 Выбор платформ:
 
 ```sh
-./make_release.sh 3.10.0 --mac
-./make_release.sh 3.10.0 --windows
-./make_release.sh 3.10.0 --linux
-./make_release.sh 3.10.0 --mac --windows
+./make_release.sh 3.12.0 --mac
+./make_release.sh 3.12.0 --windows
+./make_release.sh 3.12.0 --linux
+./make_release.sh 3.12.0 --mac --windows
 ```
 
 ### Повторная сборка и специальные режимы
@@ -291,8 +291,8 @@ Releases/build/installer-payload-3.10.0/
 
 | Команда | Назначение |
 | --- | --- |
-| `./make_release.sh 3.10.0 --installers --no-zip` | Собрать и проверить только payload, без desktop и ZIP |
-| `./make_release.sh 3.10.0 --mac --no-build` | Использовать прежние Gradle APK с совпадающими release-метаданными; desktop всё равно пересобрать |
+| `./make_release.sh 3.12.0 --installers --no-zip` | Собрать и проверить только payload, без desktop и ZIP |
+| `./make_release.sh 3.12.0 --mac --no-build` | Использовать прежние Gradle APK с совпадающими release-метаданными; desktop всё равно пересобрать |
 
 `--no-build` нового формата требует совпадения версии, revision и состава
 с метаданными APK. Для обычного выпуска его не используйте. `--full-only` и
@@ -303,10 +303,10 @@ Releases/build/installer-payload-3.10.0/
 
 ```sh
 ./Installer/scripts/build-all-macos.sh --mac \
-  --payload Releases/build/installer-payload-3.10.0
+  --payload Releases/build/installer-payload-3.12.0
 ```
 
-Результат — `Releases/build/installers-3.10.0/` с `macos-universal.tar.gz` и
+Результат — `Releases/build/installers-3.12.0/` с `macos-universal.tar.gz` и
 `build-info.json`; без `--mac` там будут также `windows-x64.exe` и `linux-x64.run`.
 Эта низкоуровневая команда не обновляет release ZIP в `Releases/dist/`.
 Логи desktop-сборок: `Releases/cache/installer-all-*/`.
@@ -314,8 +314,8 @@ Releases/build/installer-payload-3.10.0/
 Для обоих форматов выполните последовательно:
 
 ```sh
-./make_release.sh 3.10.0
-./make_release.sh 3.10.0 --installers
+./make_release.sh 3.12.0
+./make_release.sh 3.12.0 --installers
 ```
 
 Не запускайте сборки параллельно в одном checkout: Gradle/target-каталоги общие.

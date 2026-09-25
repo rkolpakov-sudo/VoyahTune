@@ -16,6 +16,7 @@ public class RestoreModeContentProvider extends ContentProvider {
     public RestoreModeContentProvider() {
     }
 
+    /** Неподдерживаемая операция: 0 = ничего не удалено (контракт — см. {@link #insert}). */
     @Override
     public int delete(Uri uri, String selection, String[] selectionArgs) {
         return 0;
@@ -26,10 +27,16 @@ public class RestoreModeContentProvider extends ContentProvider {
         return "vnd.android.cursor.dir/users";
     }
 
+    /**
+     * Провайдер — однострочный снимок DrivePreferences: строк для вставки нет. Поддержаны только
+     * {@link #query} (чтение), {@link #update} (whitelist-запись режимов) и {@link #call}
+     * (root-публикация hook-status от load.bin); insert/delete не используются ни одним
+     * клиентом (проверено: Native, RestoreMode, Frida-скрипты, Packaging-тесты).
+     * null = «строка не вставлена» по контракту ContentProvider — без исключений,
+     * вызывающий не падает при обращении к неподдерживаемой операции.
+     */
     @Override
     public Uri insert(Uri uri, ContentValues values) {
-        // TODO: Implement this to handle requests to insert a new row.
-        //throw new UnsupportedOperationException("Not yet implemented");
         return null;
     }
 

@@ -4,7 +4,7 @@
 автомобильного релиза вместе со всем payload:
 
 ```sh
-./make_release.sh 3.3.0 --installers
+./make_release.sh 3.12.0 --installers
 ```
 
 Без флага make_release.sh выпускает обычные Full/Light ZIP со скриптами.
@@ -14,16 +14,16 @@
 
 На подготовленном Mac команда выше собирает четыре Android APK, автоматически
 определяет состав Packaging, проверяет подписи/хеши и запускает три desktop-сборки.
-Результаты: `Releases/dist/VoyahTune-3.3.0-installers/`. В ZIP нет внешнего payload:
+Результаты: `Releases/dist/VoyahTune-3.12.0-installers/`. В ZIP нет внешнего payload:
 он находится внутри `.app`, Windows NSIS и Linux `.run`.
 
 Флаги `--mac`, `--windows`, `--linux` выбирают платформы и могут сочетаться.
 В `make_release.sh` они включают режим установщиков без отдельного `--installers`:
 
 ```sh
-./make_release.sh 3.3.0 --mac
-./make_release.sh 3.3.0 --windows --linux
-./Installer/scripts/build-all-macos.sh --mac --payload Releases/build/installer-payload-3.3.0
+./make_release.sh 3.12.0 --mac
+./make_release.sh 3.12.0 --windows --linux
+./Installer/scripts/build-all-macos.sh --mac --payload Releases/build/installer-payload-3.12.0
 ```
 
 Без выбора платформ `--installers` собирает все три. `--mac` сохраняет Universal
@@ -42,10 +42,10 @@ ARM64+x86-64, Windows/Linux — только x64. Для `--mac` Docker/Colima �
 
 ```sh
 ./Installer/scripts/build-all-macos.sh \
-  --payload Releases/build/installer-payload-3.3.0
+  --payload Releases/build/installer-payload-3.12.0
 ```
 
-Результат этой низкоуровневой команды — `Releases/build/installers-3.3.0/`:
+Результат этой низкоуровневой команды — `Releases/build/installers-3.12.0/`:
 macos-universal.tar.gz, windows-x64.exe, linux-x64.run и build-info.json.
 Можно указать другой каталог внутри Releases через `--output`.
 Существующий результат заменяется после успешной сборки всех выбранных платформ;
@@ -138,7 +138,7 @@ vti_docker exec vti-linux-amd64 uname -m
 ./Installer/scripts/build-all-macos.sh --check --windows --linux
 # После подготовки также Android SDK и локального Rust для macOS:
 ./Installer/scripts/build-all-macos.sh --check
-./make_release.sh 3.3.0 --installers
+./make_release.sh 3.12.0 --installers
 ```
 
 Скрипт сам копирует исходники Installer и готовый payload в каталоги `hosts/`;
@@ -166,7 +166,7 @@ payload Android SDK/Java не требуются.
 rustup toolchain install 1.98.1 --profile minimal --component rustfmt,clippy
 rustup target add --toolchain 1.98.1 aarch64-apple-darwin x86_64-apple-darwin
 node Installer/scripts/build.mjs --bundles app \
-  --payload Releases/build/installer-payload-3.3.0
+  --payload Releases/build/installer-payload-3.12.0
 ```
 
 Результат: `Installer/target/universal-apple-darwin/release/bundle/macos/VoyahTune Installer.app`.
@@ -197,7 +197,7 @@ node Installer/scripts/build.mjs --target x86_64-pc-windows-msvc --payload 'C:\p
 ```
 
 При нативной сборке результат:
-`Installer/target/release/bundle/nsis/VoyahTune Installer_3.3.0_x64-setup.exe`.
+`Installer/target/release/bundle/nsis/VoyahTune Installer_3.12.0_x64-setup.exe`.
 При кросс-сборке — `Installer/target/x86_64-pc-windows-msvc/release/bundle/nsis/`.
 Имя версии берётся из payload. NSIS включает offline WebView2, CLI, ADB и полный
 payload. Отдельного копирования соседней папки после установки больше нет.

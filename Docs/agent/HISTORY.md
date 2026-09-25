@@ -811,3 +811,75 @@ RestoreMode/.../RestoreModeContentProvider.java
 - `hownews.md`: добавлена секция `## v3.12.0` (голосовое управление, дата поездок, версия в настройках, +40МБ).
 - BUILD_STATUS/watchdog: `phase=WAIT-CABLE`, `adb=empty`, pid 21292 — **не трогали** (отражает реальное состояние: кабель не подключён).
 - Итог: **релиз готов, установка ждёт команду «делай установку» + кабель A↔A**.
+
+## Сессия 14 — 2026-09-25: план улучшений P1–P7 (после глубокого анализа)
+
+### Контекст
+- После глубокого критического анализа (сессия 13, оценка ~8/10) пользователь: «Выполняй всё по порядку» = явное «делай» по каждому пункту P1–P7.
+
+### Выполнено (по порядку плана)
+- **P1 SplitConfigSync** — defense-in-depth: константа `BIND_SET_MODES_PERMISSION` + `sendBroadcast(i, BIND_SET_MODES_PERMISSION)` во всех 5 call-site (`SplitConfigSync.java:32,43,56,70,82`). Тройной анализ показал, что защита уже двойная (явный `setClassName` + receiver `BIND_SET_MODES_SERVICE` signature в Native-манифесте:147-151) — добавлен третий слой без изменения поведения. Compile RestoreMode = EXIT=0.
+- **P2 install-tui.bat dry-run** — CLI-флаги `--dry-run`/`--help`/`-h` (паритет .sh, парсинг до preflight), неизвестный флаг → exit 1; пункт меню 5 = Dry-run → exit 6; `:preflight_device_soft` (warn-only) + `:show_plan` (11 фаз install.bat + backup-warn); `TUI_DRY_RUN=1` → soft-проверки + план + exit 0. Найдены и исправлены 2 бага bat-синтаксиса: незакрытая `(` в echo внутри else-блока, `->` парсился как редирект (исправлено на `-^>` по образцу install.bat:160). Смоук: `--help`=0, `--bogus`=1, без бандла=3, фейковый бандл=0 (11/11 пунктов). Гейт CRLF/ASCII (`gate_check.pl`) = **GATE OK**.
+- **P2b light-TUI** — ⛔ отклонён: README.txt:31 явно документирует «TUI только для полной версии»; light install.bat имеет встроенный fail-closed preflight; в light-бандле нет `tui-lib.sh`/`verify_post_install`.
+- **P3 readme.md** — обновлены только примеры команд 286-287 (3.11.1→3.12.0); строка 11 (имя файла changelog) и 141 (исторический факт «macOS появились в 3.11.1», подтверждён hownews.md:63-71) — не тронуты.
+- **P4 vosk только в full** — ⛔ отклонён данными: hownews.md v3.12.0 заявляет голос «в сборке Full и Light»; VoiceActivity открывается без IS_FULL-гейта (`MainActivity:1080`); vosk привязан ко всем вариантам намеренно (OD-коммит ad01470); light 98.7МБ = осознанная цена; срезание сломало бы заявленную функцию (в light без модели `VoiceRecognizer:110-114` создаст пустую папку → крэш).
+- **P5.1** — `SetModesService.java`: константа `MSG_VOICE_SESSION = 36` (зеркало RestoreMode `VoiceCommands.MESSAGE`, `VoiceCommandMessage.java:18`) + `case MSG_VOICE_SESSION:` вместо голого `case 36:` (line 109). Единственный IPC-литерал 36 (CanBus 36 = другой домен: getLightSensorLevel). Compile full+light = EXIT=0.
+- **P5.2 null-guard getText()** — ⛔ отклонён: `EditText.getText()` возвращает `Editable` (не null по контракту Android); поля инициализируются в onCreate:330 до регистрации обработчиков:339; guard'ы = шум, нарушение аксиомы 2.
+- **P5.3 printStackTrace → Log.e** — 14/14 замен в 3 файлах RestoreMode (AdvanceActivity ×9, AdvanceActivityStarButton ×2, MainActivity ×3); все — `catch (RemoteException)` вокруг `serviceMessenger.send`. Теги по конвенции файлов (`$$$ Advance apply $$$` и т.п.; в MainActivity — существующий `TAG`). Остатков: **0**.
+- **P6 insert() в RestoreModeContentProvider** — документация read-only вместо TODO: `insert()`/`delete()` не вызываются никем (проверено: Native ×6 = query/update, RestoreMode, Frida-скрипты, Packaging-тесты); провайдер = однострочный снимок DrivePreferences, вставка семантически бессмысленна, реализация мёртвого write-пути = лишняя поверхность атаки exported-провайдера. `return null` = «не вставлено» по контракту ContentProvider без крэша вызывающего. Javadoc на `insert()` + `delete()`.
+- **P7 версии в docs** — примеры → 3.12.0: `Docs/releasing.md` (~30×3.10.0), `Installer/BUILDING.md` (10×3.3.0), `Installer/README.md` (3), `Packaging/installer-tools/README.md` (2), `make_release.sh` (6-11, 59), `Packaging/README.md` (21, 27-30), `Docs/developer/release.md` (13). **Не тронуты исторические**: `make_release.sh:62` (спецификация нормализации `<3.2.2>`), `Packaging/README.md:332` («начиная с 3.2.2 sha в git»).
+
+### Верификация
+- Native: compile (после P5.1) + `test` = **EXIT=0**.
+- RestoreMode: compile full+light (после P1, P5.1, P6) + `test` дважды (после P5.3 и после P6) = **EXIT=0**.
+- Packaging-тесты провайдера: `test_hook_status`=0, `test_apollo_direct_only`=0 (node в PATH bash), `test_mode_feedback`=0.
+- `make_release.sh`: `sh -n` = 0; `--help` = 0 (вывод содержит 3.12.0).
+- `install-tui.bat` гейт CRLF+ASCII = **GATE OK** (вызов через stdin-редирект).
+- `git status`: 15 файлов изменено (M), **не закоммичено**.
+
+### Не сделано / дальше
+- P2b (light-TUI) и P4 (vosk в full-only) — отклонены с обоснованиями (зафиксировано как рекомендации, не баги).
+- Коммит/push — не делали (ждём явной команды).
+- Фаза V (установка на Sport+ 2026) — ждёт «делай установку» + кабель A↔A; BUILD_STATUS pid 21292 (WAIT-CABLE) не трогали.
+
+## Сессия 15 — 2026-09-25: критический анализ безопасности ГУ + FIX-1…FIX-10 (установочные .sh)
+
+### Контекст
+- Пользователь запросил критический анализ безопасности для ГУ с фокусом на установку. Анализ (3 explore-агента + личная верификация) выявил: группа А (CAN) — вред исключён векторно; группа Б (boot) — B-01 критический, но вне scope (п.2.3); группа В (установка) — R-A1…R-A14 + **регрессия после merge `90ed97c`**: фиксы `b6c90e5` (cd dirname ×4, RW-gate в light/remove, строгий backup в light/install) потеряны при merge. Отчёт выдан с планом FIX-1…FIX-10; пользователь: «Выполнить все фиксы!» = явное «делай» по каждому пункту.
+
+### Выполнено (FIX-1…FIX-10, все .sh)
+- **FIX-1** — `cd "$(dirname "$0")" || exit 1` в 4 движках (full/install:11, light/install:9, full/remove:5, light/remove:6) до первого dns-overlay-чека: относительные пути (`./backup`, `MANIFEST.sha256`, assets) резолвятся из любого CWD.
+- **FIX-2** — RW-gate `.ovw_rwtest` в `light/remove.sh:44-49` (эталон b6c90e5): touch/rm-тест после remount; read-only → стоп до изменения файлов. (full/remove гейт уже имел.)
+- **FIX-3** — `light/install.sh` backup-блок: `mkdir -p || exit 1` + **`backup_pull_with_absent`** вместо слабого `backup_pull` (строгий: PRESENT/ABSENT, `.absent`-маркер, `.new`-стейджинг) + `|| exit 1` на обоих вызовах Native-пары.
+- **FIX-4** — 12 сайтов `adb wait-for-device` → `wait_adb_device || exit/return` (dns-overlay B3): начальные соединения — дефолт 60с; **пост-ребутные** (wait_for_android_boot ×2 движка, verity-ребут ×2 движка, их one-liner) — `ADB_WAIT_TIMEOUT=180` (холодная загрузка ГУ > 60с). Ноль raw-вызовов осталось.
+- **FIX-5** — `full/remove.sh` restore/rm `load.bin` и `frida-inject`: каждая ветка с проверкой push/rm, ошибка → «перезагрузка отменена» + exit 1.
+- **FIX-6** — `hidden_api_policy` добавлен в settings-циклы обоих remove (full: в список `enable_freeform…`; light: в список Apollo-ключей); `settings delete` отсутствующего ключа = 0 (AOSP), паттерн с `|| exit 1` сохранён.
+- **FIX-7** — install-сторона: full:597-603 и light:443-444 Native-пара → `backup_pull_with_absent` (без .absent повторный install сохранил бы наш APK как «оригинал»); remove-сторона (оба): **restore-or-rm** — если `backup/Native.apk` (или whitelist-xml) существует и через `cmp` отличается от лежащего рядом релизного `./native.apk` → атомарный restore (push `.voyahtune-restore.new` → chown 0:0/chmod 0644/restorecon → mv → restorecon → sync → test), иначе прежний rm с verify; cmp-фильтр отсекает загрязнение backup'а повторной установкой; verify-блоки перестроены по-файлово (все 4 комбинации покрыты).
+- **FIX-8** — `tui-lib.sh` пункт меню 4: `sh ./dns-overlay.sh` (no-op: файл = только функции) → source + полный flow query/choose/apply (`install_yandex_dns`/`disable_yandex_dns`) без финального reboot; ветка `install-yandex-dns.sh` сохранена (legacy).
+- **FIX-9** — `check_release_manifest()` в `common/dns-overlay.sh` (общая, DRY; переиспользует `ydns_host_hash`) + вызов в обоих install-движках после asset-loop до первого adb; семантика = `tui_check_manifest`: нет манифеста → warn+продолжить; mismatch/пустой файл → стоп до изменения устройства.
+- **FIX-10** — `device_health_warn()` в dns-overlay.sh (движки: model/marketname + батарея + свободно в /data; **только warn**, всегда return 0) вызывается в 4 движках после первого connect; `tui_device_health()` в tui-lib (те же пороги: батарея <20%, /data <200MB → **fail**) вызван в dry-run и install-flow TUI; модель — только warn (tui_device_profile, аксиома 4); функции добавлены в required-list движков (fail-fast при смешанной папке со старой dns-overlay).
+
+### Изменения кода
+- Файлы: `Packaging/installer/common/dns-overlay.sh` (+69), `full/install.sh` (+34), `full/remove.sh` (+97), `full/tui-lib.sh` (+105), `light/install.sh` (+92), `light/remove.sh` (+78). 6 файлов, ~+575 строк.
+- Согласование: 2026-09-25, реплика «Выполнить все фиксы!» (по каждому FIX-1…FIX-10 из выданного отчёта).
+
+### Верификация
+- `bash -n` / `sh -n` всех 6 файлов + `install-tui.sh` = 0.
+- **Все 20 Packaging-тестов PASS** (включая grep-тесты на движки: android11_lifecycle, keyboard_modes, hook_status, loader_fault_backoff, app_client; node-тесты через Git bash — MSYS конвертирует пути; WSL-запуск дал 6 ложных падений из-за `/mnt/c` → Windows node).
+- `make_release.sh --help` = 0. Raw `adb wait-for-device` в движках = 0. `git status`: 23 файла изменены (15 прошлых + 6 инсталляторов + HISTORY + install-tui.bat из P2), **не закоммичено**; `grep.exe.stackdump` (мусор от rg) удалён.
+
+### Открытые вопросы / residual'ы
+- **.bat-паритет** FIX-1…FIX-10 не делался (вне согласованного списка) — рекомендация отдельным пунктом.
+- FIX-7 install-сторона переключил только Native-пару; `backup_pull` для `/data/local/bin/{load.bin,frida-inject,*.js}` (full:594-599) остаётся plain — при повторном install такой backup загрязняется нашим файлом, и remove восстановит его в /data (инертно: RC уже удалён) — предложен FIX-11.
+- FIX-10: пороги (20% / 200MB) и warn-only семантика движков — эвристика, не подтверждена на Sport+ 2026 (фиксируется живым тестом Фазы V).
+- `hidden_api_policy` удаляется без сохранения прежнего значения (как и все прочие settings в цикле) — если key был выставлен не нами, откат вернёт default.
+- B-01 (boot-скоуп лимитер) и VT-01/Apollo live-checks — вне батча (п.2.3 / живые тесты).
+- Коммит/push — не делали (ждём явной команды). Фаза V — ждёт кабель A↔A (BUILD_STATUS pid 21292 не трогали).
+
+### Дополнение сессии 15: FIX-11 (plain backup для /data/local/bin)
+- **Установка (root-cause):** `full/install.sh:594-601` — 6 вызовов `backup_pull` (load.bin, steeringwheelkeys.js, launcherdock.js, multidisplay.js, vd_bypass.js, frida-inject) → **`backup_pull_with_absent`** + `|| exit 1`: .absent-маркер предотвращает загрязнение backup'а нашей версией при re-install (иначе remove восстановил бы наш файл в /data вместо удаления). Симметрично Native-паре из FIX-7.
+- **Удаление (уже загрязнённые backup'ы):** `full/remove.sh` — restore-условия load.bin (:282) и frida-inject (:307) дополнены `cmp`-фильтром по образцу FIX-7: `{ [ ! -s ./load.bin ] || ! cmp -s backup/load.bin ./load.bin; }` → восстанавливаем только если backup отличается от лежащего рядом релизного файла; без локального релизного файла — консервативный restore. frida-inject сравнивается с `./frida-inject-16.2.1-android-arm64` (имя актива, как в install:661 — тот же хардкод версии, уже принятый в install).
+- Скоуп сознательно сузил до .sh-паритета предложенного FIX-11: **.bat-паритет FIX-1…FIX-11 НЕ делался** (install.bat по-прежнему использует `:backup_pull` для всех 8 файлов — рекомендация отдельным пунктом).
+- Мёртвая `backup_pull()` в full/install.sh **оставлена** (удаление = рефакторинг ради чистоты, аксиома 2 без отдельного согласования).
+- Верификация: `bash -n` install.sh/remove.sh = 0; **все 20 Packaging-тестов PASS**; `git diff` просмотрен (2 хенка FIX-11); синтаксис cmp-условия прогон четырьхфакторным тестом в POSIX sh (`fx11_check.sh`: same→RM, diff→RESTORE, no-local→RESTORE, no-backup→RM = **OK**).
+- Остатки: загрязнение cross-version backup'а (cmp различает → restore нашего старого файла) — инертно (RC уже удалён), тот же residual, что у FIX-7; `if [ -f backup/... ]` для .js в remove не нужен — .js удаляются без восстановления принципиально.

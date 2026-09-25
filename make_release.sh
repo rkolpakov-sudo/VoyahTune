@@ -3,12 +3,12 @@
 # ./make_release.sh VERSION --installers → три автономных GUI/CLI-установщика.
 # ./make_release.sh VERSION --mac [--windows] [--linux] → только выбранные установщики.
 #
-#   ./make_release.sh 3.2.2              → Releases/build/VoyahTune-3.2.2{,-light} + Releases/dist/*.zip
-#   ./make_release.sh 3.2.2 --full-only  → только full
-#   ./make_release.sh 3.2.2 --light-only → только light
-#   ./make_release.sh 3.2.2 --no-build   → не пересобирать APK, только переразложить файлы
+#   ./make_release.sh 3.12.0              → Releases/build/VoyahTune-3.12.0{,-light} + Releases/dist/*.zip
+#   ./make_release.sh 3.12.0 --full-only  → только full
+#   ./make_release.sh 3.12.0 --light-only → только light
+#   ./make_release.sh 3.12.0 --no-build   → не пересобирать APK, только переразложить файлы
 #                                          (APK берутся из уже существующей папки сборки)
-#   ./make_release.sh 3.2.2 --no-zip     → не паковать архивы
+#   ./make_release.sh 3.12.0 --no-zip     → не паковать архивы
 #
 # Источник всего, кроме APK — Packaging/ (см. Packaging/README.md). Он В GIT.
 # Releases/ — ТОЛЬКО вывод и целиком в .gitignore: сборки в Releases/build/, готовые к
@@ -56,7 +56,7 @@ for arg in "$@"; do
 done
 
 if [ -z "$VERSION" ]; then
-    echo "Не указана версия. Пример: ./make_release.sh 3.2.2" >&2
+    echo "Не указана версия. Пример: ./make_release.sh 3.12.0" >&2
     exit 1
 fi
 # Версию принимаем и как «3.2.2», и как «v3.2.2» — нормализуем к виду без префикса.

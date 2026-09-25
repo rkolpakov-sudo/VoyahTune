@@ -283,8 +283,8 @@ remove.bat
 После подготовки окружения из [руководства по сборке](Docs/releasing.md) команды из корня репозитория создают:
 
 ```sh
-./make_release.sh 3.11.1                  # Full/Light ZIP со скриптами
-./make_release.sh 3.11.1 --mac --windows  # GUI/CLI для macOS и Windows
+./make_release.sh 3.12.0                  # Full/Light ZIP со скриптами
+./make_release.sh 3.12.0 --mac --windows  # GUI/CLI для macOS и Windows
 ```
 
 Номер в примерах замените версией своего выпуска. Полный сценарий сборки GUI-установщиков выполняется на macOS; подготовка окружения и отдельная сборка desktop описаны в [Installer/BUILDING.md](Installer/BUILDING.md). Состав комплекта и технические детали интеграции — в [Packaging/README.md](Packaging/README.md).

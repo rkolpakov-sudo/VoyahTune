@@ -632,7 +632,7 @@ public class MainActivity extends AppCompatActivity {
             GlobalVars.serviceMessenger.send(msg);
             return true;
         } catch (RemoteException e) {
-            e.printStackTrace();
+            Log.e(TAG, "sendMessageToService failed what=" + message + " arg1=" + arg1, e);
             return false;
         }
     }
@@ -1953,7 +1953,7 @@ public class MainActivity extends AppCompatActivity {
             GlobalVars.serviceMessenger.send(m);
             Log.i(TAG, "sendAppWindow " + pkg);
         } catch (RemoteException e) {
-            e.printStackTrace();
+            Log.e(TAG, "sendAppWindow failed pkg=" + pkg, e);
         }
     }
 
@@ -1997,7 +1997,7 @@ public class MainActivity extends AppCompatActivity {
             Log.i(TAG, "sendSplitVd left=" + preset.l + " right=" + preset.r
                     + " ratio=" + preset.ratio + " lDpi=" + lDpi + " rDpi=" + rDpi);
         } catch (RemoteException e) {
-            e.printStackTrace();
+            Log.e(TAG, "sendSplitVd failed left=" + preset.l + " right=" + preset.r, e);
         }
     }
 

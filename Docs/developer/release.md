@@ -10,7 +10,7 @@
 ## Сборка
 
 ```bash
-./make_release.sh 3.2.2
+./make_release.sh 3.12.0
 # флаги: --full-only --light-only --no-build --no-zip
 ```
 

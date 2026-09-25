@@ -4,6 +4,9 @@
 # поездки, Power Hold, режим мойки, звук пешеходов, плавающая кнопка «Назад», установка приложений,
 # ярлыки приложений (обычный запуск). БЕЗ сплита/дока/VirtualDisplay, БЕЗ Frida и любой root-инъекции,
 # БЕЗ раздела «Кнопки на руле». init.logcat.sh системы НЕ трогаем.
+# FIX-1: работаем из папки скрипта — относительные пути (./dns-overlay.sh, ./backup, MANIFEST.sha256,
+# assets) обязаны резолвиться одинаково при запуске из любого CWD (регрессия b6c90e5, merge 90ed97c).
+cd "$(dirname "$0")" || exit 1
 if [ ! -f ./dns-overlay.sh ]; then
     echo "!!! Не найден ./dns-overlay.sh — установка прервана до изменения устройства."
     exit 1
@@ -12,7 +15,9 @@ fi
     echo "!!! Не удалось загрузить ./dns-overlay.sh — установка прервана."
     exit 1
 }
-for ydns_required in ydns_prepare_helper ydns_query_state choose_yandex_dns install_yandex_dns disable_yandex_dns; do
+# Проверяем все функции common-либы, от которых зависит движок (в т.ч. FIX-1/4/9/10 хелперы).
+for ydns_required in ydns_prepare_helper ydns_query_state choose_yandex_dns install_yandex_dns \
+        disable_yandex_dns wait_adb_device device_health_warn check_release_manifest; do
     if ! command -v "$ydns_required" >/dev/null 2>&1; then
         echo "!!! dns-overlay.sh не содержит $ydns_required — установка прервана."
         exit 1
@@ -30,9 +35,15 @@ if ! ydns_prepare_helper; then
     exit 1
 fi
 
+# FIX-9/R-A11: сверка MANIFEST.sha256 в direct-flow (функция в dns-overlay.sh, паритет TUI).
+check_release_manifest || exit 1
+
 adb root
-adb wait-for-device
+# FIX-4: wait с таймаутом (B3) вместо вечного блокирующего adb wait-for-device.
+wait_adb_device || exit 1
 adb root
+# FIX-10: только предупреждения о батарее/месте/модели; блокирует только TUI-гейт (в full tui-lib).
+device_health_warn
 
 # Full -> Light transition: best-effort stop through Android init. Atomic file operations and the
 # mandatory final reboot make PID scanning/killing unnecessary and avoid Android 11 toybox false matches.
@@ -236,7 +247,9 @@ trap light_install_exit 0
 # these roots with mkdir/rm. After the reboot that scans the system APK, install-existing creates
 # the user state; a -k cycle self-heals packages damaged by older removers without deleting prefs.
 wait_for_android_boot() {
-    adb wait-for-device || return 1
+    # FIX-4: пост-ребутное ожидание — щедрый таймаут 180с (холодная загрузка ГУ дольше дефолтных 60с).
+    ADB_WAIT_TIMEOUT=180
+    wait_adb_device || return 1
     BOOT_WAIT=0
     while [ "$BOOT_WAIT" -lt 60 ]; do
         [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ] && break
@@ -245,7 +258,7 @@ wait_for_android_boot() {
     done
     [ "$BOOT_WAIT" -lt 60 ] || return 1
     adb root >/dev/null 2>&1 || return 1
-    adb wait-for-device || return 1
+    wait_adb_device || return 1
     adb root >/dev/null 2>&1 || return 1
 }
 
@@ -362,14 +375,16 @@ adb disable-verity 2>&1 | sed 's/^/  /'
 if ! system_is_writable; then
     echo "  /system ещё read-only → перезагрузка ОДИН раз (применяем disable-verity)..."
     adb reboot
-    adb wait-for-device
+    # FIX-4: пост-ребут — таймаут 180с; наследуется и строкой ожидания ниже.
+    ADB_WAIT_TIMEOUT=180
+    wait_adb_device || exit 1
     i=0
     while [ $i -lt 60 ]; do
         [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ] && break
         sleep 5; i=$((i + 1))
     done
     sleep 3
-    adb root >/dev/null 2>&1; adb wait-for-device; adb root >/dev/null 2>&1
+    adb root >/dev/null 2>&1; wait_adb_device || exit 1; adb root >/dev/null 2>&1
 fi
 if ! system_is_writable; then
     echo "!!! /system ОСТАЁТСЯ read-only — установка прервана (в /system ничего не тронуто)."
@@ -380,25 +395,66 @@ if ! system_is_writable; then
 fi
 echo "  /system записываем — продолжаем."
 
+# FIX-3 (b6c90e5, регрессия merge 90ed97c): строгий backup — mkdir обязан создаться, иначе стоп
+# ДО перезаписи файлов. FIX-7: для нового системного файла — только симметричный backup с .absent
+# маркером: без него повторная установка сохранила бы наш предыдущий APK как «оригинал», и remove
+# восстановил бы его вместо удаления.
 BACKUP_DIR="backup"
-mkdir -p "$BACKUP_DIR"
+mkdir -p "$BACKUP_DIR" || {
+    echo "!!! Не удалось подготовить $BACKUP_DIR — установка прервана до перезаписи файлов."
+    exit 1
+}
 
-# Бэкап файла с головы перед перезаписью. Если бэкап уже есть — не трогаем (сохраняем оригинал).
-backup_pull() {
-    if [ -f "$BACKUP_DIR/$2" ]; then
-        echo "Backup: $BACKUP_DIR/$2 уже есть — пропуск (сохраняем оригинал)"
-        return
+# Одноразовый симметричный backup для нового файла: запоминаем и исходное отсутствие. Без .absent
+# повторная установка приняла бы нашу предыдущую версию за заводской «оригинал».
+backup_pull_with_absent() {
+    if [ -e "$BACKUP_DIR/$2" ]; then
+        if [ ! -f "$BACKUP_DIR/$2" ] || [ ! -s "$BACKUP_DIR/$2" ]; then
+            echo "!!! Существующий backup $BACKUP_DIR/$2 пуст или не является файлом."
+            return 1
+        fi
+        echo "Backup: исходное состояние $2 уже сохранено — пропуск"
+        return 0
     fi
-    if adb pull "$1" "$BACKUP_DIR/$2" >/dev/null 2>&1; then
-        echo "Backup: $1 -> $BACKUP_DIR/$2"
-    else
-        echo "Backup: $1 отсутствует, пропуск"
+    if [ -e "$BACKUP_DIR/$2.absent" ]; then
+        if [ -f "$BACKUP_DIR/$2.absent" ]; then
+            echo "Backup: исходное отсутствие $2 уже сохранено — пропуск"
+            return 0
+        fi
+        echo "!!! Marker $BACKUP_DIR/$2.absent не является файлом."
+        return 1
     fi
+    REMOTE_STATE=$(adb shell "if [ -e '$1' ]; then echo PRESENT; else echo ABSENT; fi" 2>/dev/null | tr -d '\r')
+    case "$REMOTE_STATE" in
+        PRESENT)
+            rm -f "$BACKUP_DIR/$2.new"
+            if adb pull "$1" "$BACKUP_DIR/$2.new" >/dev/null 2>&1 \
+                    && mv -f "$BACKUP_DIR/$2.new" "$BACKUP_DIR/$2"; then
+                echo "Backup: $1 -> $BACKUP_DIR/$2"
+                return 0
+            fi
+            rm -f "$BACKUP_DIR/$2.new"
+            echo "!!! Не удалось сохранить существующий $1"
+            return 1
+            ;;
+        ABSENT)
+            if : > "$BACKUP_DIR/$2.absent"; then
+                echo "Backup: $1 изначально отсутствует -> $BACKUP_DIR/$2.absent"
+                return 0
+            fi
+            echo "!!! Не удалось создать $BACKUP_DIR/$2.absent"
+            return 1
+            ;;
+        *)
+            echo "!!! Не удалось определить исходное состояние $1"
+            return 1
+            ;;
+    esac
 }
 
 echo "=== Бэкап перезаписываемых файлов в $BACKUP_DIR/ ==="
-backup_pull /system/priv-app/Native/Native.apk     Native.apk
-backup_pull /system/etc/permissions/privapp-permissions-ru.big.town.anative.xml privapp-permissions-ru.big.town.anative.xml
+backup_pull_with_absent /system/priv-app/Native/Native.apk     Native.apk || exit 1
+backup_pull_with_absent /system/etc/permissions/privapp-permissions-ru.big.town.anative.xml privapp-permissions-ru.big.town.anative.xml || exit 1
 
 # Старый Full мог жить прямо в OEM init.logcat.sh. Light не содержит проверенного OEM fallback и
 # поэтому не имеет права переписывать неизвестный системный файл: такой переход выполняется только
