@@ -763,3 +763,40 @@ RestoreMode/.../RestoreModeContentProvider.java
 - BUILD_STATUS: `phase=READY-FOR-INSTALL-FIXED`
 - Фаза V (установка): **ждёт S1–S5 + явную команду «делай установку»**
 - Коммит/push: **не делали**
+
+---
+
+## Сессия 13 — 2026-09-25: MERGE origin/master-od (voice 3.12.0) → master
+
+### Контекст
+- Ветка `origin/master-od` (github nexron171): 8 коммитов от merge-base `e334cd9`, 54 файла, +3130/−23, версия 3.11.1→**3.12.0** (versionCode 2→3). Фича: offline-голосовое управление (Vosk `vosk-model-small-ru-0.22`, SHA-pinned, +40МБ в APK), `VoiceCommandController` (MSG **36** — свободен, max наш = 35), VoiceActivity/PortCap/FuelRefill/VehicleRestorePolicy(25–80%).
+- Согласие пользователя: «Мы будем делать полный merge! … интегрировать в наш проект!»
+
+### Выполнено
+- `git merge origin/master-od` — 2 конфликта, разобраны:
+  1. **`RestoreMode/AndroidManifest.xml`**: взят только `RECORD_AUDIO`; **`WRITE_EXTERNAL_STORAGE` НЕ восстановлен** (наш R3-удалён; Voice-код внешний storage не использует — проверено grep'ом). Сохранены `allowBackup="false"`, provider `readPermission/writePermission` (R3), `<queries>`.
+  2. **`readme.md`**: OD-структура (полная переработка 097f7dc) как база + перенесены наши уникальные additions: `install-tui.bat/.sh`, плоский ZIP, ссылки `Docs/user/INSTALL_GUIDE.md` + `installation.md`, FAQ-ответ про две перезагрузки/disable-verity.
+- Авто-мердж 4 Java-файлов проверен на сохранность наших фиксов: `SetModesService` (BIND_PERMISSION 745/925/941/1062/1084 + OD case 36), `Native/MainActivity` (R4 808/876 + OD sendSaveChargeCommand), `RestoreMode/MainActivity` (R20 1040–1054 + R4 474–1062 + OD tripDate/voice), `AdvanceActivity` (R20 2545–2549 + R4 509/543/2381/2553 + OD SECTION_VOICE). Удалённых строк наших фиксов — **0**.
+- Conflict markers: **0**; unmerged: **0**; staged: 56 файлов +3500/−44.
+- Ссылки OD-readme проверены: `Docs/releasing.md`, `Installer/{README,BUILDING}.md`, `Packaging/README.*`, `Docs/changelog-3.3-3.11.1.md` — все существуют после merge.
+- wav (3×) — бинарь, EOL не задет; `bash -n` install/remove OK; `git diff --cached --check` — только косметика `voice-licenses/Apache-2.0.txt` (из OD, не трогали).
+
+### Сборка/тесты (gradlew.bat, JDK 17)
+- Native: `assembleFullDebug` + `assembleLightDebug` → **EXIT=0**; `testFull/LightDebugUnitTest` → **EXIT=0**.
+- RestoreMode: `assembleFullDebug` (APK 93.9МБ; Vosk-модель 46.2МБ скачана в `app/build/voice-model/`, SHA OK) + `assembleLightDebug` → **EXIT=0**; `testFull/LightDebugUnitTest` → **EXIT=0**.
+- Замечание: параллельный запуск двух gradle-проектов → kill дочернего процесса RestoreMode **после** успешной сборки (APK свежий); повтор одиночной командой → EXIT=0.
+
+### Изменения кода
+- 56 файлов staged (merge), разрешения: `RestoreMode/app/src/main/AndroidManifest.xml`, `readme.md`. Согласование: «полный merge» (сессия 13). Merge-коммит делаем локально; **push — только по отдельной просьбе**.
+
+### Риски / live-тест обязателен
+- Hot-path затронут OD-стороной: `vd_bypass.js` (+5 строк — окно VoiceActivity), `SetModesService` (case 36), `SetModesReceiverDynamic` (voice_assistant action) → **установка/тест только после явной команды, S1–S5**.
+- APK +~40МБ (vosk-модель в assets обоих флейворов); сборка впервые требует сеть (alphacephei.com, SHA-pinned).
+- `RECORD_AUDIO` — runtime-разрешение (запросит при первом включении голоса).
+- Дефолт `voyahMinifyDebug=true` (OD сделал настраиваемым, поведение прежнее).
+
+### Не сделано / дальше
+- **Критический анализ проекта + объективная оценка** после интеграции — пользователю.
+- Push (fork/master) — не делали.
+- Пересборка релизного 3.12.0 + `C:\VoyahTune` — не делали.
+- Фаза V (установка на Sport+ 2026) — ждёт явной команды «делай установку» + S1–S5.

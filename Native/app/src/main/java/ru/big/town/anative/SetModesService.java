@@ -99,10 +99,21 @@ public class SetModesService extends Service {
     private static final long CAR_POWER_RECONNECT_DELAY_MS = 5_000L;
     private static final long CAR_POWER_CONNECT_WATCHDOG_MS = 15_000L;
 
+    private final VoiceCommandController voiceCommands = new VoiceCommandController(this);
+
     class IncomingHandler extends Handler {
         @Override
         public void handleMessage(Message msg) {
             switch (msg.what) {
+                case 36: // Signature-protected voice session protocol.
+                    try {
+                        voiceCommands.handle(msg.getData());
+                    } catch (android.os.BadParcelableException e) {
+                        // An older client can include its own ResultReceiver subclass.
+                        // Reject the unreadable request without crashing the vehicle service.
+                        Log.e(TAG, "Invalid voice command parcel; update VoyahTune UI", e);
+                    }
+                    break;
                 case MSG_APPLY_DRIVE_MODES:
                     clientMessenger = msg.replyTo;
                     // MSG_RESULT отправим по ЗАВЕРШЕНИИ цикла применения, чтобы клиент держал
@@ -270,6 +281,51 @@ public class SetModesService extends Service {
                     Log.i(TAG, "handleMessage() default");
                     super.handleMessage(msg);
             }
+        }
+    }
+
+    WashModePolicy.Outcome activateVoiceWash() {
+        return washModeController == null ? WashModePolicy.Outcome.TRANSPORT_FAILURE : washModeController.activate();
+    }
+
+    void activateVoicePowerHold(java.util.function.BooleanSupplier active,
+                                java.util.function.Consumer<PowerHoldPolicy.Outcome> completed) {
+        PowerHoldStatusTracker tracker = powerHoldStatusTracker;
+        if (tracker == null) { completed.accept(PowerHoldPolicy.Outcome.TRANSPORT_FAILURE); return; }
+        tracker.beginActivation(generation -> {
+            AtomicReference<PowerHoldPolicy.Outcome> outcome = new AtomicReference<>(PowerHoldPolicy.Outcome.TRANSPORT_FAILURE);
+            ApplyEngine.postUserCommand("voice power hold", () -> {
+                if (active.getAsBoolean() && powerHoldController != null) outcome.set(powerHoldController.activate());
+            }, () -> {
+                tracker.finishActivation(generation, outcome.get());
+                completed.accept(outcome.get());
+            });
+        });
+    }
+
+    boolean isVoiceServiceAction(String action) {
+        return action.equals("apply") || action.equals("battery_heat") || action.equals("close_all")
+                || action.equals("reboot") || action.startsWith("auto_light:");
+    }
+
+    void executeVoiceServiceAction(String action, android.os.ResultReceiver reply) {
+        try {
+            if (action.equals("apply")) {
+                ApplyEngine.applyNow(() -> VoiceCommandController.respond(reply, true, null));
+                return;
+            } else if (action.equals("battery_heat")) {
+                sendBroadcast(new Intent(BatteryHeatService.ACTION_BATTERY_HEAT_ACTIVATE).setPackage(getPackageName()));
+            } else if (action.equals("close_all")) closeAllApps();
+            else if (action.equals("reboot")) rebootSystem();
+            else if (action.startsWith("auto_light:")) {
+                boolean enabled = action.endsWith(":on");
+                saveAutoLightState(enabled);
+                if (enabled) startLightSensorService(); else stopLightSensorService();
+            }
+            VoiceCommandController.respond(reply, true, null);
+        } catch (RuntimeException e) {
+            Log.e(TAG, "Voice command failed", e);
+            VoiceCommandController.respond(reply, false, "Не удалось выполнить команду");
         }
     }
 
@@ -1415,6 +1471,7 @@ public class SetModesService extends Service {
     @Override
     public void onDestroy() {
         Log.i(TAG, "onDestroy()");
+        voiceCommands.close();
         serviceDestroyed = true;
         for (VirtualDisplay display : embeddedDisplays.values()) {
             try { display.release(); } catch (Exception ignored) {}

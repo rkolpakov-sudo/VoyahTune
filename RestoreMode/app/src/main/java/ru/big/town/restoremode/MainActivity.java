@@ -56,6 +56,8 @@ import androidx.core.view.WindowInsetsCompat;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.snackbar.Snackbar;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -115,7 +117,9 @@ public class MainActivity extends AppCompatActivity {
     static final String ACTION_TRIP_UPDATE = "ru.big.town.anative.TRIP_UPDATE";
     static final String ACTION_REQUEST_TRIP_UPDATE = "ru.big.town.anative.REQUEST_TRIP_UPDATE";
     static final String ACTION_TRIP_RESET = "ru.big.town.anative.TRIP_RESET";
-    private TextView tripTimer, tripStatus;
+    private static final DateTimeFormatter TRIP_DATE_FORMAT =
+            DateTimeFormatter.ofPattern("dd.MM.yyyy, EEEE", Locale.forLanguageTag("ru"));
+    private TextView tripDate, tripTimer, tripStatus;
     // Карточки главного экрана, скрываемые настройками раздела «Главный экран»
     private View tripCard, cardPowerHold, cardWashMode, cardAutoLight, cardPedestrian, cardForcedEv;
     // Native-виджеты
@@ -308,6 +312,10 @@ public class MainActivity extends AppCompatActivity {
     };
 
     private void updateTripTimer() {
+        if (tripDate != null) {
+            String date = LocalDate.now().format(TRIP_DATE_FORMAT);
+            if (!date.contentEquals(tripDate.getText())) tripDate.setText(date);
+        }
         long ms = tripAccumMs;
         if (tripActive && tripInDrive) ms += SystemClock.elapsedRealtime() - tripDriveStartElapsed;
         if (tripTimer != null) tripTimer.setText(fmtDuration(ms));
@@ -1067,6 +1075,15 @@ public class MainActivity extends AppCompatActivity {
      * Показывать ли виджет главного экрана: ключ и дефолт его тумблера из «Дополнительно» → «Главный экран».
      * Дефолты совпадают с тумблерами: Forced EV и «Быстрый запуск» выключены, остальные карточки включены.
      */
+    public void onVoiceCommand(View view) {
+        if (sharedPreferences.getBoolean(VoiceCommands.ENABLED, false)) {
+            startActivity(new Intent(this, VoiceActivity.class));
+        } else {
+            startActivityForResult(new Intent(this, AdvanceActivity.class)
+                    .putExtra(AdvanceActivity.EXTRA_SECTION, AdvanceActivity.SECTION_VOICE), REQUEST_CODE);
+        }
+    }
+
     private boolean isWidgetVisible(String widgetId) {
         switch (widgetId) {
             case "tripCard":         return sharedPreferences.getBoolean("showTripTimer", true);
@@ -1076,6 +1093,7 @@ public class MainActivity extends AppCompatActivity {
             case "cardAutoLight":    return sharedPreferences.getBoolean("showAutoLight", true);
             case "cardPedestrian":   return sharedPreferences.getBoolean("showPedestrian", true);
             case "cardForcedEv":     return sharedPreferences.getBoolean("showForcedEv", false);
+            case "cardVoiceCommand": return sharedPreferences.getBoolean("showVoiceCommand", false);
             case "cardBatteryHeat":  return sharedPreferences.getBoolean("showBatteryHeat", true);
             case "launchAppsWidget": return sharedPreferences.getBoolean("showLaunchAppsWidget", false);
             // Виджеты без тумблера («Настройки», настройки Android) видно всегда.
@@ -1122,7 +1140,7 @@ public class MainActivity extends AppCompatActivity {
         if ("tripCard".equals(widgetId)) return new int[]{3, 2};
         if ("cardBatteryHeat".equals(widgetId)) return new int[]{3, 2};
         // Компактные карточки-иконки: одна ячейка.
-        if ("cardSettings".equals(widgetId) || "cardAndroidSettings".equals(widgetId)) {
+        if ("cardSettings".equals(widgetId) || "cardAndroidSettings".equals(widgetId) || "cardVoiceCommand".equals(widgetId)) {
             return new int[]{1, 1};
         }
         // Плитка «Быстрый запуск»: по умолчанию 2x3, размер задаётся в «Дополнительно».
@@ -1280,6 +1298,7 @@ public class MainActivity extends AppCompatActivity {
                     case "cardPowerHold":
                     case "cardLeaveCar": widgetView = inf.inflate(R.layout.tile_power_hold, splitTilesGrid, false); break;
                     case "cardWashMode": widgetView = inf.inflate(R.layout.tile_wash_mode, splitTilesGrid, false); break;
+                    case "cardVoiceCommand": widgetView = inf.inflate(R.layout.tile_voice_command, splitTilesGrid, false); break;
                     case "cardSettings": widgetView = inf.inflate(R.layout.tile_settings, splitTilesGrid, false); break;
                     case "cardAndroidSettings": widgetView = inf.inflate(R.layout.tile_android_settings, splitTilesGrid, false); break;
                     case "cardAutoLight": widgetView = inf.inflate(R.layout.tile_auto_light, splitTilesGrid, false); break;
@@ -1301,6 +1320,7 @@ public class MainActivity extends AppCompatActivity {
                 
                 // Re-bind dynamically inflated views based on ID
                 if (tile.id.equals("tripCard")) {
+                    tripDate   = widgetView.findViewById(R.id.tripDate);
                     tripTimer  = widgetView.findViewById(R.id.tripTimer);
                     tripStatus = widgetView.findViewById(R.id.tripStatus);
                     tripCard   = widgetView;
