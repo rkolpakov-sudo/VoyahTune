@@ -96,7 +96,7 @@ check_release_manifest() {
 }
 
 ydns_release_dir() {
-    CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd
+    CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd -W
 }
 
 YDNS_RELEASE_DIR="$(ydns_release_dir)"
