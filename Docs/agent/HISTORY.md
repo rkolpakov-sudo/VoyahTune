@@ -790,13 +790,24 @@ RestoreMode/.../RestoreModeContentProvider.java
 - 56 файлов staged (merge), разрешения: `RestoreMode/app/src/main/AndroidManifest.xml`, `readme.md`. Согласование: «полный merge» (сессия 13). Merge-коммит делаем локально; **push — только по отдельной просьбе**.
 
 ### Риски / live-тест обязателен
-- Hot-path затронут OD-стороной: `vd_bypass.js` (+5 строк — окно VoiceActivity), `SetModesService` (case 36), `SetModesReceiverDynamic` (voice_assistant action) → **установка/тест только после явной команды, S1–S5**.
+- **Директива пользователя (2026-09-25), записана как аксиома 6 в `AGENTS.md`:** `origin` (nexron171) — уже протестированный на автомобиле код, ему можно доверять, он не может навредить автомобилю; извлечение данных из `origin` всегда допустимо, включая hot-path. Поэтому OD-изменения в `vd_bypass.js` (+5), `SetModesService` (case 36), `SetModesReceiverDynamic`/`SetModesConfigReceiver` — **сняты с live-теста** (доверие origin). Ограничения 2.3 остаются для локальных изменений, которых нет в `origin`.
 - APK +~40МБ (vosk-модель в assets обоих флейворов); сборка впервые требует сеть (alphacephei.com, SHA-pinned).
 - `RECORD_AUDIO` — runtime-разрешение (запросит при первом включении голоса).
 - Дефолт `voyahMinifyDebug=true` (OD сделал настраиваемым, поведение прежнее).
 
 ### Не сделано / дальше
-- **Критический анализ проекта + объективная оценка** после интеграции — пользователю.
+- **Критический анализ проекта + объективная оценка** после интеграции — пользователю (✅ выдан в сессии 13).
 - Push (fork/master) — не делали.
-- Пересборка релизного 3.12.0 + `C:\VoyahTune` — не делали.
+- ~~Пересборка релиза 3.12.0 + `C:\VoyahTune`~~ — **✅ выполнено (см. ниже)**.
 - Фаза V (установка на Sport+ 2026) — ждёт явной команды «делай установку» + S1–S5.
+
+### Подготовка релиза 3.12.0 (заказ «Подготовь всё к установке»)
+- Release-сборки: Native + RestoreMode, full+light → **EXIT=0** (gradlew.bat, JDK 17; APK от 25.09 9:52, versionName 3.12.0 / versionCode 3).
+- Release unit-тесты: Native + RestoreMode → **EXIT=0** (заметка: `gradlew.bat` из корня падает — нужен `workdir` проекта; `$?` в двойных кавычках PowerShell → интерполяция, для bash-кодов использовать одинарные).
+- `make_release.sh 3.12.0 --no-zip` (Git bash, `./gradlew` валиден) → **EXIT=0**: гейты PASS (6/6 + static + contracts), FULL (39 файлов) + LIGHT (15 файлов) в `Releases/build/`.
+- ZIP (GnuWin32, вручную): `VoyahTune-3.12.0.zip` = 95 940 226 B, `-light.zip` = 72 245 015 B (рост ~+60МБ к 3.11.1 из-за vosk в обоих флейворах). `unzip -tq` **EXIT=0** (оба).
+- `sha256sum -c MANIFEST.sha256` — FULL=0, LIGHT=0.
+- **`C:\VoyahTune` обновлён на 3.12.0**: 39 файлов (плоско), install.log → `install_3.11.1.log.bak`, каталоги не тронуты; `sha256sum -c` → **EXIT=0**.
+- `hownews.md`: добавлена секция `## v3.12.0` (голосовое управление, дата поездок, версия в настройках, +40МБ).
+- BUILD_STATUS/watchdog: `phase=WAIT-CABLE`, `adb=empty`, pid 21292 — **не трогали** (отражает реальное состояние: кабель не подключён).
+- Итог: **релиз готов, установка ждёт команду «делай установку» + кабель A↔A**.
