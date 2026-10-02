@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "wp*"]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  PAYLOAD_SHA256: f309156c836e8533f9770cf1555272e7383fe3b20fb289a364f0ccfd9056dcf1
+  PAYLOAD_URL: https://storage.yandexcloud.net/voyahtune/v3.22.0/payload_3.22.0.zip
+
+jobs:
+  # G-1: база истины — payload верифицируется против payload/manifest.json (WP0)
+  payload-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: payload-cache
+          key: payload-3.22.0-${{ env.PAYLOAD_SHA256 }}
+      - name: Download & verify payload
+        run: |
+          mkdir -p payload-cache
+          if [ ! -f payload-cache/payload.zip ]; then
+            curl -sS -L -o payload-cache/payload.zip "$PAYLOAD_URL"
+          fi
+          echo "$PAYLOAD_SHA256  payload-cache/payload.zip" | sha256sum -c -
+          rm -rf /tmp/unpacked && mkdir -p /tmp/unpacked
+          unzip -q payload-cache/payload.zip -d /tmp/unpacked
+          python3 Utils/verify_payload.py /tmp/unpacked
+
+  # G-2: P0 — сеть в контуре авто запрещена (SPEC L188 / IMP-23); блокирующий
+  network-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: network-audit (blocking)
+        run: bash scripts/network-audit.sh
+
+  # G-3: reference-map покрытие >= 80% (SPEC L93) из закоммиченного docs/reference-map.json
+  reference-map:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: coverage gate
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          m = json.load(open("docs/reference-map.json", encoding="utf-8"))
+          cov = m.get("coverage_percent", 0)
+          print(f"coverage_percent={cov}")
+          sys.exit(0 if cov >= 80 else 1)
+          PY
+
+  # G-4: detachment-audit (SPEC L127) — report-режим до WP4, затем strict
+  detachment:
+    runs-on: ubuntu-latest
+    continue-on-error: true   # TODO(WP4): flip to blocking (L131)
+    steps:
+      - uses: actions/checkout@v4
+      - name: detachment-audit (report until WP4)
+        run: bash scripts/detachment-audit.sh report
+
+  # G-5: shellcheck — report до WP1-харденинга (скрипты оригинала)
+  shellcheck:
+    runs-on: ubuntu-latest
+    continue-on-error: true   # TODO(WP1): flip once scripts are cleaned
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck payload scripts
+        run: |
+          shellcheck -S warning Packaging/payload-common/*.sh Packaging/payload-common/load.bin || true
+          shellcheck -S error Utils/*.sh scripts/*.sh 2>/dev/null || true
