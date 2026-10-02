@@ -1,0 +1,431 @@
+{
+  "requirements": {
+    "minInstallerVersion": "1.2.0",
+    "requiredCapabilities": [
+      "qinggan-v3",
+      "single-package-v1",
+      "files-v1",
+      "ota-bootstrap-v1"
+    ]
+  },
+  "recipe": {
+    "schema": 3,
+    "engine": "qinggan-v3",
+    "files": [
+      {
+        "artifact": "native.apk",
+        "destination": "/system/priv-app/Native/Native.apk",
+        "mode": 420,
+        "phase": "files"
+      },
+      {
+        "artifact": "load.bin",
+        "destination": "/data/local/bin/load.bin",
+        "mode": 493,
+        "phase": "files"
+      },
+      {
+        "artifact": "frida-inject",
+        "destination": "/data/local/bin/frida-inject",
+        "mode": 493,
+        "phase": "files"
+      },
+      {
+        "artifact": "voyahtune.load.rc",
+        "destination": "/system/etc/init/voyahtune.load.rc",
+        "mode": 420,
+        "phase": "boot-hooks"
+      },
+      {
+        "artifact": "voyahtune.load.sh",
+        "destination": "/system/etc/init.voyahtune.load.sh",
+        "mode": 493,
+        "phase": "boot-hooks"
+      },
+      {
+        "artifact": "whitelist.xml",
+        "destination": "/system/etc/permissions/privapp-permissions-ru.big.town.anative.xml",
+        "mode": 420,
+        "phase": "files"
+      },
+      {
+        "artifact": "voyahtune-ui-maintenance",
+        "destination": "/data/local/bin/voyahtune-ui-maintenance",
+        "mode": 493,
+        "phase": "files"
+      },
+      {
+        "artifact": "voyahtune-ui-next.apk",
+        "destination": "/data/local/bin/voyahtune-ui-next.apk",
+        "mode": 420,
+        "phase": "files"
+      },
+      {
+        "artifact": "voyahtune-updater",
+        "destination": "/data/local/bin/voyahtune-updater",
+        "mode": 493,
+        "phase": "files"
+      },
+      {
+        "artifact": "voyahtune-updater.apk",
+        "destination": "/system/priv-app/VoyahTuneUpdater/VoyahTuneUpdater.apk",
+        "mode": 420,
+        "phase": "files"
+      },
+      {
+        "artifact": "voyahtune.updater.rc",
+        "destination": "/system/etc/init/voyahtune.updater.rc",
+        "mode": 420,
+        "phase": "files"
+      },
+      {
+        "artifact": "voyahtune-ota-bootstrap.json",
+        "destination": "/system/etc/voyahtune-ota-bootstrap.json",
+        "mode": 420,
+        "phase": "files"
+      },
+      {
+        "artifact": "apollo_tech.js",
+        "destination": "/data/local/bin/apollo_tech.js",
+        "mode": 420,
+        "phase": "files"
+      },
+      {
+        "artifact": "app_client.js",
+        "destination": "/data/local/bin/app_client.js",
+        "mode": 420,
+        "phase": "files"
+      },
+      {
+        "artifact": "keyboard_lock_en.js",
+        "destination": "/data/local/bin/keyboard_lock_en.js",
+        "mode": 420,
+        "phase": "files"
+      },
+      {
+        "artifact": "keyboard_ru.js",
+        "destination": "/data/local/bin/keyboard_ru.js",
+        "mode": 420,
+        "phase": "files"
+      },
+      {
+        "artifact": "launcherdock.js",
+        "destination": "/data/local/bin/launcherdock.js",
+        "mode": 420,
+        "phase": "files"
+      },
+      {
+        "artifact": "multidisplay.js",
+        "destination": "/data/local/bin/multidisplay.js",
+        "mode": 420,
+        "phase": "files"
+      },
+      {
+        "artifact": "steeringwheelkeys.js",
+        "destination": "/data/local/bin/steeringwheelkeys.js",
+        "mode": 420,
+        "phase": "files"
+      },
+      {
+        "artifact": "vd_bypass.js",
+        "destination": "/data/local/bin/vd_bypass.js",
+        "mode": 420,
+        "phase": "files"
+      },
+      {
+        "artifact": "voyahtune_acc_restore.js",
+        "destination": "/data/local/bin/voyahtune_acc_restore.js",
+        "mode": 420,
+        "phase": "files"
+      },
+      {
+        "artifact": "voyahtune_drive_reset.js",
+        "destination": "/data/local/bin/voyahtune_drive_reset.js",
+        "mode": 420,
+        "phase": "files"
+      },
+      {
+        "artifact": "voyahtune_keyboard_en_config.json",
+        "destination": "/data/local/bin/voyahtune_keyboard_en_config.json",
+        "mode": 420,
+        "phase": "files"
+      },
+      {
+        "artifact": "voyahtune_keyboard_ru_config.json",
+        "destination": "/data/local/bin/voyahtune_keyboard_ru_config.json",
+        "mode": 420,
+        "phase": "files"
+      },
+      {
+        "artifact": "voyahtune_skb_qwerty_ru.json",
+        "destination": "/data/local/bin/voyahtune_skb_qwerty_ru.json",
+        "mode": 420,
+        "phase": "files"
+      }
+    ],
+    "packages": [
+      {
+        "artifact": "restore_mode.apk",
+        "package": "ru.big.town.restoremode"
+      }
+    ],
+    "removeFiles": [
+      "/data/local/bin/apollo_tech.js",
+      "/data/local/bin/apollo_tech.js.new",
+      "/data/local/bin/fullscreen_client.js",
+      "/data/local/bin/keyboard_lock_en.js",
+      "/data/local/bin/keyboard_ru.js",
+      "/data/local/bin/keymng2.js",
+      "/data/local/bin/launcherdock.js",
+      "/data/local/bin/multidisplay.js",
+      "/data/local/bin/steeringwheelkeys.js",
+      "/data/local/bin/vd_bypass.js",
+      "/data/local/bin/voyahtune-hook-manifest.json",
+      "/data/local/bin/voyahtune_keyboard_en_config.json",
+      "/data/local/bin/voyahtune_keyboard_ru_config.json",
+      "/data/local/bin/voyahtune_skb_qwerty_ru.json",
+      "/data/local/tmp/voyah_apollo.disabled",
+      "/data/local/tmp/voyah_apollo.down",
+      "/data/local/tmp/voyah_apollo.pid",
+      "/data/local/tmp/voyah_apollo.txt",
+      "/data/local/tmp/voyah_apollo.txt.1",
+      "/data/local/tmp/voyah_apollo.txt.try",
+      "/data/local/tmp/voyah_keymng.txt",
+      "/data/local/tmp/voyah_km.pid",
+      "/data/local/tmp/voyah_lnch.pid",
+      "/data/local/tmp/voyah_lnch.txt",
+      "/data/local/tmp/voyah_lnch.txt.try",
+      "/data/local/tmp/voyah_load.txt",
+      "/data/local/tmp/voyah_load.v2.lock",
+      "/data/local/tmp/voyah_md.pid",
+      "/data/local/tmp/voyah_md.txt",
+      "/data/local/tmp/voyah_md.txt.try",
+      "/data/local/tmp/voyah_swk.txt",
+      "/data/local/tmp/voyah_swk.txt.try",
+      "/data/local/tmp/voyah_swk_km.busy",
+      "/data/local/tmp/voyah_swk_km.pid",
+      "/data/local/tmp/voyah_swk_ss.pid",
+      "/data/local/tmp/voyah_vd.pid",
+      "/data/local/tmp/voyah_vd_bypass.txt",
+      "/data/local/tmp/voyah_vd_bypass.txt.try",
+      "/data/local/tmp/voyahtune-hook-status.v1",
+      "/data/local/tmp/voyahtune_apollo.attempt",
+      "/data/local/tmp/voyahtune_apollo.pid",
+      "/data/local/tmp/voyahtune_apollo.txt",
+      "/data/local/tmp/voyahtune_apollo.txt.try",
+      "/data/local/tmp/voyahtune_fullscreen_client.",
+      "/data/local/tmp/voyahtune_keyboard.attempt",
+      "/data/local/tmp/voyahtune_keyboard.pid",
+      "/data/local/tmp/voyahtune_keyboard.txt",
+      "/data/local/tmp/voyahtune_keyboard.txt.try",
+      "/data/local/tmp/voyahtune_lnch.attempt",
+      "/data/local/tmp/voyahtune_lnch.pid",
+      "/data/local/tmp/voyahtune_lnch.txt",
+      "/data/local/tmp/voyahtune_lnch.txt.try",
+      "/data/local/tmp/voyahtune_load.txt",
+      "/data/local/tmp/voyahtune_load.v2.lock",
+      "/data/local/tmp/voyahtune_md.attempt",
+      "/data/local/tmp/voyahtune_md.pid",
+      "/data/local/tmp/voyahtune_md.txt",
+      "/data/local/tmp/voyahtune_md.txt.try",
+      "/data/local/tmp/voyahtune_swk.try",
+      "/data/local/tmp/voyahtune_swk.txt",
+      "/data/local/tmp/voyahtune_swk_km.attempt",
+      "/data/local/tmp/voyahtune_swk_km.busy",
+      "/data/local/tmp/voyahtune_swk_km.pid",
+      "/data/local/tmp/voyahtune_vd.attempt",
+      "/data/local/tmp/voyahtune_vd.pid",
+      "/data/local/tmp/voyahtune_vd_bypass.txt",
+      "/data/local/tmp/voyahtune_vd_bypass.txt.try",
+      "/sdcard/tmp/voyah_native_log.txt",
+      "/sdcard/tmp/voyahtune_native_log.txt",
+      "/system/etc/init/voyahtune.setenforce.rc",
+      "/system/etc/init/voyahtune.load.sh"
+    ],
+    "removeDirectories": [
+      "/data/local/tmp/voyah_load.lock"
+    ],
+    "removePrefixes": [],
+    "removePackages": []
+  },
+  "schema": 4,
+  "product": "VoyahTune",
+  "releaseVersion": "3.22.0",
+  "buildRevision": "62b74765a826375fe24b9bde207886011b7d1645",
+  "artifacts": [
+    {
+      "name": "native.apk",
+      "path": "common/native.apk",
+      "sha256": "31ed532500cd72eda4824a914d21bd9d104b1be387941f3fada6e2a0572a152a",
+      "size": 14075201
+    },
+    {
+      "name": "restore_mode.apk",
+      "path": "common/restore_mode.apk",
+      "sha256": "28a44e2b6e6ce96cb563f9e73ea5c8a2da0603151d28849905009b3553bb512c",
+      "size": 128517720
+    },
+    {
+      "name": "load.bin",
+      "path": "common/load.bin",
+      "sha256": "5bc3a9dd66ee0342b687825808f8e4c81989c161052cc43b660af0584d551391",
+      "size": 76561
+    },
+    {
+      "name": "frida-inject",
+      "path": "common/frida-inject",
+      "sha256": "1c9d04257b9b44fe082f596bf7b20dc969571f6f7e818c80000522bf44e0d2f2",
+      "size": 53925864
+    },
+    {
+      "name": "voyahtune.load.rc",
+      "path": "common/voyahtune.load.rc",
+      "sha256": "c91a7cfebab524693d2e082d53deb15919dab22abfd19bc14246894a250f17d8",
+      "size": 1643
+    },
+    {
+      "name": "voyahtune.load.sh",
+      "path": "common/voyahtune.load.sh",
+      "sha256": "792f3d957d066b21c2c57bda62018190a4217e4e3892554892f17954923cbeb9",
+      "size": 2070
+    },
+    {
+      "name": "whitelist.xml",
+      "path": "common/whitelist.xml",
+      "sha256": "7b5993cfedeb6533e220ce83f2364615d6b6b530402905f2a6abc12402b048a6",
+      "size": 3066
+    },
+    {
+      "name": "voyahtune-ui-maintenance",
+      "path": "common/voyahtune-ui-maintenance",
+      "sha256": "50a2a4ab42ce57b52a6d5dc3811818f194f0e8f4299336631998252429ae97cc",
+      "size": 5182016
+    },
+    {
+      "name": "voyahtune-ui-next.apk",
+      "path": "common/voyahtune-ui-next.apk",
+      "sha256": "ce56351ec5813cbbd1fd7f3c96f2b5c29ef98b0133ebb8d80422e8105d7fce1e",
+      "size": 55888
+    },
+    {
+      "name": "voyahtune-updater",
+      "path": "common/voyahtune-updater",
+      "sha256": "50a2a4ab42ce57b52a6d5dc3811818f194f0e8f4299336631998252429ae97cc",
+      "size": 5182016
+    },
+    {
+      "name": "voyahtune-updater.apk",
+      "path": "common/voyahtune-updater.apk",
+      "sha256": "ce56351ec5813cbbd1fd7f3c96f2b5c29ef98b0133ebb8d80422e8105d7fce1e",
+      "size": 55888
+    },
+    {
+      "name": "voyahtune.updater.rc",
+      "path": "common/voyahtune.updater.rc",
+      "sha256": "5f06cd4265e4bb8d81e56cfdd912d4630f6f3f1790e711c9c289ec25ec4aacdd",
+      "size": 759
+    },
+    {
+      "name": "voyahtune-ota-bootstrap.json",
+      "path": "common/voyahtune-ota-bootstrap.json",
+      "sha256": "3e87041e63f4191692e5f31409d818dc0b72e4f6088cf9b30e025299a72e462e",
+      "size": 41
+    },
+    {
+      "name": "apollo_tech.js",
+      "path": "common/apollo_tech.js",
+      "sha256": "023ffe63abbe6e2653e9ea93a57b07bc0afedad3541792c0cfd82f0bc260a6ee",
+      "size": 4160
+    },
+    {
+      "name": "app_client.js",
+      "path": "common/app_client.js",
+      "sha256": "1448fa608b112e6d1b7e04623eb61b9db5ce57a452176e517517917f75ef84f1",
+      "size": 43013
+    },
+    {
+      "name": "keyboard_lock_en.js",
+      "path": "common/keyboard_lock_en.js",
+      "sha256": "9347786a1d979f422fe5f9dca34b4a8446c9927ea135608383c737212b17a44b",
+      "size": 6346
+    },
+    {
+      "name": "keyboard_ru.js",
+      "path": "common/keyboard_ru.js",
+      "sha256": "9237e8e9fb42c803621ed4ae936a5336f293522f83900e8ba19c9f7bde88e774",
+      "size": 13764
+    },
+    {
+      "name": "launcherdock.js",
+      "path": "common/launcherdock.js",
+      "sha256": "57d0b986ad0497a25b52ccfa6b5bfe0a6d24ac3803ea40aacb9c435f7dd55891",
+      "size": 111667
+    },
+    {
+      "name": "multidisplay.js",
+      "path": "common/multidisplay.js",
+      "sha256": "fed228b0f848efdab2fa56e3c7b5b022fadaa27f805a68186ebf35d922a56203",
+      "size": 17778
+    },
+    {
+      "name": "steeringwheelkeys.js",
+      "path": "common/steeringwheelkeys.js",
+      "sha256": "f9f17a75c034d4a51ad881046778df236ba921d5ba1c68438415dd83c014cd64",
+      "size": 20225
+    },
+    {
+      "name": "vd_bypass.js",
+      "path": "common/vd_bypass.js",
+      "sha256": "f95bd09ae0bf4f6817c4647b0483934bf71ceb4868cdd004721ccb71d92f5df0",
+      "size": 64195
+    },
+    {
+      "name": "voyahtune_acc_restore.js",
+      "path": "common/voyahtune_acc_restore.js",
+      "sha256": "b8f15df36cb07452e30034c2924310b58865b040e8ad3358420dd46b260e3eae",
+      "size": 22417
+    },
+    {
+      "name": "voyahtune_drive_reset.js",
+      "path": "common/voyahtune_drive_reset.js",
+      "sha256": "7056ce1a97dce8e889b5dcb0be61b969bcbdc7b635df3b0d4407178687c47dc0",
+      "size": 15030
+    },
+    {
+      "name": "voyahtune_keyboard_en_config.json",
+      "path": "common/voyahtune_keyboard_en_config.json",
+      "sha256": "0eb4f1ed18a90d71ef5e7e6e7c593df05a7b1ba70ac1a991d54be7bb5784a073",
+      "size": 1909
+    },
+    {
+      "name": "voyahtune_keyboard_ru_config.json",
+      "path": "common/voyahtune_keyboard_ru_config.json",
+      "sha256": "1d226a781ea9b8c2a18bd38bc136e715112317ccc90d633579efddb2740267ec",
+      "size": 6936
+    },
+    {
+      "name": "voyahtune_skb_qwerty_ru.json",
+      "path": "common/voyahtune_skb_qwerty_ru.json",
+      "sha256": "bb3bd05144338310a72c8615d62eb1d62559b283381823e40fbf1820bc1f53fc",
+      "size": 14511
+    },
+    {
+      "name": "init.logcat.original.sh",
+      "path": "common/init.logcat.original.sh",
+      "sha256": "276b26f45517e8de690ee1b99753791c580c986cf54ca688687901aae985cdd3",
+      "size": 1156
+    },
+    {
+      "name": "dns-helper.sh",
+      "path": "common/dns-helper.sh",
+      "sha256": "0e3776bfe59a434f101a8118eea50b871a4ab2f0f182e1cf4f7786f0b3f9e55a",
+      "size": 18080
+    },
+    {
+      "name": "dns.apk",
+      "path": "common/dns.apk",
+      "sha256": "c4694866ff920b2409ce58d3dd4c84b86ba102049b68d27a6998ef91d7a0308d",
+      "size": 8538
+    }
+  ]
+}

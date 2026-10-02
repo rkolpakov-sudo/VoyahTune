@@ -1,0 +1,29 @@
+# Local-only material (payload, reference legend, tools, blobs binaries)
+artifacts/
+reference-3.14/
+tools/
+blobs/
+payload_3.22.0*
+*.apk
+*.zip
+*.jar
+
+# Decompile outputs: sources tracked, resources/smali/logs are reproducible
+src-reconstructed/**/resources/
+src-reconstructed/**/unknown/
+res-reconstructed/
+logs/
+
+# Private until release (SPEC L94)
+legal/
+
+# Build / OS
+build/
+.gradle/
+target/
+node_modules/
+__pycache__/
+*.pyc
+.idea/
+.vscode/
+*.log

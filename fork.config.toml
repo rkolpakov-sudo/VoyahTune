@@ -1,0 +1,28 @@
+# fork.config.toml — встроенная на CI конфигурация форка
+# Заполняется по мере WP0/WP1. Значения product/distribution из SPEC (D4, D13).
+
+[product]
+name = "VoyahTune"
+base_version = "3.22.0"
+platform = "H97X/H97C"          # SE/Sport+ 2025-2026 ОД РФ, Android 11
+package_names_unchanged = true  # D4
+
+[distribution]
+version_scheme = "4.x.y+build.N"  # IMP-11
+releases_url_template = ""        # WP5: наш endpoint (GitHub Releases), заполняется на CI
+
+[vehicle]
+# D13: ПИ «не подтверждена»; семантику CAN не менять (только верификация трассами)
+can_interfaces = ["TX57", "TX58", "TX77"]
+stable_ids = [545, 722, 782, 1196]
+
+[base]
+source = "https://storage.yandexcloud.net/voyahtune/v3.22.0/payload_3.22.0.zip"
+sha256 = "f309156c836e8533f9770cf1555272e7383fe3b20fb289a364f0ccfd9056dcf1"
+size = 124691762
+revision = "62b74765a826375fe24b9bde207886011b7d1645"
+manifest_schema = 4
+artifacts = 29
+
+[components]
+# Заполняется по результатам инвентаризации WP0 (payload/manifest.json)
