@@ -491,11 +491,11 @@ final class OemVehicleStateTransport {
                             if (!this.resolvedOrdinals.containsKey(stateKey)) {
                                 Enum enumValueOf = Enum.valueOf((Class) this.vehicleStateClass, stateKey.name);
                                 Object objInvoke = this.vehicleStateGetValue.invoke(enumValueOf, new Object[0]);
-                                if ((objInvoke instanceof Integer) && ((Integer) objInvoke).intValue() == stateKey.stableId) {
-                                    this.resolvedOrdinals.put(stateKey, Integer.valueOf(enumValueOf.ordinal()));
+                                if (!(objInvoke instanceof Integer) || ((Integer) objInvoke).intValue() != stateKey.stableId) {
+                                    Log.e(TAG, "VehicleState id mismatch for " + stateKey + ", installed=" + objInvoke);
+                                    return false;
                                 }
-                                Log.e(TAG, "VehicleState id mismatch for " + stateKey + ", installed=" + objInvoke);
-                                return false;
+                                this.resolvedOrdinals.put(stateKey, Integer.valueOf(enumValueOf.ordinal()));
                             }
                         }
                         return true;

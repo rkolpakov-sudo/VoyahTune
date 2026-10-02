@@ -1,0 +1,22 @@
+name: avas-silent
+description: >
+  SILENT write mode: TX58 request reaches the bus and is acknowledged,
+  but nothing is applied, no echo arrives, ui_state stays unconfirmed.
+config:
+  write_mode: SILENT
+steps:
+  - action:
+      name: send_avas_off
+      send: {state_name: HUM_VSP_FUNCTION_SW, value: 1}
+  - expect_txn:
+      code: 58
+      state_name: HUM_VSP_FUNCTION_SW
+      value: 1
+      after: send_avas_off
+  - assert_no_echo:
+      state_name: HUM_VSP_FUNCTION_SW
+      value: 1
+      within_ms: 300
+      after: send_avas_off
+  - assert_cache_absent: {state_name: HUM_VSP_FUNCTION_SW}
+  - assert_app: {name: ui_state, equals: ACCEPTED_UNCONFIRMED}

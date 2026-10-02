@@ -15,3 +15,4 @@ dependencyResolutionManagement {
 rootProject.name = "VoyahTune"
 include(":Native:app")
 include(":RestoreMode:app")
+include(":tests:hil")

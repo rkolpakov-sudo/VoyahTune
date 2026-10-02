@@ -1,0 +1,12 @@
+name: gear-drive
+description: Gear query via TX6; drive/park events push CB12 gear values.
+config:
+  gear_value: 0
+  gear_ordinal: 0
+steps:
+  - action: {name: query_gear, txn_code: 6}
+  - expect_txn: {code: 6, within_ms: 500, after: query_gear}
+  - action: drive
+  - expect_echo: {cb_code: 12, value: 4, within_ms: 500, after: drive}
+  - action: park
+  - expect_echo: {cb_code: 12, value: 0, within_ms: 500, after: park}

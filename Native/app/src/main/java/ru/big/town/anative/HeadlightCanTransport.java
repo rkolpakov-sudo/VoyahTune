@@ -156,10 +156,10 @@ final class HeadlightCanTransport {
             for (HeadlightCanPolicy.Command command : HeadlightCanPolicy.Command.values()) {
                 Enum enumValueOf = Enum.valueOf((Class) cls, command.vehicleStateName);
                 Object objInvoke = method.invoke(enumValueOf, new Object[0]);
-                if ((objInvoke instanceof Integer) && ((Integer) objInvoke).intValue() == command.stableId) {
-                    enumMap.put(command, Integer.valueOf(enumValueOf.ordinal()));
+                if (!(objInvoke instanceof Integer) || ((Integer) objInvoke).intValue() != command.stableId) {
+                    return SchemaResult.failed("VehicleState id mismatch for " + command.vehicleStateName);
                 }
-                return SchemaResult.failed("VehicleState id mismatch for " + command.vehicleStateName);
+                enumMap.put(command, Integer.valueOf(enumValueOf.ordinal()));
             }
             return SchemaResult.success(enumMap);
         } catch (PackageManager.NameNotFoundException unused) {

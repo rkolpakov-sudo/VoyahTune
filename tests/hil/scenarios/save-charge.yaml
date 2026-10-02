@@ -1,0 +1,14 @@
+name: save-charge
+description: SREV charge target write (SREV_SOC_SET=40%) confirms and sticks.
+steps:
+  - action:
+      name: send_srev_target
+      send: {state_name: SREV_SOC_SET, value: 40}
+  - expect_txn:
+      code: 58
+      state_name: SREV_SOC_SET
+      value: 40
+      after: send_srev_target
+  - expect_echo: {state_name: SREV_SOC_SET, value: 40, after: send_srev_target}
+  - assert_cache: {state_name: SREV_SOC_SET, equals: 40}
+  - assert_app: {name: ui_state, equals: CONFIRMED}

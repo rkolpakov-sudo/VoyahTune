@@ -108,3 +108,36 @@
   *.jar/ *.aar, network-audit прогнан локально (findings=0, exit 0).
 - Статус: принято. Проверки: git add -A, whitespace git diff --check, локальный
   network-audit, сборка уже зелёная (см. предыдущую запись).
+
+## 2026-10-02][WP1][IMP-10a: ядро HIL (can-emulator + scenario-runner, 12 YAML) и Robolectric-мост в реальный Native-код]
+- Контекст: SPEC L104 требует эталонный поток avas-wake (sleep → door → TX58 avas_off →
+  acc/drive → эхо ≤2s → ui_state=CONFIRMED), L105 — ≥10 YAML-сценариев, L86 — режимы
+  ACK/SILENT/LATE/CONFLICTING, L103 — CI job tests. Протокол TX2/6/9/20/26/28/29/57/58/77
+  и CB1/4/10/12/36 восстановлен по исходникам; в декомпиляции OemVehicleStateTransport.
+  resolveStates и HeadlightCanTransport.resolveSchema найдены и исправлены
+  безусловные return-артефакты (иначе TX58 мёртв).
+- Решение: (1) модуль `:tests:hil` (java-library, snakeyaml 2.3): фикстура
+  com.qinggan.canbus.VehicleState (30 name→id, parent-delegation через PathClassLoader
+  подменяет enum сервиса), ядро CanEmulatorCore (лог TX/CB, кэш, инжекты, режимы записи,
+  sink-эхо), HilHarness/JvmHarness, ScenarioLoader (строгая валидация), ScenarioRunner
+  (окна expect по триггерам шагов), артефакты JUnit-XML + transactions.log; 12 YAML
+  в tests/hil/scenarios/; 25 unit-тестов зелёные. (2) Robolectric-мост в test-scope
+  Native: FakeCanBusBinder (AIDL-декод → ядро, attachInterface-дескриптор обязателен —
+  иначе DemandConnection отбрасывает биндер), RobolectricCanBridge (grantPermissions,
+  ShadowPackageManager.addPackage с sourceDir, setComponentNameAndServiceForBindServiceForIntent
+  + setBindServiceCallsOnServiceConnectedDirectly — эхо доставляется реальному
+  CanBusEventHub CallbackBinder → роутер → подписчик), SEND-шаги идут через настоящий
+  OemVehicleStateTransport.sendVehicleState; 3 теста Native зелёные, avas-wake
+  проходит целиком по реальному коду (TX28 → TX58[1,3,665,1] → CB36 → routed_id=665).
+- Основание: единственный честный способ проверить L104 — пустить YAML через реальные
+  resolveStates/bindService/TX58/роутинг хаба; локальный биндер в том же процессе даёт
+  синхронный onServiceConnected (проверено пробами: Parcel, writeNoException/readException,
+  writeStrongBinder round-trip, oneway transact с null-reply).
+- Риск: CanBusEventHub — статический синглтон → мост ограничен одним тест-методом
+  (повторный create() получил бы старый хаб/байндинг); статика OemVehicleStateTransport
+  переживает пробы-тесты — mitigated: мост-тест самодостаточен, пробы статики хаба не
+  трогают; фильтр `--tests` по Robolectric-классу иногда даёт "No tests found" —
+  прогнать без фильтра.
+- Статус: принято. Проверки: :tests:hil:test + :Native:app:testDebugUnitTest — 28/28,
+  :Native:app:assembleDebug зелёный. Коммит — только по явной команде (ветка wp1).
+  Дальше: шаг 1.5 CI (jobs tests/payload/gui-win/gui-mac), 1.3 Packaging, 1.4 Installer.

@@ -1,0 +1,24 @@
+name: fuel-speed-snapshot
+description: Fuel (TX9), speed (TX26), cache read (TX57) and full snapshot (TX20) round-trips.
+config:
+  fuel_percent: 55
+  fuel_liters: 33.5
+  speed: 0
+steps:
+  - action:
+      name: seed_soc_display
+      send: {state_name: BMS_SOC_DISPLAY, value: 80}
+  - expect_echo: {state_name: BMS_SOC_DISPLAY, value: 80, after: seed_soc_display}
+  - action: {name: query_fuel, txn_code: 9}
+  - expect_txn: {code: 9, within_ms: 500, after: query_fuel}
+  - action: {name: query_speed, txn_code: 26}
+  - expect_txn: {code: 26, within_ms: 500, after: query_speed}
+  - action: {name: query_snapshot, txn_code: 20}
+  - expect_txn: {code: 20, within_ms: 500, after: query_snapshot}
+  - expect_echo: {state_name: BMS_SOC_DISPLAY, value: 80, after: query_snapshot}
+  - action: {name: read_soc, read: {state_name: BMS_SOC_DISPLAY}}
+  - expect_txn:
+      code: 57
+      state_name: BMS_SOC_DISPLAY
+      within_ms: 500
+      after: read_soc

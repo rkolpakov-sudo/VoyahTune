@@ -57,6 +57,12 @@ android {
             useLegacyPackaging false
         }
     }
+
+    testOptions {
+        unitTests {
+            includeAndroidResources = true
+        }
+    }
 }
 
 dependencies {
@@ -87,4 +93,6 @@ dependencies {
     implementation 'org.jetbrains.kotlin:kotlin-stdlib:2.2.0'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.6.4'
     testImplementation 'junit:junit:4.13.2'
+    testImplementation project(':tests:hil')
+    testImplementation 'org.robolectric:robolectric:4.15.1'
 }

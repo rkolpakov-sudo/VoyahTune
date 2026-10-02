@@ -1,0 +1,19 @@
+name: suspension-maintenance
+description: Suspension maintenance toggles through ASC_MAINTAIN_SWITCH writes.
+steps:
+  - action:
+      name: send_maintenance_on
+      send: {state_name: ASC_MAINTAIN_SWITCH, value: 2}
+  - expect_txn:
+      code: 58
+      state_name: ASC_MAINTAIN_SWITCH
+      value: 2
+      after: send_maintenance_on
+  - expect_echo: {state_name: ASC_MAINTAIN_SWITCH, value: 2, after: send_maintenance_on}
+  - assert_cache: {state_name: ASC_MAINTAIN_SWITCH, equals: 2}
+  - assert_app: {name: ui_state, equals: CONFIRMED}
+  - action:
+      name: send_maintenance_off
+      send: {state_name: ASC_MAINTAIN_SWITCH, value: 1}
+  - expect_echo: {state_name: ASC_MAINTAIN_SWITCH, value: 1, after: send_maintenance_off}
+  - assert_cache: {state_name: ASC_MAINTAIN_SWITCH, equals: 1}

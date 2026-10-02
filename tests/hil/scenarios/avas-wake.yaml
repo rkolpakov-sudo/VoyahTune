@@ -1,0 +1,28 @@
+name: avas-wake
+description: >
+  SPEC L104 reference flow: sleep -> door_open -> send_avas_off (expect TX58_SENT)
+  -> acc_on -> drive -> expect applied echo within 2s of the send
+  -> assert ui_state=CONFIRMED.
+config:
+  write_mode: ACK
+steps:
+  - sleep: 100
+  - inject: {door: 1}
+  - action:
+      name: send_avas_off
+      send: {state_name: HUM_VSP_FUNCTION_SW, value: 1}
+  - expect_txn:
+      code: 58
+      state_name: HUM_VSP_FUNCTION_SW
+      value: 1
+      within_ms: 2000
+      after: send_avas_off
+  - action: acc_on
+  - action: drive
+  - expect_echo:
+      state_name: HUM_VSP_FUNCTION_SW
+      value: 1
+      within_ms: 2000
+      after: send_avas_off
+  - assert_cache: {state_name: HUM_VSP_FUNCTION_SW, equals: 1}
+  - assert_app: {name: ui_state, equals: CONFIRMED}
