@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout android:orientation="vertical" android:background="@drawable/layout_category_bg" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="10.0dp" android:paddingHorizontal="16.0dp" android:paddingVertical="10.0dp"
+  xmlns:android="http://schemas.android.com/apk/res/android">
+    <LinearLayout android:gravity="center_vertical" android:orientation="horizontal" android:layout_width="match_parent" android:layout_height="wrap_content">
+        <ImageView android:id="@id/appWidgetSettingIcon" android:layout_width="40.0dp" android:layout_height="40.0dp" android:scaleType="fitCenter" android:layout_marginEnd="14.0dp" />
+        <TextView android:textSize="24.0px" android:textColor="#ffffff" android:id="@id/appWidgetSettingLabel" android:layout_width="0.0dp" android:layout_height="wrap_content" android:layout_weight="1.0" />
+        <ImageButton android:id="@id/appWidgetSettingDelete" android:background="@drawable/nav_back_circle_bg" android:padding="13.0dp" android:layout_width="52.0dp" android:layout_height="52.0dp" android:src="@drawable/ic_delete" android:contentDescription="Убрать виджет" />
+    </LinearLayout>
+    <LinearLayout android:gravity="center_vertical" android:orientation="horizontal" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8.0dp">
+        <TextView android:textSize="24.0px" android:textColor="#e0e0e0" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Ширина" />
+        <Spinner android:textColor="#ffffff" android:id="@id/appWidgetSettingWidth" android:layout_width="120.0dp" android:layout_height="60.0dp" android:layout_marginStart="8.0dp" />
+        <TextView android:textSize="24.0px" android:textColor="#e0e0e0" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Высота" android:layout_marginStart="24.0dp" />
+        <Spinner android:textColor="#ffffff" android:id="@id/appWidgetSettingHeight" android:layout_width="120.0dp" android:layout_height="60.0dp" android:layout_marginStart="8.0dp" />
+    </LinearLayout>
+    <Switch android:textSize="20.0px" android:textColor="#ffffff" android:id="@id/appWidgetSettingAutoStart" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4.0dp" android:thumb="@drawable/switch_thumb" android:text="Автозапуск приложения при открытии" android:track="@drawable/switch_track" />
+    <LinearLayout android:gravity="center_vertical" android:orientation="horizontal" android:id="@id/appWidgetDelayContainer" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4.0dp">
+        <TextView android:textSize="24.0px" android:textColor="#e0e0e0" android:layout_width="0.0dp" android:layout_height="wrap_content" android:text="Задержка автозапуска" android:layout_weight="1.0" />
+        <SeekBar android:id="@id/appWidgetSettingDelay" android:layout_width="200.0dp" android:layout_height="wrap_content" android:max="59" />
+        <TextView android:textSize="20.0px" android:textColor="#ffffff" android:gravity="end" android:id="@id/appWidgetSettingDelayText" android:layout_width="50.0dp" android:layout_height="wrap_content" android:text="3 сек" />
+    </LinearLayout>
+    <LinearLayout android:orientation="vertical" android:id="@id/appWidgetProfiles" android:layout_width="match_parent" android:layout_height="wrap_content" />
+    <Button android:id="@id/appWidgetAddProfile" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Добавить приложение" />
+    <TextView android:textSize="16.0px" android:textColor="#aaaaaa" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="При нажатии на виджет появится выбор приложения" />
+</LinearLayout>

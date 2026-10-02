@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout android:orientation="vertical" android:id="@id/cardBatteryHeat" android:background="@drawable/layout_category_bg" android:padding="16.0dp" android:layout_width="match_parent" android:layout_height="match_parent"
+  xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
+    <LinearLayout android:gravity="center_vertical" android:orientation="horizontal" android:layout_width="match_parent" android:layout_height="0.0dp" android:layout_weight="1.0">
+        <ImageView android:id="@id/batteryHeatIcon" android:layout_width="56.0dp" android:layout_height="56.0dp" android:src="@drawable/ic_battery_indicator" android:layout_marginEnd="12.0dp" />
+        <LinearLayout android:orientation="vertical" android:layout_width="0.0dp" android:layout_height="wrap_content" android:layout_weight="1.0">
+            <TextView android:textSize="24.0px" android:textStyle="bold" android:textColor="#ffffff" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Прогрев батареи" />
+            <LinearLayout android:orientation="horizontal" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4.0dp">
+                <TextView android:textSize="18.0px" android:textStyle="bold" android:textColor="#ffffff" android:id="@id/batteryHeatState" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="—" android:paddingHorizontal="8.0dp" android:paddingVertical="2.0dp" />
+                <TextView android:textSize="20.0px" android:textColor="#aaaaaa" android:id="@id/batteryHeatTemp" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="за бортом: —" android:layout_marginStart="10.0dp" />
+            </LinearLayout>
+            <TextView android:textSize="16.0px" android:textColor="#cccccc" android:id="@id/batteryHeatStatus" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6.0dp" android:text="Нагрев: —   ·   Pre-heat: —   ·   Автоподогрев: —" />
+            <TextView android:textSize="16.0px" android:textColor="#ff6b6b" android:id="@id/batteryHeatFail" android:visibility="gone" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="" />
+        </LinearLayout>
+    </LinearLayout>
+    <Button android:textSize="20.0dp" android:textColor="#ffffff" android:id="@id/buttonBatteryHeat" android:layout_width="match_parent" android:layout_height="64.0dp" android:layout_marginTop="8.0dp" android:text="Запустить прогрев" android:onClick="onButtonBatteryHeat" android:backgroundTint="#2f7fd0" app:cornerRadius="16.0dp" />
+</LinearLayout>

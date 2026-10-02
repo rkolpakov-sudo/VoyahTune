@@ -18,8 +18,10 @@ PATTERNS=(
   "android.webkit.WebView.loadUrl"
 )
 
-for app in native restore_mode; do
-  dir="$ROOT/src-reconstructed/$app/sources/ru/big/town"
+# WP1: перво-партийный код живёт в Gradle-деревьях (src-reconstructed переехал)
+for dir in \
+  "$ROOT/Native/app/src/main/java/ru/big/town" \
+  "$ROOT/RestoreMode/app/src/main/java/ru/big/town"; do
   [ -d "$dir" ] || { echo "MISSING sources: $dir"; exit 1; }
   for p in "${PATTERNS[@]}"; do
     while IFS= read -r hit; do

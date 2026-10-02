@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout android:gravity="center_vertical" android:orientation="horizontal" android:background="@drawable/layout_category_bg" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="8.0dp" android:paddingHorizontal="16.0dp" android:paddingVertical="12.0dp"
+  xmlns:android="http://schemas.android.com/apk/res/android">
+    <TextView android:textSize="26.0px" android:textColor="#cccccc" android:id="@id/tripDate" android:layout_width="0.0dp" android:layout_height="wrap_content" android:text="" android:layout_weight="1.0" />
+    <TextView android:textSize="30.0px" android:textStyle="bold" android:textColor="#ffffff" android:id="@id/tripDuration" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="" />
+    <ImageButton android:id="@id/tripDelete" android:background="@drawable/nav_back_circle_bg" android:padding="13.0dp" android:layout_width="52.0dp" android:layout_height="52.0dp" android:src="@drawable/ic_delete" android:scaleType="fitCenter" android:contentDescription="Удалить поездку" android:layout_marginStart="16.0dp" />
+</LinearLayout>

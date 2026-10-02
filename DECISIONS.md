@@ -65,3 +65,46 @@
   на B (kotlin-stdlib/kotlinx-coroutines/androidx через Maven, декомпиляция исключается).
   Решение фиксируется по факту сборки.
 - Статус: принято (A первичен, B — фолбэк).
+
+## 2026-10-02][WP1][RestoreMode собирается: :RestoreMode:app:assembleDebug BUILD SUCCESSFUL
+- Контекст: итеративный цикл build-rm-13..20 (javac-ошибки декомпиляции jadx → точечные фиксы).
+- Решение: фиксы по восходящей — NativeLibrary (4 DA/checked-except), Native.java (static-init
+  Throwable-wrap, delegate IOException-wrap, rethrow из проглатывающего catch, return false,
+  break в scan-цикле, Exception вместо никогда-не-бросаемого IOException); AdvanceActivity
+  (i=0 при intent==null, readSystemMetrics — единый try/catch вместо вложенного),
+  SplitStore (z=false по умолчанию), SuspensionWidgetView (final frameBitmap для лямбды),
+  NowPlayingClient (return null / throw th из внешних catch); VoiceRecognizer.java заменён
+  реконструкцией по reference-3.14 (семантика 3.22 сверена — идентична, лямбд-артефакты
+  jadx удалены); VoiceSeatCommands (string-switch: break на каждый case + вынос dispatch во
+  второй switch, потерянный i++ в цикле, инвертированная verb-проверка str6 != null,
+  двойной break); Utils/verify_payload.py — убран битый relative_to (CI payload-verify
+  падал на существующих файлах).
+- Основание: reference-3.14 — источник истины; каждая замена сверена с эталоном или
+  javap-константами; ошибки DA/достижимости — типовые дефекты --show-bad-code.
+- Риск: реконструкция VoiceRecognizer могла потерять отличия 3.22 — mitigated: полная
+  сверка всех методов и вызываемых сигнатур (VoiceSessionControl/VoiceEngineCache/
+  VoiceModels/VoiceRecording/VoiceAudioConfig) с декомпилированным вариантом до замены.
+- Статус: принято. Проверки: assembleDebug обоих модулей (68 tasks OK, APK 132МБ+17МБ),
+  testDebugUnitTest (NO-SOURCE — тестов ещё нет), Utils/verify_payload.py — локальный
+  синтетический прогон без traceback.
+
+## 2026-10-02][WP1][Первый коммит WP1: source-set переехал в Gradle-деревья, CI-совместимость .gitignore/network-audit
+- Контекст: ~6700 записей — переезд src-reconstructed/{native,restore_mode}/sources →
+  {Native,RestoreMode}/app/src/main/java (staged rename R/RM), удаление third-party
+  (androidx/kotlin/kotlinx/com/android/org → Maven, RD 6236) и сгенерированных файлов
+  (R/BuildConfig/databinding/*$$ExternalSynthetic*, RD 52 — генерируются AGP),
+  новые Gradle-файлы/манифесты/res/assets/jniLibs, ~70 Utils fix-скриптов.
+- Решение: (1) .gitignore — снят *.jar с gradle/wrapper/gradle-wrapper.jar и
+  Native/app/lib/android.car.jar (иначе checkout на CI без них не соберётся),
+  добавлен src-reconstructed2/ (повторный jadx-прогон, локальный only);
+  (2) scripts/network-audit.sh перенацелен с src-reconstructed/$app/sources/ru/big/town
+  на Native|RestoreMode/app/src/main/java/ru/big/town (старый путь после переезда
+  исчезал → блокирующий джоб падал бы на MISSING sources); (3) решение WP0
+  «коммитится только src-reconstructed/**/sources» считается закрытым —
+  источники теперь живут в Gradle-деревьях.
+- Основание: declaration substitution п.3.22 — third-party из Maven с пиннингом;
+  сгенерированные файлы не являются источниками; CI должен собирать APK из checkout.
+- Риск: пропущен незамеченный файл-зависимость — mitigated: check-ignore по всем
+  *.jar/ *.aar, network-audit прогнан локально (findings=0, exit 0).
+- Статус: принято. Проверки: git add -A, whitespace git diff --check, локальный
+  network-audit, сборка уже зелёная (см. предыдущую запись).

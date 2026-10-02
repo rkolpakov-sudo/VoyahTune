@@ -7,10 +7,14 @@ payload_3.22.0*
 *.apk
 *.zip
 *.jar
+# вендорные jar, нужные для Gradle-сборки (wrapper + android.car)
+!gradle/wrapper/gradle-wrapper.jar
+!Native/app/lib/android.car.jar
 
 # Decompile outputs: sources tracked, resources/smali/logs are reproducible
 src-reconstructed/**/resources/
 src-reconstructed/**/unknown/
+src-reconstructed2/
 res-reconstructed/
 logs/
 

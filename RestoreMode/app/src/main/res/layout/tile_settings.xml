@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout android:gravity="center" android:orientation="vertical" android:id="@id/cardSettings" android:background="@drawable/card_dark_ripple" android:padding="8.0dp" android:focusable="true" android:clickable="true" android:layout_width="match_parent" android:layout_height="match_parent" android:onClick="onButtonClickAdvance"
+  xmlns:android="http://schemas.android.com/apk/res/android">
+    <TextView android:textSize="20.0px" android:textStyle="bold" android:textColor="#ffffff" android:gravity="center" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Настройки" android:maxLines="2" />
+</LinearLayout>

@@ -33,7 +33,7 @@ def main() -> int:
 
     bad = 0
     for art in manifest["artifacts"]:
-        path = unpacked / Path(art["path"]).relative_to(unpacked) if (unpacked / art["path"]).exists() else unpacked / art["path"]
+        path = unpacked / art["path"]
         if not path.exists():
             print(f"MISSING: {art['path']}")
             bad += 1

@@ -1,0 +1,82 @@
+plugins {
+    id 'com.android.application'
+}
+
+def keystoreB64 = System.getenv("ANDROID_KEYSTORE_B64")
+def hasReleaseKeys = keystoreB64 != null && !keystoreB64.isEmpty()
+
+android {
+    namespace 'ru.big.town.restoremode'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'ru.big.town.restoremode'
+        minSdk 30
+        targetSdk 35
+        versionCode 3022000
+        versionName '3.22.0'
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+
+    buildFeatures {
+        viewBinding true
+        buildConfig true
+    }
+
+    signingConfigs {
+        if (hasReleaseKeys) {
+            release {
+                def ksFile = file("${buildDir}/release.jks")
+                ksFile.bytes = Base64.decoder.decode(keystoreB64)
+                storeFile ksFile
+                storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword System.getenv("ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (hasReleaseKeys) {
+                signingConfig signingConfigs.release
+            }
+        }
+        debug {
+            minifyEnabled false
+        }
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging false
+        }
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.7.1'
+    implementation 'com.google.android.material:material:1.12.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.2.1'
+    implementation 'androidx.activity:activity:1.10.1'
+    implementation 'androidx.recyclerview:recyclerview:1.1.0'
+    implementation 'androidx.fragment:fragment:1.5.4'
+    implementation 'androidx.core:core:1.13.0'
+    implementation 'androidx.core:core-ktx:1.13.0'
+    implementation 'androidx.cardview:cardview:1.0.0'
+    implementation 'androidx.media:media:1.0.0'
+    implementation 'androidx.dynamicanimation:dynamicanimation:1.0.0'
+    implementation 'androidx.transition:transition:1.5.0'
+    implementation 'androidx.profileinstaller:profileinstaller:1.4.0'
+    implementation 'androidx.startup:startup-runtime:1.1.1'
+    implementation 'androidx.emoji2:emoji2:1.3.0'
+    implementation 'androidx.annotation:annotation-experimental:1.4.0'
+    implementation 'org.jetbrains.kotlin:kotlin-stdlib:2.2.0'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
+    testImplementation 'junit:junit:4.13.2'
+}
