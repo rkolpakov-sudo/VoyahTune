@@ -185,3 +185,31 @@
   MR_RC=0: 29/29 verified, zip 125 098 128 байт, `sha256sum -c SHA256SUMS` OK.
   Коммит/push — только по явной команде; публикация blobs-v1 одобрена.
   Дальше: публикация blobs-v1 (30 плоских ассетов), push + прогон CI.
+
+## 2026-10-03][WP1][CI job payload: цепочка фиксов подписи — +x, mkdirs, env-имя, keystore regen]
+- Контекст: после push Шага 1.3 job payload падал трижды подряд: (1) exit 126 —
+  `./make_release.sh` в индексе без `+x` (та же болезнь, что gradlew в 0f5ff96→bde1e4b);
+  (2) `release.jks (No such file or directory)` — signingConfigs пишет keystore в
+  `build/`, которого нет на свежем чекауте; (3) `SigningConfig "release" is missing
+  required property "keyAlias"`.
+- Решение:
+  (1) `git update-index --chmod=+x` для `make_release.sh` + `scripts/fetch-blobs.sh`
+  (оба вызываются напрямую: ci.yml:158 и make_release:182);
+  (2) `ksFile.parentFile.mkdirs()` перед записью в обоих app/build.gradle;
+  (3) устранён рассинхрон env-имён: ci.yml экспортировал `ANDROID_KEYSTORE_ALIAS`
+  (читает никто), а build.gradle читает `ANDROID_KEY_ALIAS` — строка в ci.yml заменена;
+  (4) секрет `ANDROID_KEYSTORE_ALIAS` был пуст, `ANDROID_KEY_ALIAS` не выставлялся →
+  с одобрения пользователя перегенерирован keystore: keytool (Temurin 17),
+  RSA-3072, PKCS12, alias `voyahtune`, validity 10000 дней, дата 2026-10-03;
+  все 4 секрета (B64/PASSWORD/ALIAS/KEY_PASSWORD) перезаписаны через `gh secret set`;
+  старый keystore от 2026-10-02 ничем не занят — подписанный релиз не выпускался ни разу.
+- Основание: подпись в CI — единственный канал (ANDROID_KEYSTORE_* только в secrets);
+  пустой alias невосстановим извне (GitHub не отдаёт значения секретов, локальной копии
+  keystore нет); замена идентичности подписи бесплатна до первого релиза.
+- Риск: исходный keystore 2026-10-02 утрачен (его и так нигде не было) — mitigated:
+  новый keystore + пароли сохранены вне репо в `C:\Projects\signing\` (не коммитить);
+  в secrets остался мёртвый `ANDROID_KEYSTORE_ALIAS` — можно удалить позже.
+- Статус: принято. Проверки: локально с env — `assembleRelease` зелёный, оба
+  `app-release.apk` проходят `apksigner verify` (CN=VoyahTune, fp 212cc2bc…);
+  CI run 37112178182 — **5/5 success** (payload/tests/payload-verify/reference-map/
+  network-audit). Коммит — по явной команде.
