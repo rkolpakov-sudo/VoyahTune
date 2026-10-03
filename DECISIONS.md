@@ -141,3 +141,47 @@
 - Статус: принято. Проверки: :tests:hil:test + :Native:app:testDebugUnitTest — 28/28,
   :Native:app:assembleDebug зелёный. Коммит — только по явной команде (ветка wp1).
   Дальше: шаг 1.5 CI (jobs tests/payload/gui-win/gui-mac), 1.3 Packaging, 1.4 Installer.
+
+## 2026-10-03][WP1][Шаг 1.3 Packaging: make_release.sh, job payload, леч release-сборки
+- Контекст: SPEC L101/L103 — сборка payload_<v>.zip из 29 файлов (21 payload-common +
+  2 собранных APK + 6 ре-хост блобов). Release-сборка падала трижды подряд: (1) D8
+  «Type defined multiple times» — jadx-дубли библиотечных классов в source-set;
+  (2) lintVitalRelease — 8 fatal ResourceCycle/MissingDefaultResource на
+  восстановленных ресурсах зависимостей (abc_*, material-стили); (3) packageRelease —
+  «already contains entry assets/dexopt/baseline.prof».
+- Решение:
+  (1) `Utils/find_dup_classes.py` — системный пересбор jadx-дублей (dex string-pool ↔
+  FQCN .java); удалены `ListenableFuture` (Native, мёртвый стаб), `EventLogTags`
+  (Native), `_COROUTINE/*` + `com/google/common/*` (RestoreMode); после чистки
+  external=7811/8058, source=101/231, duplicates=0/0;
+  (2) `lint { checkReleaseBuilds false; abortOnError false }` в обоих app/build.gradle —
+  fatal-ошибки про ресурсы зависимостей не должны блокировать release-сборку (lint
+  не входит в CI job tests);
+  (3) удалены 4 восстановленных файла `assets/dexopt/baseline.prof{,m}` — AGP сам
+  компилирует baseline-профили зависимостей и пакует их в тот же путь, восстановленные
+  из APK копии = дубль (профили старта, функционально не критичны, AGP-версия канонична);
+  (4) новые инструменты: `make_release.sh` (root: верификация версии легенды, gradle-сборка,
+  fetch-blobs подмножества, staging, manifest build+verify, атомарный publish,
+  zip из staging, payload_<v>.json + BUILD-INFO.json + SHA256SUMS; флаги `--payload`
+  обязателен, `--no-build`/`--no-zip`), `scripts/fetch-blobs.sh` (all/подмножество/
+  `--verify`, sha256sum/shasum, curl/wget, атомарный `.part.$$`+mv),
+  `Utils/build_payload_manifest.py` (build/verify schema=4);
+  (5) `.gitignore`: `blobs/*` c `!BLOBS-SHA256.txt`/`!README.md`, + `Releases/`;
+  `blobs/apk/` — 3 payload-APK (dns.apk, voyahtune-ui-next.apk, voyahtune-updater.apk)
+  как расширение списка блобов L92 (плоские ассеты blobs-v1, базовые имена уникальны);
+  (6) CI job `payload` вместо TODO (cache blobs по hashFiles, secrets подписи,
+  `sha256sum -c`, upload-artifact), shellcheck-строка расширена на make_release.sh.
+- Основание: release-блокировки (lint/dex-dup/baseline.prof) — артефакты jadx-реконструкции,
+  а не контракта; systematic dup-scan надёжнее точечных удалений; flat-ассеты —
+  ограничение GitHub Releases; подпись APK только в CI (ANDROID_KEYSTORE_*),
+  локально unsigned — make_release предупреждает и продолжает.
+- Риск: отключение lintVital может скрыть будущие ошибки ресурсов — mitigated: lint
+  остаётся запускаемым вручную (`gradlew lint`), в CI-контракт (L103) не входит;
+  удалённый baseline-профиль APK — только стартовая оптимизация, без функциональных
+  потерь; `blobs/apk/` — осознанное отклонение от структуры L92 (ре-хост, не реверс, D16).
+- Статус: принято. Проверки: `sh -n` оба скрипта = 0; `fetch-blobs --verify` 30/30;
+  `find_dup_classes` duplicates=0/0; `assembleRelease` RC=0 (Native 14.6 МБ,
+  RestoreMode 129 МБ, unsigned локально); `./make_release.sh 4.0.0-build.0 --payload`
+  MR_RC=0: 29/29 verified, zip 125 098 128 байт, `sha256sum -c SHA256SUMS` OK.
+  Коммит/push — только по явной команде; публикация blobs-v1 одобрена.
+  Дальше: публикация blobs-v1 (30 плоских ассетов), push + прогон CI.

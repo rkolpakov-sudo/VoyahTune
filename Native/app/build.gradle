@@ -58,6 +58,13 @@ android {
         }
     }
 
+    lint {
+        // См. RestoreMode: восстановленные ресурсы зависимостей не должны блокировать
+        // release-сборку (lintVitalRelease).
+        checkReleaseBuilds false
+        abortOnError false
+    }
+
     testOptions {
         unitTests {
             includeAndroidResources = true

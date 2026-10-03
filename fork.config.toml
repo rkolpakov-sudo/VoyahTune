@@ -9,7 +9,10 @@ package_names_unchanged = true  # D4
 
 [distribution]
 version_scheme = "4.x.y+build.N"  # IMP-11
-releases_url_template = ""        # WP5: наш endpoint (GitHub Releases), заполняется на CI
+# Наш endpoint раздачи (GitHub Releases этого репозитория; тег = v<version>).
+# {version} подставляется make_release.sh при генерации payload_<version>.json;
+# на CI переопределяется переменной PAYLOAD_RELEASE_URL.
+releases_url_template = "https://github.com/rkolpakov-sudo/VoyahTune/releases/download/v{version}/payload_{version}.zip"
 
 [vehicle]
 # D13: ПИ «не подтверждена»; семантику CAN не менять (только верификация трассами)
