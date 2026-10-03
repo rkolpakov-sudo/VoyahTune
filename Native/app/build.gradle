@@ -31,6 +31,7 @@ android {
         if (hasReleaseKeys) {
             release {
                 def ksFile = file("${buildDir}/release.jks")
+                ksFile.parentFile.mkdirs()
                 ksFile.bytes = Base64.decoder.decode(keystoreB64)
                 storeFile ksFile
                 storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
