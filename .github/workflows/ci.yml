@@ -42,7 +42,7 @@ jobs:
       - name: network-audit (blocking)
         run: bash scripts/network-audit.sh
 
-  # G-3: reference-map покрытие >= 80% (SPEC L93) из закоммиченного docs/reference-map.json
+  # G-3: reference-map покрытие >= 80% (SPEC L93) из закоммиченного Docs/reference-map.json
   reference-map:
     runs-on: ubuntu-latest
     steps:
@@ -51,14 +51,15 @@ jobs:
         run: |
           python3 - <<'PY'
           import json, sys
-          m = json.load(open("docs/reference-map.json", encoding="utf-8"))
+          m = json.load(open("Docs/reference-map.json", encoding="utf-8"))
           cov = m.get("coverage_percent", 0)
           print(f"coverage_percent={cov}")
           sys.exit(0 if cov >= 80 else 1)
           PY
 
-  # G-4 (L103): job tests — JVM (HIL + Native unit + позже легендные 303+105),
-  # shellcheck, detachment-audit; TODO: Rust 40 (Шаг 1.4), Svelte check (GUI/WP2)
+  # G-4 (L103): job tests — JVM (HIL + Native 303 + RestoreMode 105 из легенды
+  # + новые), Rust 40 (installer workspace), Svelte check, shellcheck (blocking,
+  # -S error), detachment-audit (report до WP4)
   tests:
     runs-on: ubuntu-latest
     steps:
@@ -89,8 +90,16 @@ jobs:
           [ -n "$SDKMGR" ] || { echo "sdkmanager not found" >&2; exit 1; }
           yes | "$SDKMGR" --licenses >/dev/null 2>&1 || true
           "$SDKMGR" "platforms;android-35"
-      - name: JVM tests (HIL scenarios + Native unit/Robolectric)
-        run: ./gradlew :tests:hil:test :Native:app:testDebugUnitTest
+      - name: JVM tests (HIL + Native + RestoreMode)
+        run: ./gradlew :tests:hil:test :Native:app:testDebugUnitTest :RestoreMode:app:testDebugUnitTest
+      - name: JVM legend gate (Native >= 303, RestoreMode >= 105)
+        run: |
+          set -euo pipefail
+          count() { grep -rho 'tests="[0-9]*"' "$1"/*.xml 2>/dev/null | grep -o '[0-9]*' | awk '{s+=$1} END {print s+0}'; }
+          native="$(count Native/app/build/test-results/testDebugUnitTest)"
+          restore="$(count RestoreMode/app/build/test-results/testDebugUnitTest)"
+          echo "Native=$native RestoreMode=$restore"
+          [ "$native" -ge 303 ] && [ "$restore" -ge 105 ]
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
@@ -100,12 +109,31 @@ jobs:
             tests/hil/build/test-results/**
             tests/hil/build/hil-results/**
             Native/app/build/test-results/**
+            RestoreMode/app/build/test-results/**
           if-no-files-found: ignore
+      - name: Rust tests (installer workspace, gate >= 40)
+        run: |
+          set -euo pipefail
+          cargo test --manifest-path Installer/Cargo.toml 2>&1 | tee rust-tests.log
+          total="$(grep -o 'test result: ok\. [0-9]* passed' rust-tests.log | grep -o '[0-9]* passed' | grep -o '[0-9]*' | awk '{s+=$1} END {print s+0}')"
+          echo "rust_tests_total=$total"
+          [ "$total" -ge 40 ]
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: Installer/desktop/package-lock.json
+      - name: Svelte check (Installer desktop)
+        run: |
+          cd Installer/desktop
+          npm ci
+          npm run check
       - name: shellcheck payload scripts
-        continue-on-error: true   # TODO(WP1): flip once scripts are cleaned
+        # warning — только информационно: payload-common из легенды не правим
+        # (контент пиннится sha256); -S error — блокирующий уровень.
         run: |
           shellcheck -S warning Packaging/payload-common/*.sh Packaging/payload-common/load.bin || true
-          shellcheck -S error make_release.sh Utils/*.sh scripts/*.sh 2>/dev/null || true
+          shellcheck -S error make_release.sh scripts/*.sh
       - name: detachment-audit (report until WP4)
         continue-on-error: true   # TODO(WP4): flip to blocking (L131)
         run: bash scripts/detachment-audit.sh report
@@ -167,4 +195,38 @@ jobs:
           retention-days: 7
           compression-level: 0
 
-  # TODO(L103 Шаг 1.4): job gui-win (windows-latest), job gui-mac (macos-latest)
+  # G-6 (L103): cross-OS сборка GUI — svelte-check + vite build + cargo check
+  # Tauri-движка на нативных ОС (SPEC L83 D14: windows/gui-win, macos/gui-mac).
+  gui-win:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: Installer/desktop/package-lock.json
+      - name: npm ci + svelte-check + vite build
+        working-directory: Installer/desktop
+        run: |
+          npm ci
+          npm run build
+      - name: cargo check (tauri desktop)
+        run: cargo check --manifest-path Installer/Cargo.toml -p voyahtune-desktop
+
+  gui-mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: Installer/desktop/package-lock.json
+      - name: npm ci + svelte-check + vite build
+        working-directory: Installer/desktop
+        run: |
+          npm ci
+          npm run build
+      - name: cargo check (tauri desktop)
+        run: cargo check --manifest-path Installer/Cargo.toml -p voyahtune-desktop
