@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -15,6 +16,10 @@ import java.util.regex.Pattern;
  * {@code TX<число>} (OemVehicleStateTransport, HeadlightCanTransport,
  * LightSensorService, CanBusEventHub — все форматы, найденные в легенде Native).
  * Таймметки и pid в запись не переносятся: паритет их игнорирует (SPEC L111).</p>
+ *
+ * <p>Тег строго ограничен {@link #TX_TAGS} — теми же четырьмя тегами, что
+ * отбирает {@code scripts/capture-trace.sh} в nativelog. TX-подобные строки
+ * чужих приложений в транскрипт не попадают (иначе — «шум» в эталоне).</p>
  */
 public final class LogcatTxParser {
 
@@ -28,23 +33,39 @@ public final class LogcatTxParser {
 
     private static final Pattern TX_PREFIX = Pattern.compile("^TX(\\d+)\\b(.*)$");
 
+    /** Единственные легитимные источники TX-строк (см. capture-trace.sh). */
+    private static final Set<String> TX_TAGS = Set.of(
+            "$$$ OemVehicleState $$$",
+            "$$$ HeadlightCanTransport $$$",
+            "$$$ LightSensorService $$$",
+            "CanBusEventHub");
+
     private LogcatTxParser() {
     }
 
     /**
-     * Разбирает текст logcat-трассы; возвращает записи только для строк с TX*.
-     * Не-логcat-строки и сообщения без TX-префикса игнорируются.
+     * Разбирает текст logcat-трассы; возвращает записи только для строк с TX*
+     * из известных тегов. Не-логcat-строки, чужие теги и сообщения без
+     * TX-префикса игнорируются. Нечисловое/переполненное число в TX-поле не
+     * роняет разбор: запись помечается {@link TxRecord.Op#UNSUPPORTED}.
      */
     public static List<TxRecord> parse(Iterable<String> lines) {
         List<TxRecord> out = new ArrayList<>();
         int lineNo = 0;
         for (String line : lines) {
             lineNo++;
-            String msg = messageOf(line);
-            if (msg == null) {
+            String[] parts = splitLine(line);
+            if (parts == null || !TX_TAGS.contains(parts[0])) {
                 continue;
             }
-            TxRecord rec = parseMessage(lineNo, msg);
+            TxRecord rec;
+            try {
+                rec = parseMessage(lineNo, parts[1]);
+            } catch (NumberFormatException ex) {
+                // переполнение числового поля (какая-нибудь 999…9): не роняем
+                // разбор трассы, фиксируем как нераспознанную транзакцию
+                rec = TxRecord.unsupported(lineNo, parts[1]);
+            }
             if (rec != null) {
                 out.add(rec);
             }
@@ -52,14 +73,14 @@ public final class LogcatTxParser {
         return out;
     }
 
-    /** Извлекает сообщение лога; null, если строка не в формате threadtime. */
-    static String messageOf(String line) {
+    /** Разбирает строку формата threadtime; {тег, сообщение} либо null. */
+    static String[] splitLine(String line) {
         String clean = line.endsWith("\r") ? line.substring(0, line.length() - 1) : line;
         Matcher m = LINE.matcher(clean);
         if (!m.matches()) {
             return null;
         }
-        return m.group(2);
+        return new String[] {m.group(1), m.group(2)};
     }
 
     private static TxRecord parseMessage(int lineNo, String msg) {
@@ -118,8 +139,14 @@ public final class LogcatTxParser {
                 break;
             case TX77:
                 if ((m = match(s, "^TX77 accepted-unconfirmed \\[([^\\]]*)\\] states=Bundle\\[\\{(.*)\\}\\]$")) != null) {
+                    Map<String, Integer> states = parseStates(m.group(2));
+                    if (states == null) {
+                        // тело бандла повреждено/нечислово: реплей с частично
+                        // разобранными состояниями маскировал бы потерю данных
+                        return TxRecord.unsupported(lineNo, msg);
+                    }
                     return TxRecord.of(lineNo, op, TxRecord.Outcome.OK, m.group(1),
-                            null, null, null, null, parseStates(m.group(2)), msg);
+                            null, null, null, null, states, msg);
                 }
                 if ((m = match(s, "^TX77 rejected \\[([^\\]]*)\\]$")) != null) {
                     return TxRecord.of(lineNo, op, TxRecord.Outcome.REJECTED, m.group(1),
@@ -200,6 +227,13 @@ public final class LogcatTxParser {
         }
     }
 
+    /**
+     * Разбирает тело {@code Bundle[{K=V, ...}]}.
+     *
+     * @return карту состояний; {@code null} — тело повреждено (нет {@code =},
+     *         нечисловое или выходящее за int значение): вызывающий обязан
+     *         пометить запись unsupported, а не реплеить её частично
+     */
     private static Map<String, Integer> parseStates(String body) {
         Map<String, Integer> states = new LinkedHashMap<>();
         if (body == null || body.isEmpty()) {
@@ -208,13 +242,16 @@ public final class LogcatTxParser {
         for (String pair : body.split(",\\s*")) {
             int eq = pair.indexOf('=');
             if (eq <= 0) {
-                continue;
+                return null;
             }
-            String name = pair.substring(0, eq);
+            String name = pair.substring(0, eq).trim();
+            if (name.isEmpty()) {
+                return null;
+            }
             try {
                 states.put(name, Integer.valueOf(pair.substring(eq + 1).trim()));
-            } catch (NumberFormatException ignored) {
-                // нечисловое значение: пропускаем, строка сохранится в raw
+            } catch (NumberFormatException ex) {
+                return null;
             }
         }
         return states;

@@ -52,13 +52,28 @@ RE_UUID = re.compile(
     r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
     r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b"
 )
-RE_TOKEN = re.compile(r"\b[0-9a-fA-F]{32,}\b")
+RE_TOKEN = re.compile(r"\b[0-9a-fA-F]{32,}")
 RE_HEX = re.compile(r"\b0x[0-9A-Fa-f]+\b")
 RE_MS = re.compile(r"\bt=\d+(?:\.\d+)?ms\b")
 RE_FULL_TS = re.compile(r"\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?")
 RE_CLOCK = re.compile(r"(?<![\w.:-])\d{2}:\d{2}:\d{2}(?:\.\d+)?(?![\d:])")
 RE_CANDUMP_T = re.compile(r"^\s*\[\d+\.\d+\]")
+# candump -t a/d: (1759486501.310123) / (12.345678) — скобки в начале строки
+RE_CANDUMP_PAREN = re.compile(r"^\s*\(\d+(?:\.\d+)?\)")
+# hex-идентификаторы объектов window-дампа (Window{4a3f2b1c u0 …}) меняются
+# между сессиями. Только после известных типов — широкая маска {hex}
+# скрыла бы настоящие расхождения (опасно для оракула).
+RE_DUMPSYS_ID = re.compile(
+    r"\b((?:Window|WindowState|AppWindowToken|AppWindow|ActivityRecord"
+    r"|ActivityToken|Token|SurfaceView|Layer)\{)[0-9a-fA-F]+(?=[\s}])"
+)
 RE_EPOCH_MS = re.compile(r"(?<!\d)\d{13}(?!\d)")
+
+
+def _mask_token(match: re.Match) -> str:
+    """32+ hex-токен → <TOKEN>; чисто-числовые id/счётчики не трогаем."""
+    token = match.group(0)
+    return "<TOKEN>" if any(c in "abcdefABCDEF" for c in token) else token
 
 
 def normalize(kind: str, text: str) -> list[str]:
@@ -77,12 +92,16 @@ def normalize(kind: str, text: str) -> list[str]:
                 )
         else:
             line = RE_CANDUMP_T.sub("[<T>]", line)
+            if kind == "cantrace":
+                line = RE_CANDUMP_PAREN.sub("(<T>)", line)
+            else:
+                line = RE_DUMPSYS_ID.sub(r"\1<ID>", line)
         # Сначала полная дата-время, затем «часы» (внутри даты) — иначе
         # подстрока времени съедается первой и дата остаётся.
         line = RE_FULL_TS.sub("<TS>", line)
         line = RE_CLOCK.sub("<T>", line)
         line = RE_UUID.sub("<UUID>", line)
-        line = RE_TOKEN.sub("<TOKEN>", line)
+        line = RE_TOKEN.sub(_mask_token, line)
         line = RE_HEX.sub("0x<X>", line)
         line = RE_MS.sub("t=<T>", line)
         line = RE_EPOCH_MS.sub("<EPOCH>", line)
@@ -98,7 +117,14 @@ def load_patterns(path: Path | None) -> list[re.Pattern]:
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
-        patterns.append(re.compile(line))
+        try:
+            patterns.append(re.compile(line))
+        except re.error as exc:
+            print(
+                f"parity-diff: невалидный паттерн в {path}: {line!r}: {exc}",
+                file=sys.stderr,
+            )
+            raise SystemExit(2) from exc
     return patterns
 
 
@@ -204,10 +230,13 @@ def build_report(
             lines.append(f"- {sid}.{kind}: {len(drift)} строк(и) —"
                          " паттерны в Docs/parity-expected-diffs.txt")
         lines.append("")
-    pending = sorted(
-        sid for (sid, kind), (status, _) in results.items()
-        if status == "pending" and kind == KINDS[0]
-    )
+    # Pending — по итогу сценария: хватает любой неснятой трассы, а не
+    # только logcat (иначе сценарий, где снят один logcat, «терялся» бы
+    # из списка pending).
+    by_sid: dict[str, list[str]] = {}
+    for (sid, _kind), (status, _) in results.items():
+        by_sid.setdefault(sid, []).append(status)
+    pending = sorted(sid for sid, sts in by_sid.items() if "pending" in sts)
     if pending:
         lines += [
             "Pending (не снято): " + ", ".join(pending) + ".",
@@ -222,14 +251,15 @@ def run(
     report_path: Path,
     expected_path: Path,
     only_scenario: str | None = None,
-) -> tuple[dict[tuple[str, str], tuple[str, list[str]]], int]:
+) -> dict[tuple[str, str], tuple[str, list[str]]]:
     patterns = load_patterns(expected_path)
     scenarios = [
         (sid, slug) for sid, slug in SCENARIOS
         if only_scenario is None or sid == only_scenario
     ]
     if not scenarios:
-        raise SystemExit(f"неизвестный сценарий: {only_scenario}")
+        print(f"parity-diff: неизвестный сценарий: {only_scenario}", file=sys.stderr)
+        raise SystemExit(2)
     results: dict[tuple[str, str], tuple[str, list[str]]] = {}
     for sid, _slug in scenarios:
         for kind in KINDS:
@@ -240,7 +270,7 @@ def run(
             results[(sid, kind)] = classify(o_text, f_text, kind, patterns)
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(build_report(scenarios, results), encoding="utf-8")
-    return results, 0
+    return results
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -253,16 +283,23 @@ def main(argv: list[str] | None = None) -> int:
         "--expected", type=Path,
         default=repo / "Docs" / "parity-expected-diffs.txt",
     )
-    ap.add_argument("--scenario", help="только один сценарий (01..12)")
+    ap.add_argument(
+        "--scenario", choices=[sid for sid, _ in SCENARIOS],
+        help="только один сценарий (01..12)",
+    )
     ap.add_argument(
         "--strict", action="store_true",
         help="pending считать ошибкой (гейт L116 после снятия трасс)",
     )
     args = ap.parse_args(argv)
 
-    results, _ = run(
-        args.original, args.fork, args.report, args.expected, args.scenario
-    )
+    try:
+        results = run(
+            args.original, args.fork, args.report, args.expected, args.scenario
+        )
+    except (OSError, UnicodeDecodeError) as exc:
+        print(f"parity-diff: ошибка файлов: {exc}", file=sys.stderr)
+        return 2
     statuses = [status for status, _ in results.values()]
     regressions = statuses.count("regression")
     pendings = statuses.count("pending")

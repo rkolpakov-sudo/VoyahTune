@@ -125,4 +125,57 @@ public class LogcatTxParserTest {
                 "not a logcat line TX57 getVehicleState LOW_BEAM=0"));
         assertEquals(0, records.size());
     }
+
+    @Test
+    public void ignoresTxLinesFromForeignTags() {
+        // TX-подобный шум чужих приложений не должен попадать в транскрипт:
+        // иначе эталон «шумит» и паритет ложно регрессирует.
+        List<TxRecord> records = LogcatTxParser.parse(List.of(
+                "10-04 09:15:01.310  2841  2863 I SomeOtherApp: "
+                        + "TX57 getVehicleState LOW_BEAM=0",
+                "10-04 09:15:01.400  2841  2863 D RandomTag: "
+                        + "TX99 whatever-formatted here"));
+        assertEquals(0, records.size());
+    }
+
+    @Test
+    public void keepsUnknownTxNumberFromKnownTagAsUnsupported() {
+        List<TxRecord> records = LogcatTxParser.parse(List.of(
+                "10-04 09:15:01.310  2841  2863 I $$$ OemVehicleState $$$: "
+                        + "TX99 whatever-formatted here"));
+        assertEquals(1, records.size());
+        assertEquals(TxRecord.Op.UNSUPPORTED, records.get(0).op);
+        assertEquals("TX99 whatever-formatted here", records.get(0).raw);
+    }
+
+    @Test
+    public void hugeNumbersBecomeUnsupportedInsteadOfCrashing() {
+        // переполнение int не должно ронять разбор всей трассы
+        List<TxRecord> records = LogcatTxParser.parse(List.of(
+                "10-04 09:15:01.310  2841  2863 I $$$ OemVehicleState $$$: "
+                        + "TX58 accepted-unconfirmed [t] LOW_BEAM=99999999999999999999",
+                "10-04 09:15:01.400  2841  2863 I $$$ OemVehicleState $$$: "
+                        + "TX99999999999999999999 getVehicleState LOW_BEAM=0",
+                "10-04 09:15:01.500  2841  2863 I $$$ OemVehicleState $$$: "
+                        + "TX57 getVehicleState LOW_BEAM=1"));
+        assertEquals(3, records.size());
+        assertEquals(TxRecord.Op.UNSUPPORTED, records.get(0).op);
+        assertEquals(TxRecord.Op.UNSUPPORTED, records.get(1).op);
+        assertEquals(TxRecord.Op.TX57, records.get(2).op);
+    }
+
+    @Test
+    public void malformedBundleIsUnsupportedNotPartial() {
+        // нечисловое значение бандла: реплей с частично разобранными
+        // состояниями скрыл бы потерю данных — только unsupported
+        List<TxRecord> records = LogcatTxParser.parse(List.of(
+                "10-04 09:15:01.310  2841  2863 I $$$ OemVehicleState $$$: "
+                        + "TX77 accepted-unconfirmed [t] states=Bundle[{LOW_BEAM=oops}]",
+                "10-04 09:15:01.400  2841  2863 I $$$ OemVehicleState $$$: "
+                        + "TX77 accepted-unconfirmed [t] states=Bundle[{LOW_BEAM=9}]"));
+        assertEquals(2, records.size());
+        assertEquals(TxRecord.Op.UNSUPPORTED, records.get(0).op);
+        assertEquals(TxRecord.Op.TX77, records.get(1).op);
+        assertEquals(1, records.get(1).states.size());
+    }
 }

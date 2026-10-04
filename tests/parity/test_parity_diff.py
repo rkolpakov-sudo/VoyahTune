@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Тесты utils/parity-diff.py (SPEC L111) — без авто, на синтетических трассах."""
+import contextlib
 import importlib.util
+import io
 import tempfile
 import unittest
 from pathlib import Path
@@ -56,6 +58,38 @@ class NormalizeTest(unittest.TestCase):
         )
         self.assertNotIn("09:15:01", dump[0])
         self.assertNotIn("2026-10-04", dump[0])
+
+    def test_candump_paren_timestamp_normalized(self):
+        # candump -t a/d: (epoch.µs) / (delta) — скобки в начале строки
+        a = parity_diff.normalize("cantrace", "(1759486501.310123) can0 123#DEADBEEF")
+        b = parity_diff.normalize("cantrace", "(1760000000.987654) can0 123#DEADBEEF")
+        self.assertEqual(a, b)
+        self.assertEqual(["(<T>) can0 123#DEADBEEF"], a)
+
+    def test_dumpsys_window_identity_normalized(self):
+        a = parity_diff.normalize(
+            "dumpsys", "mCurrentFocus=Window{4a3f2b1c u0 com.app/.Main}"
+        )
+        b = parity_diff.normalize(
+            "dumpsys", "mCurrentFocus=Window{9b8c7d6e u0 com.app/.Main}"
+        )
+        self.assertEqual(a, b)
+        self.assertIn("Window{<ID> u0 com.app/.Main}", a[0])
+        # маска только для известных типов: посторонние {hex} не трогаем
+        self.assertEqual(
+            ["Bundle[{deadbeef}]"],
+            parity_diff.normalize("dumpsys", "Bundle[{deadbeef}]"),
+        )
+
+    def test_long_decimal_kept_but_hex_token_masked(self):
+        lines = parity_diff.normalize(
+            "logcat",
+            "seq=12345678901234567890123456789012 "
+            "hash=0123456789abcdef0123456789abcdef01234567",
+        )
+        self.assertEqual(
+            "seq=12345678901234567890123456789012 hash=<TOKEN>", lines[0]
+        )
 
 
 class ClassifyTest(unittest.TestCase):
@@ -159,12 +193,59 @@ class ReportTest(unittest.TestCase):
 
     def test_unknown_scenario_rejected(self):
         tmp = Path(tempfile.mkdtemp())
-        with self.assertRaises(SystemExit):
+        with self.assertRaises(SystemExit) as cm, \
+                contextlib.redirect_stderr(io.StringIO()):
             parity_diff.main([
                 "--original", str(tmp), "--fork", str(tmp),
                 "--report", str(tmp / "r.md"),
                 "--scenario", "99",
             ])
+        self.assertEqual(2, cm.exception.code)
+
+    def test_pending_lists_scenario_when_any_kind_missing(self):
+        # снят только logcat: строка Итог=pending есть, но старая логика
+        # смотрела только на logcat и не показывала сценарий в списке pending
+        tmp = Path(tempfile.mkdtemp())
+        (tmp / "original").mkdir()
+        (tmp / "fork").mkdir()
+        (tmp / "original" / "01.logcat").write_text(LOGCAT_A, encoding="utf-8")
+        (tmp / "fork" / "01.logcat").write_text(LOGCAT_A, encoding="utf-8")
+        report = tmp / "report.md"
+        code = parity_diff.main([
+            "--original", str(tmp / "original"), "--fork", str(tmp / "fork"),
+            "--report", str(report), "--expected", str(tmp / "missing.txt"),
+        ])
+        self.assertEqual(0, code)
+        text = report.read_text(encoding="utf-8")
+        self.assertIn("Pending (не снято): 01, 02", text)
+
+    def test_invalid_expected_pattern_is_usage_error(self):
+        tmp = Path(tempfile.mkdtemp())
+        (tmp / "original").mkdir()
+        (tmp / "fork").mkdir()
+        expected = tmp / "expected.txt"
+        expected.write_text("[unclosed\n", encoding="utf-8")
+        with self.assertRaises(SystemExit) as cm, \
+                contextlib.redirect_stderr(io.StringIO()):
+            parity_diff.main([
+                "--original", str(tmp / "original"), "--fork", str(tmp / "fork"),
+                "--report", str(tmp / "report.md"), "--expected", str(expected),
+            ])
+        self.assertEqual(2, cm.exception.code)
+
+    def test_report_write_failure_is_usage_error(self):
+        # --report указывает на каталог: IsADirectoryError должен дать 2,
+        # а не 1 (код 1 зарезервирован под регрессии)
+        tmp = Path(tempfile.mkdtemp())
+        (tmp / "original").mkdir()
+        (tmp / "fork").mkdir()
+        report_dir = tmp / "report_dir"
+        report_dir.mkdir()
+        code = parity_diff.main([
+            "--original", str(tmp / "original"), "--fork", str(tmp / "fork"),
+            "--report", str(report_dir), "--expected", str(tmp / "missing.txt"),
+        ])
+        self.assertEqual(2, code)
 
 
 if __name__ == "__main__":
