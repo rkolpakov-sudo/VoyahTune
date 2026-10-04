@@ -361,3 +361,23 @@
   windows-python probe без WSL не работает.
 - Статус: L106 локально готов (G1 пройден; «CI tests зелёный» подтверждается первым
   push — по явной команде; wp1 не закоммичен). Дальше: L107 финальный merge wp1.
+
+## 2026-10-04][WP1][Шаг 1.7 Финальный merge wp1: CI зелёный, откат = revert одного merge-коммита]
+
+- Первый push wp1 (274c2a4..6541c42 — Шаги 1.4/1.5/1.6 + паритет): CI FAILED,4 причины —
+  все от условий чекаута (Installer/ в git впервые; локальные прогоны им не соответствовали):
+  (1) payload: static-checks.sh OEM-харнесса на строке62 зовёт agent-contract-checks.sh
+      напрямую, а все .sh харнесса были 100644 (Windows-worktree даёт иллюзию +x) →
+      Permission denied. Фикс: `git update-index --chmod=+x` для8 скриптов;
+  (2) tests: installer-build `checkout_payload_contains_every_required_runtime_file`
+      читает blobs/, которых нет в чекауте (blobs/* в .gitignore) → в tests job добавлены
+      cache blobs + `bash scripts/fetch-blobs.sh` перед cargo test;
+  (3+4) gui-win/gui-mac: build.rs Tauri — «resource path resources/bundle doesn't exist»
+      (каталога нет нигде) → добавлен resources/bundle/.gitkeep.
+- Второй push (125a3bf): CI SUCCESS (3m13s, run 37210848885) — tests/payload/gui-win/gui-mac
+  зелёные. Это подтверждение «CI tests зелёный» из требования L106 (SPEC:244-245, G1).
+- Итог WP1: приёмка локальная classic 42/42 + canbus 16/16 + integration 19/19 (payload
+  подписанный, sha256 3/3), Native 306 + RestoreMode 105, Rust 40, svelte-check, shellcheck.
+- L107 (SPEC:246 «Откат: git, ветка wp1, один merge-коммит»): wp1 сливается в main одним
+  --no-ff merge-коммитом; полный откат WP1 = revert этого коммита. После merge ветка wp1
+  остаётся в репозитории как история.
