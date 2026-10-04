@@ -1,0 +1,19 @@
+name: avas-conflicting
+description: >
+  CONFLICTING write mode: the bus acknowledges TX58 but echoes a different
+  value; the cache keeps the conflicting value and the write never confirms.
+config:
+  write_mode: CONFLICTING
+  conflict_value: 2
+steps:
+  - action:
+      name: send_avas_off
+      send: {state_name: HUM_VSP_FUNCTION_SW, value: 1}
+  - expect_txn:
+      code: 58
+      state_name: HUM_VSP_FUNCTION_SW
+      value: 1
+      after: send_avas_off
+  - expect_echo: {state_name: HUM_VSP_FUNCTION_SW, value: 2, after: send_avas_off}
+  - assert_cache: {state_name: HUM_VSP_FUNCTION_SW, equals: 2}
+  - assert_app: {name: ui_state, equals: ACCEPTED_UNCONFIRMED}

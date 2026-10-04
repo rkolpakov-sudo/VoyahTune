@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
+    <uses-permission android:name="android.permission.MEDIA_CONTENT_CONTROL"/>
+    <uses-permission android:name="android.permission.REAL_GET_TASKS"/>
+    <uses-permission android:name="android.permission.REMOVE_TASKS"/>
+    <uses-permission android:name="android.permission.REORDER_TASKS"/>
+    <uses-permission android:name="android.permission.REBOOT"/>
+    <uses-permission android:name="android.permission.MANAGE_APP_OPS_MODES"/>
+    <uses-permission android:name="android.permission.FORCE_STOP_PACKAGES"/>
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.car.permission.CAR_SPEED"/>
+    <uses-permission android:name="android.car.permission.CAR_POWER"/>
+    <uses-permission android:name="android.car.permission.CAR_MILEAGE"/>
+    <uses-permission android:name="android.car.permission.CAR_ENERGY"/>
+    <uses-permission android:name="android.car.permission.CONTROL_CAR_CLIMATE"/>
+    <uses-permission android:name="android.car.permission.CAR_MOCK_VEHICLE_HAL"/>
+    <uses-permission android:name="android.car.permission.CAR_CAMERA"/>
+    <uses-permission android:name="android.car.permission.CAR_NAVIGATION_MANAGER"/>
+    <uses-permission android:name="android.car.permission.CAR_CONTROL_AUDIO_VOLUME"/>
+    <uses-permission android:name="android.car.permission.VEHICLE_DYNAMICS_STATE"/>
+    <uses-permission android:name="android.car.permission.CAR_DISPLAY_IN_CLUSTER"/>
+    <uses-permission android:name="android.car.permission.CAR_INSTRUMENT_CLUSTER_CONTROL"/>
+    <uses-permission android:name="android.car.permission.STORAGE_MONITORING"/>
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <uses-permission android:name="android.permission.MANAGE_USB"/>
+    <uses-permission android:name="android.permission.WRITE_SETTINGS"/>
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS"/>
+    <uses-permission android:name="android.permission.SEND_SMS"/>
+    <uses-permission android:name="android.permission.READ_SMS"/>
+    <uses-permission android:name="android.permission.BLUETOOTH"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"/>
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE"/>
+    <uses-permission android:name="android.permission.CONNECTIVITY_USE_RESTRICTED_NETWORKS"/>
+    <uses-permission android:name="android.permission.INJECT_EVENTS"/>
+    <uses-permission android:name="android.permission.ADD_TRUSTED_DISPLAY"/>
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE"/>
+    <uses-permission android:name="android.car.permission.CAR_PROPERTY"/>
+    <permission android:name="ru.big.town.anative.permission.BIND_SET_MODES_SERVICE" android:protectionLevel="signature"/>
+    <uses-permission android:name="ru.big.town.anative.permission.BIND_SET_MODES_SERVICE"/>
+    <permission android:name="com.qinggan.permission.WRITE_CANBUS" android:protectionLevel="signature"/>
+    <uses-permission android:name="com.qinggan.permission.WRITE_CANBUS"/>
+    <queries>
+        <provider android:authorities="ru.big.town.restoremode.restoremodecontentprovider"/>
+        <package android:name="com.qinggan.carsignal.service"/>
+        <package android:name="com.qinggan.canbus.service"/>
+    </queries>
+    <uses-permission android:name="android.permission.CAR_POWER"/>
+    <uses-feature android:name="android.hardware.type.car"/>
+    <uses-feature android:name="android.hardware.type.automotive" android:required="true"/>
+    <uses-permission android:name="android.car.permission.READ_CAR_POWER_POLICY"/>
+    <uses-permission android:name="android.car.permission.CAR_EXTERIOR_LIGHTS"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.DEVICE_POWER"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission android:maxSdkVersion="28" android:name="android.permission.READ_PHONE_STATE"/>
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
+    <uses-permission android:name="android.permission.READ_LOGS"/>
+    <uses-permission android:name="android.permission.START_ACTIVITIES_FROM_BACKGROUND"/>
+    <uses-permission android:maxSdkVersion="21" android:name="android.permission.GET_TASKS"/>
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+    <uses-permission android:name="android.permission.VIBRATE"/>
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
+    <uses-permission android:name="android.permission.QUICKBOOT_POWERON"/>
+    <uses-permission android:name="android.permission.REQUEST_COMPANION_START_FOREGROUND_SERVICES_FROM_BACKGROUND"/>
+    <uses-permission android:name="android.permission.REQUEST_COMPANION_RUN_IN_BACKGROUND"/>
+    <uses-permission android:name="android.permission.SCREEN_LOCKED"/>
+    <uses-feature android:name="android.hardware.telephony" android:required="false"/>
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
+    <uses-permission android:name="android.permission.POWER_SERVICE"/>
+    <supports-screens android:anyDensity="true" android:largeScreens="true" android:normalScreens="true"/>
+    <uses-feature android:name="android.hardware.wifi" android:required="false"/>
+    <permission android:name="ru.big.town.anative.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" android:protectionLevel="signature"/>
+    <uses-permission android:name="ru.big.town.anative.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"/>
+    <application android:allowBackup="true" android:appCategory="audio" android:appComponentFactory="androidx.core.app.CoreComponentFactory" android:dataExtractionRules="@xml/data_extraction_rules" android:extractNativeLibs="false" android:fullBackupContent="@xml/backup_rules" android:icon="@mipmap/ic_launcher" android:label="@string/app_name" android:name="ru.big.town.anative.Anative" android:requestLegacyExternalStorage="true" android:roundIcon="@mipmap/ic_launcher_round" android:supportsRtl="true" android:theme="@style/Theme.Native">
+        <receiver android:enabled="true" android:exported="true" android:name="ru.big.town.anative.SetModesReceiverDynamic"/>
+        <receiver android:exported="false" android:name="ru.big.town.anative.WidgetActionReceiver"/>
+        <receiver android:exported="false" android:name="ru.big.town.anative.LaunchAppsWidget">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_launch_apps_info"/>
+        </receiver>
+        <receiver android:enabled="true" android:exported="true" android:name="ru.big.town.anative.SetModesConfigReceiver" android:permission="ru.big.town.anative.permission.BIND_SET_MODES_SERVICE"/>
+        <provider android:authorities="ru.big.town.anative.ota" android:exported="true" android:name="ru.big.town.anative.OtaStatusProvider"/>
+        <service android:enabled="true" android:exported="true" android:foregroundServiceType="shortService" android:name="ru.big.town.anative.SetModesService" android:permission="ru.big.town.anative.permission.BIND_SET_MODES_SERVICE"/>
+        <service android:enabled="true" android:exported="false" android:name="ru.big.town.anative.LightSensorService"/>
+        <service android:enabled="true" android:exported="true" android:name="ru.big.town.anative.LightDiagnosticsService" android:permission="ru.big.town.anative.permission.BIND_SET_MODES_SERVICE"/>
+        <service android:enabled="true" android:exported="false" android:name="ru.big.town.anative.WiperColdService"/>
+        <service android:enabled="true" android:exported="false" android:name="ru.big.town.anative.TripStatsService"/>
+        <service android:enabled="true" android:exported="false" android:name="ru.big.town.anative.BatteryHeatService"/>
+        <service android:enabled="true" android:exported="false" android:name="ru.big.town.anative.NowPlayingService"/>
+        <service android:enabled="true" android:exported="true" android:name="ru.big.town.anative.BackButtonService" android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService"/>
+            </intent-filter>
+            <meta-data android:name="android.accessibilityservice" android:resource="@xml/back_button_accessibility_config"/>
+        </service>
+        <receiver android:enabled="true" android:exported="true" android:name="ru.big.town.anative.SetModesReceiverStatic">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="com.qinggan.intent.QINGGAN_BOOT_COMPLETE"/>
+            </intent-filter>
+        </receiver>
+        <activity android:exported="true" android:name="ru.big.town.anative.MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <action android:name="ru.big.town.anative.MainActivity"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+        <activity android:configChanges="keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|density" android:exported="false" android:launchMode="singleTop" android:name="ru.big.town.anative.SplitHostActivity" android:resizeableActivity="true" android:screenOrientation="landscape"/>
+        <activity android:configChanges="keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|density" android:excludeFromRecents="true" android:exported="false" android:name="ru.big.town.anative.ClusterMediaHostActivity" android:resizeableActivity="true" android:taskAffinity="ru.big.town.anative.cluster" android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen"/>
+        <provider android:authorities="ru.big.town.anative.nowplaying" android:exported="true" android:grantUriPermissions="true" android:name="ru.big.town.anative.NowPlayingProvider"/>
+        <provider android:authorities="ru.big.town.anative.fileprovider" android:exported="false" android:grantUriPermissions="true" android:name="androidx.core.content.FileProvider">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths"/>
+        </provider>
+        <provider android:authorities="ru.big.town.anative.androidx-startup" android:exported="false" android:name="androidx.startup.InitializationProvider">
+            <meta-data android:name="androidx.emoji2.text.EmojiCompatInitializer" android:value="androidx.startup"/>
+            <meta-data android:name="androidx.lifecycle.ProcessLifecycleInitializer" android:value="androidx.startup"/>
+            <meta-data android:name="androidx.profileinstaller.ProfileInstallerInitializer" android:value="androidx.startup"/>
+        </provider>
+        <receiver android:directBootAware="false" android:enabled="true" android:exported="true" android:name="androidx.profileinstaller.ProfileInstallReceiver" android:permission="android.permission.DUMP">
+            <intent-filter>
+                <action android:name="androidx.profileinstaller.action.INSTALL_PROFILE"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="androidx.profileinstaller.action.SKIP_FILE"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="androidx.profileinstaller.action.SAVE_PROFILE"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="androidx.profileinstaller.action.BENCHMARK_OPERATION"/>
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

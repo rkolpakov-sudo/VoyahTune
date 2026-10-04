@@ -1,0 +1,239 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "wp*"]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  PAYLOAD_SHA256: f309156c836e8533f9770cf1555272e7383fe3b20fb289a364f0ccfd9056dcf1
+  PAYLOAD_URL: https://storage.yandexcloud.net/voyahtune/v3.22.0/payload_3.22.0.zip
+
+jobs:
+  # G-1: база истины — payload верифицируется против payload/manifest.json (WP0)
+  payload-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: payload-cache
+          key: payload-3.22.0-${{ env.PAYLOAD_SHA256 }}
+      - name: Download & verify payload
+        run: |
+          mkdir -p payload-cache
+          if [ ! -f payload-cache/payload.zip ]; then
+            curl -sS -L -o payload-cache/payload.zip "$PAYLOAD_URL"
+          fi
+          echo "$PAYLOAD_SHA256  payload-cache/payload.zip" | sha256sum -c -
+          rm -rf /tmp/unpacked && mkdir -p /tmp/unpacked
+          unzip -q payload-cache/payload.zip -d /tmp/unpacked
+          python3 Utils/verify_payload.py /tmp/unpacked
+
+  # G-2: P0 — сеть в контуре авто запрещена (SPEC L188 / IMP-23); блокирующий
+  network-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: network-audit (blocking)
+        run: bash scripts/network-audit.sh
+
+  # G-3: reference-map покрытие >= 80% (SPEC L93) из закоммиченного Docs/reference-map.json
+  reference-map:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: coverage gate
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          m = json.load(open("Docs/reference-map.json", encoding="utf-8"))
+          cov = m.get("coverage_percent", 0)
+          print(f"coverage_percent={cov}")
+          sys.exit(0 if cov >= 80 else 1)
+          PY
+
+  # G-4 (L103): job tests — JVM (HIL + Native 303 + RestoreMode 105 из легенды
+  # + новые), Rust 40 (installer workspace), Svelte check, shellcheck (blocking,
+  # -S error), detachment-audit (report до WP4)
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: m2-${{ runner.os }}-${{ hashFiles('**/*.gradle', 'gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: m2-${{ runner.os }}-
+      - name: Android SDK (platform 35)
+        run: |
+          set -euo pipefail
+          SDKMGR="$(command -v sdkmanager || true)"
+          if [ -z "$SDKMGR" ]; then
+            for base in "${ANDROID_HOME:-}" "${ANDROID_SDK_ROOT:-}" \
+                        /usr/local/lib/android/sdk /usr/lib/android-sdk; do
+              if [ -n "$base" ] && [ -x "$base/cmdline-tools/latest/bin/sdkmanager" ]; then
+                SDKMGR="$base/cmdline-tools/latest/bin/sdkmanager"
+                break
+              fi
+            done
+          fi
+          [ -n "$SDKMGR" ] || { echo "sdkmanager not found" >&2; exit 1; }
+          yes | "$SDKMGR" --licenses >/dev/null 2>&1 || true
+          "$SDKMGR" "platforms;android-35"
+      - name: JVM tests (HIL + Native + RestoreMode)
+        run: ./gradlew :tests:hil:test :Native:app:testDebugUnitTest :RestoreMode:app:testDebugUnitTest
+      - name: JVM legend gate (Native >= 303, RestoreMode >= 105)
+        run: |
+          set -euo pipefail
+          count() { grep -rho 'tests="[0-9]*"' "$1"/*.xml 2>/dev/null | grep -o '[0-9]*' | awk '{s+=$1} END {print s+0}'; }
+          native="$(count Native/app/build/test-results/testDebugUnitTest)"
+          restore="$(count RestoreMode/app/build/test-results/testDebugUnitTest)"
+          echo "Native=$native RestoreMode=$restore"
+          [ "$native" -ge 303 ] && [ "$restore" -ge 105 ]
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            tests/hil/build/test-results/**
+            tests/hil/build/hil-results/**
+            Native/app/build/test-results/**
+            RestoreMode/app/build/test-results/**
+          if-no-files-found: ignore
+      - name: Cache blobs (rehost blobs-v1)
+        uses: actions/cache@v4
+        with:
+          path: blobs
+          key: blobs-${{ hashFiles('blobs/BLOBS-SHA256.txt') }}
+      - name: Fetch blobs (installer-build tests read blobs/)
+        run: bash scripts/fetch-blobs.sh
+      - name: Rust tests (installer workspace, gate >= 40)
+        run: |
+          set -euo pipefail
+          cargo test --manifest-path Installer/Cargo.toml 2>&1 | tee rust-tests.log
+          total="$(grep -o 'test result: ok\. [0-9]* passed' rust-tests.log | grep -o '[0-9]* passed' | grep -o '[0-9]*' | awk '{s+=$1} END {print s+0}')"
+          echo "rust_tests_total=$total"
+          [ "$total" -ge 40 ]
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: Installer/desktop/package-lock.json
+      - name: Svelte check (Installer desktop)
+        run: |
+          cd Installer/desktop
+          npm ci
+          npm run check
+      - name: shellcheck payload scripts
+        # warning — только информационно: payload-common из легенды не правим
+        # (контент пиннится sha256); -S error — блокирующий уровень.
+        run: |
+          shellcheck -S warning Packaging/payload-common/*.sh Packaging/payload-common/load.bin || true
+          shellcheck -S error make_release.sh scripts/*.sh
+      - name: detachment-audit (report until WP4)
+        continue-on-error: true   # TODO(WP4): flip to blocking (L131)
+        run: bash scripts/detachment-audit.sh report
+
+  # G-5 (L103 Шаг 1.3): job payload — сборка payload + SHA256SUMS + BUILD-INFO.
+  # APK подписываются secrets (IMP-23); при их отсутствии (PR из форка) собираются unsigned
+  # и make_release.sh лишь предупреждает. Блобы берутся из нашего ре-хоста blobs-v1 и
+  # верифицируются по blobs/BLOBS-SHA256.txt (L101).
+  payload:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: m2-${{ runner.os }}-${{ hashFiles('**/*.gradle', 'gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: m2-${{ runner.os }}-
+      - name: Android SDK (platform 35)
+        run: |
+          set -euo pipefail
+          SDKMGR="$(command -v sdkmanager || true)"
+          if [ -z "$SDKMGR" ]; then
+            for base in "${ANDROID_HOME:-}" "${ANDROID_SDK_ROOT:-}" \
+                        /usr/local/lib/android/sdk /usr/lib/android-sdk; do
+              if [ -n "$base" ] && [ -x "$base/cmdline-tools/latest/bin/sdkmanager" ]; then
+                SDKMGR="$base/cmdline-tools/latest/bin/sdkmanager"
+                break
+              fi
+            done
+          fi
+          [ -n "$SDKMGR" ] || { echo "sdkmanager not found" >&2; exit 1; }
+          yes | "$SDKMGR" --licenses >/dev/null 2>&1 || true
+          "$SDKMGR" "platforms;android-35"
+      - name: Cache blobs (rehost blobs-v1)
+        uses: actions/cache@v4
+        with:
+          path: blobs
+          key: blobs-${{ hashFiles('blobs/BLOBS-SHA256.txt') }}
+      - name: Build payload (make_release.sh --payload)
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ./make_release.sh "4.0.0-build.${{ github.run_number }}" --payload
+      - name: Verify SHA256SUMS
+        run: cd Releases/dist && sha256sum -c SHA256SUMS
+      - name: Upload payload dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: payload-dist
+          path: Releases/dist/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+  # G-6 (L103): cross-OS сборка GUI — svelte-check + vite build + cargo check
+  # Tauri-движка на нативных ОС (SPEC L83 D14: windows/gui-win, macos/gui-mac).
+  gui-win:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: Installer/desktop/package-lock.json
+      - name: npm ci + svelte-check + vite build
+        working-directory: Installer/desktop
+        run: |
+          npm ci
+          npm run build
+      - name: cargo check (tauri desktop)
+        run: cargo check --manifest-path Installer/Cargo.toml -p voyahtune-desktop
+
+  gui-mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: Installer/desktop/package-lock.json
+      - name: npm ci + svelte-check + vite build
+        working-directory: Installer/desktop
+        run: |
+          npm ci
+          npm run build
+      - name: cargo check (tauri desktop)
+        run: cargo check --manifest-path Installer/Cargo.toml -p voyahtune-desktop

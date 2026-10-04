@@ -9,7 +9,10 @@ package_names_unchanged = true  # D4
 
 [distribution]
 version_scheme = "4.x.y+build.N"  # IMP-11
-releases_url_template = ""        # WP5: наш endpoint (GitHub Releases), заполняется на CI
+# Наш endpoint раздачи (GitHub Releases этого репозитория; тег = v<version>).
+# {version} подставляется make_release.sh при генерации payload_<version>.json;
+# на CI переопределяется переменной PAYLOAD_RELEASE_URL.
+releases_url_template = "https://github.com/rkolpakov-sudo/VoyahTune/releases/download/v{version}/payload_{version}.zip"
 
 [vehicle]
 # D13: ПИ «не подтверждена»; семантику CAN не менять (только верификация трассами)
@@ -26,3 +29,12 @@ artifacts = 29
 
 [components]
 # Заполняется по результатам инвентаризации WP0 (payload/manifest.json)
+
+[signing]
+# Наш ключ (сгенерирован при regen keystore; JKS + пароли — только в GitHub Secrets, IMP-23).
+# Фактические параметры: PKCS12, RSA 3072, SHA256withRSA, validity 10000 дней.
+alias = "voyahtune"
+algorithm = "RSA 3072"
+sha256_fingerprint = "21:2C:C2:BC:A7:F7:A7:75:17:84:F2:10:C7:C7:7B:02:D0:CC:D6:2C:F7:BF:68:92:13:38:43:08:8E:48:87:B8"
+owner = "CN=VoyahTune, OU=VoyahTune, O=VoyahTune, L=Unknown, ST=Unknown, C=RU"
+# Для детектора WP6: отпечаток наш (не original-fingerprint) = форк -> обновление

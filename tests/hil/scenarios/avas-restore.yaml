@@ -1,0 +1,20 @@
+name: avas-restore
+description: Turn pedestrian sound off then back on; both writes confirm.
+config:
+  write_mode: ACK
+steps:
+  - action:
+      name: send_avas_off
+      send: {state_name: HUM_VSP_FUNCTION_SW, value: 1}
+  - expect_echo: {state_name: HUM_VSP_FUNCTION_SW, value: 1, after: send_avas_off}
+  - action:
+      name: send_avas_on
+      send: {state_name: HUM_VSP_FUNCTION_SW, value: 2}
+  - expect_txn:
+      code: 58
+      state_name: HUM_VSP_FUNCTION_SW
+      value: 2
+      after: send_avas_on
+  - expect_echo: {state_name: HUM_VSP_FUNCTION_SW, value: 2, after: send_avas_on}
+  - assert_cache: {state_name: HUM_VSP_FUNCTION_SW, equals: 2}
+  - assert_app: {name: ui_state, equals: CONFIRMED}

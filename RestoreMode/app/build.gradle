@@ -1,0 +1,171 @@
+import java.security.MessageDigest
+
+plugins {
+    id 'com.android.application'
+}
+
+def keystoreB64 = System.getenv("ANDROID_KEYSTORE_B64")
+def hasReleaseKeys = keystoreB64 != null && !keystoreB64.isEmpty()
+
+android {
+    namespace 'ru.big.town.restoremode'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'ru.big.town.restoremode'
+        minSdk 30
+        targetSdk 35
+        versionCode 3022000
+        versionName '3.22.0'
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+
+    buildFeatures {
+        viewBinding true
+        buildConfig true
+    }
+
+    signingConfigs {
+        if (hasReleaseKeys) {
+            release {
+                def ksFile = file("${buildDir}/release.jks")
+                ksFile.parentFile.mkdirs()
+                ksFile.bytes = Base64.decoder.decode(keystoreB64)
+                storeFile ksFile
+                storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword System.getenv("ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (hasReleaseKeys) {
+                signingConfig signingConfigs.release
+            }
+        }
+        debug {
+            minifyEnabled false
+        }
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging false
+        }
+    }
+
+    lint {
+        // jadx-восстановленные ресурсы (abc_*, material-стили) дают fatal ResourceCycle /
+        // MissingDefaultResource; это ресурсы зависимостей, не наш код — release-блокировку
+        // lintVital снимаем. lint как проверка не входит в CI job tests (SPEC L103).
+        checkReleaseBuilds false
+        abortOnError false
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.7.1'
+    implementation 'com.google.android.material:material:1.12.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.2.1'
+    implementation 'androidx.activity:activity:1.10.1'
+    implementation 'androidx.recyclerview:recyclerview:1.1.0'
+    implementation 'androidx.fragment:fragment:1.5.4'
+    implementation 'androidx.core:core:1.13.0'
+    implementation 'androidx.core:core-ktx:1.13.0'
+    implementation 'androidx.cardview:cardview:1.0.0'
+    implementation 'androidx.media:media:1.0.0'
+    implementation 'androidx.dynamicanimation:dynamicanimation:1.0.0'
+    implementation 'androidx.transition:transition:1.5.0'
+    implementation 'androidx.profileinstaller:profileinstaller:1.4.0'
+    implementation 'androidx.startup:startup-runtime:1.1.1'
+    implementation 'androidx.emoji2:emoji2:1.3.0'
+    implementation 'androidx.annotation:annotation-experimental:1.4.0'
+    implementation 'org.jetbrains.kotlin:kotlin-stdlib:2.2.0'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
+    testImplementation 'junit:junit:4.13.2'
+}
+
+// Release identity внутри подписанного APK (SPEC L102; порт reference VoyahBuildIdentity).
+// См. Native/app/build.gradle — блок идентичен, component берётся из namespace модуля.
+abstract class VoyahBuildIdentity extends DefaultTask {
+    @Input
+    abstract Property<String> getReleaseVersion()
+    @Input
+    abstract Property<String> getRevision()
+    @Input
+    abstract Property<String> getComponent()
+    @InputFiles
+    @PathSensitive(PathSensitivity.NONE)
+    abstract ConfigurableFileCollection getRecipeFiles()
+    @InputFiles
+    @PathSensitive(PathSensitivity.RELATIVE)
+    abstract ConfigurableFileCollection getRuntimeFiles()
+    @Input
+    abstract MapProperty<String, String> getRuntimeAliases()
+    @OutputDirectory
+    abstract DirectoryProperty getOutputDirectory()
+
+    @TaskAction
+    void generate() {
+        def dir = outputDirectory.get().asFile
+        dir.mkdirs()
+        def hashes = new TreeMap<String, String>()
+        runtimeFiles.files.each { source ->
+            def name = runtimeAliases.get()[source.canonicalPath] ?: source.name
+            hashes[name] = MessageDigest.getInstance('SHA-256').digest(source.bytes).encodeHex().toString()
+        }
+        def recipeFile = recipeFiles.files.size() == 1 ? recipeFiles.files.first() : null
+        def body = [
+            schema         : 3,
+            product        : 'VoyahTune',
+            component      : component.get(),
+            releaseVersion : releaseVersion.get(),
+            buildRevision  : revision.get(),
+            recipeSha256   : recipeFile == null ? null
+                    : MessageDigest.getInstance('SHA-256').digest(recipeFile.bytes).encodeHex().toString(),
+            runtimeHashes  : hashes,
+        ]
+        new File(dir, 'voyahtune-build.json').text =
+                groovy.json.JsonOutput.toJson(body) + '\n'
+    }
+}
+
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        def repoRoot = rootProject.projectDir
+        def identityComponent = android.namespace
+        def identity = tasks.register("generate${variant.name.capitalize()}VoyahIdentity", VoyahBuildIdentity) { task ->
+            task.releaseVersion.set(providers.gradleProperty('voyahReleaseVersion').orElse('0.0.0-dev'))
+            task.revision.set(providers.gradleProperty('voyahBuildRevision').orElse('local'))
+            task.component.set(identityComponent)
+            task.runtimeAliases.convention([:])
+            def recipePath = providers.gradleProperty('voyahInstallRecipe').orNull
+            if (recipePath != null) {
+                def recipeFile = file(recipePath)
+                task.recipeFiles.from(recipeFile)
+                def recipe = new groovy.json.JsonSlurper().parse(recipeFile) as Map
+                def sources = new groovy.json.JsonSlurper().parse(
+                        file(providers.gradleProperty('voyahReleaseSources').get())) as Map
+                recipe['files'].findAll { it['artifact'] != 'native.apk' }.each { operation ->
+                    def entry = (sources['artifacts'] as List).find { it['name'] == operation['artifact'] }
+                    if (entry == null) {
+                        throw new GradleException(
+                                "voyahReleaseSources: нет источника для ${operation['artifact']}")
+                    }
+                    def runtimeSource = new File(repoRoot, entry['source'] as String)
+                    task.runtimeFiles.from(runtimeSource)
+                    task.runtimeAliases.put(runtimeSource.canonicalPath, operation['artifact'] as String)
+                }
+            }
+            task.outputDirectory.set(layout.buildDirectory.dir("generated/voyahIdentity/${variant.name}"))
+        }
+        variant.sources.assets?.addGeneratedSourceDirectory(identity, { it.outputDirectory })
+    }
+}

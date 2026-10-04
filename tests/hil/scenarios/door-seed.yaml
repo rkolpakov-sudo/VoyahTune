@@ -1,0 +1,11 @@
+name: door-seed
+description: Seeded door state is queryable via TX2; door events push CB1.
+config:
+  door: 1
+steps:
+  - action: {name: query_door, txn_code: 2}
+  - expect_txn: {code: 2, within_ms: 500, after: query_door}
+  - inject: {door: 0}
+  - expect_echo: {cb_code: 1, value: 0, within_ms: 500, after: "inject:door"}
+  - inject: {door: 1}
+  - expect_echo: {cb_code: 1, value: 1, within_ms: 500, after: "inject:door"}

@@ -1,0 +1,14 @@
+name: bundle-restore
+description: TX77 restores a bundle of vehicle states in one transaction.
+steps:
+  - action:
+      name: restore_modes
+      bundle:
+        IVI_SOC_MODESET: 1
+        HUM_ENERGY_PTREGEN_LEVL: 3
+        ASC_MAINTAIN_SWITCH: 2
+  - expect_txn: {code: 77, within_ms: 1000, after: restore_modes}
+  - assert_cache: {state_name: IVI_SOC_MODESET, equals: 1}
+  - assert_cache: {state_name: HUM_ENERGY_PTREGEN_LEVL, equals: 3}
+  - assert_cache: {state_name: ASC_MAINTAIN_SWITCH, equals: 2}
+  - expect_echo: {state_name: IVI_SOC_MODESET, value: 1, after: restore_modes}

@@ -1,0 +1,14 @@
+name: wash-mode
+description: Car cleaning mode switch write confirms.
+steps:
+  - action:
+      name: send_cleaning_mode
+      send: {state_name: CAR_CLEANING_MODE_SWITCH, value: 1}
+  - expect_txn:
+      code: 58
+      state_name: CAR_CLEANING_MODE_SWITCH
+      value: 1
+      after: send_cleaning_mode
+  - expect_echo: {state_name: CAR_CLEANING_MODE_SWITCH, value: 1, after: send_cleaning_mode}
+  - assert_cache: {state_name: CAR_CLEANING_MODE_SWITCH, equals: 1}
+  - assert_app: {name: ui_state, equals: CONFIRMED}

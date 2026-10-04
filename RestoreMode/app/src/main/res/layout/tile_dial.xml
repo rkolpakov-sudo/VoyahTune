@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout android:gravity="center" android:orientation="vertical" android:background="@drawable/card_dark_ripple" android:padding="8.0dp" android:focusable="true" android:clickable="true" android:layout_width="match_parent" android:layout_height="match_parent"
+  xmlns:android="http://schemas.android.com/apk/res/android">
+    <TextView android:textSize="24.0px" android:textStyle="bold" android:textColor="#ffffff" android:ellipsize="end" android:gravity="center" android:id="@id/dialTileName" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Контакт" android:maxLines="2" />
+    <TextView android:textSize="10.0px" android:textColor="#777777" android:gravity="center" android:id="@id/dialTileNumber" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6.0dp" android:text="Номер не задан" />
+</LinearLayout>

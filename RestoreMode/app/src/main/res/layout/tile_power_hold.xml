@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout android:gravity="center" android:orientation="vertical" android:id="@id/cardLeaveCar" android:background="@drawable/card_dark_ripple" android:padding="8.0dp" android:focusable="true" android:clickable="true" android:layout_width="match_parent" android:layout_height="match_parent" android:onClick="onButtonLeaveCar"
+  xmlns:android="http://schemas.android.com/apk/res/android">
+    <TextView android:textSize="26.0px" android:textStyle="bold" android:textColor="#ffffff" android:gravity="center" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/power_hold_title" />
+    <TextView android:textSize="15.0px" android:textColor="#aaaaaa" android:gravity="center" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6.0dp" android:text="@string/power_hold_description" />
+    <TextView android:textSize="14.0sp" android:textColor="#ffffff" android:gravity="center" android:id="@id/powerHoldBadge" android:background="@drawable/pill_inactive" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="10.0dp" android:text="@string/power_hold_status_unknown" />
+</LinearLayout>

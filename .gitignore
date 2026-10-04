@@ -2,15 +2,22 @@
 artifacts/
 reference-3.14/
 tools/
-blobs/
+# Бинарии блобов НЕ в git; пиннинг sha256 для CI — в BLOBS-SHA256.txt (L101 Шаг 1.3)
+blobs/*
+!blobs/BLOBS-SHA256.txt
+!blobs/README.md
 payload_3.22.0*
 *.apk
 *.zip
 *.jar
+# вендорные jar, нужные для Gradle-сборки (wrapper + android.car)
+!gradle/wrapper/gradle-wrapper.jar
+!Native/app/lib/android.car.jar
 
 # Decompile outputs: sources tracked, resources/smali/logs are reproducible
 src-reconstructed/**/resources/
 src-reconstructed/**/unknown/
+src-reconstructed2/
 res-reconstructed/
 logs/
 
@@ -27,3 +34,17 @@ __pycache__/
 .idea/
 .vscode/
 *.log
+
+# Локальный вывод сборки релиза (make_release.sh); исключение — каталог релизов,
+# коммитится в Git (Docs/installer-protocol.md, CATALOG_URL installer-core)
+Releases/*
+!Releases/ota/
+Releases/ota/*
+!Releases/ota/index.json
+
+# Строительный мусор: случайный CARGO_TARGET_DIR с windows-путём внутри Installer
+# и дампы отладчиков
+cargo-target/
+*.stackdump
+# Сборка web-интерфейса desktop (vite; CI собирает через npm run build)
+Installer/desktop/dist/

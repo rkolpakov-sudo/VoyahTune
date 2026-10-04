@@ -10,7 +10,7 @@
   new-in-3.16+ — только в 3.22 (метка DELTA-3.16+, чистка при первом изменении)
   legend-only  — есть в легенде, нет в 3.22 (аудит удаления)
 
-Выход: docs/reference-map.json + сводка в stdout.
+Выход: Docs/reference-map.json + сводка в stdout.
 """
 from __future__ import annotations
 
@@ -91,7 +91,7 @@ def main() -> None:
     print(f"coverage matched+new = {coverage:.1f}% (need >= 80%)")
     print(f"legend-only = {len(report['legend_only'])} classes (аудит удаления)")
 
-    out = ROOT / "docs" / "reference-map.json"
+    out = ROOT / "Docs" / "reference-map.json"
     out.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n",
                    encoding="utf-8")
     print(f"-> {out}")

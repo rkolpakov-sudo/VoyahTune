@@ -1,0 +1,24 @@
+name: avas-late
+description: >
+  LATE write mode: the service stalls 300ms before answering; the write
+  still applies and confirms within the 2s expectation window.
+config:
+  write_mode: LATE
+  late_ms: 300
+steps:
+  - action:
+      name: send_avas_off
+      send: {state_name: HUM_VSP_FUNCTION_SW, value: 1}
+  - expect_txn:
+      code: 58
+      state_name: HUM_VSP_FUNCTION_SW
+      value: 1
+      within_ms: 2000
+      after: send_avas_off
+  - expect_echo:
+      state_name: HUM_VSP_FUNCTION_SW
+      value: 1
+      within_ms: 2000
+      after: send_avas_off
+  - assert_cache: {state_name: HUM_VSP_FUNCTION_SW, equals: 1}
+  - assert_app: {name: ui_state, equals: CONFIRMED}
