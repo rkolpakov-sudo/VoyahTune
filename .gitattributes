@@ -1,0 +1,4 @@
+# Скрипты исполняются и на Windows, и в WSL/Linux — окончания только LF.
+*.py text eol=lf
+*.sh text eol=lf
+*.rs text eol=lf
