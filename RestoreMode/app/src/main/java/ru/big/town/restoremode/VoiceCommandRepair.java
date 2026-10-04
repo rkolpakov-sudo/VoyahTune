@@ -167,18 +167,19 @@ final class VoiceCommandRepair {
         while (i < str.length() && i2 < str2.length()) {
             if (str.charAt(i) == str2.charAt(i2)) {
                 i++;
-            } else {
-                i3++;
-                if (i3 > 1) {
-                    return false;
-                }
-                if (str.length() >= str2.length()) {
-                    i++;
-                }
-                if (str2.length() >= str.length()) {
-                }
+                i2++;
+                continue;
             }
-            i2++;
+            i3++;
+            if (i3 > 1) {
+                return false;
+            }
+            if (str.length() >= str2.length()) {
+                i++;
+            }
+            if (str2.length() >= str.length()) {
+                i2++;
+            }
         }
         return (i3 + (str.length() - i)) + (str2.length() - i2) == 1;
     }

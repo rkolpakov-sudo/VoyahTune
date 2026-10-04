@@ -47,20 +47,24 @@ final class VoiceFuzzyMatcher {
         ArrayList arrayList = new ArrayList();
         String str2 = null;
         for (String str3 : strNormalize.split("\\s+")) {
-            if (!REJECT.contains(str3) && str3.matches("[а-я]+")) {
-                if (!FILLER.contains(str3)) {
-                    String strAction = action(str3);
-                    if (strAction != null) {
-                        if (str2 != null && !str2.equals(strAction)) {
-                            return null;
-                        }
-                        str2 = strAction;
-                    } else if (!str3.contains("ключ") && !str3.contains("блок") && !str3.startsWith("вкл") && !str3.startsWith("выкл") && !str3.startsWith("откл") && !str3.startsWith("перекл")) {
-                        arrayList.add(str3);
-                    }
-                }
+            if (REJECT.contains(str3) || !str3.matches("[а-я]+")) {
+                return null;
             }
-            return null;
+            if (FILLER.contains(str3)) {
+                continue;
+            }
+            String strAction = action(str3);
+            if (strAction != null) {
+                if (str2 != null && !str2.equals(strAction)) {
+                    return null;
+                }
+                str2 = strAction;
+            } else {
+                if (str3.contains("ключ") || str3.contains("блок") || str3.startsWith("вкл") || str3.startsWith("выкл") || str3.startsWith("откл") || str3.startsWith("перекл")) {
+                    return null;
+                }
+                arrayList.add(str3);
+            }
         }
         if (arrayList.isEmpty() || arrayList.size() > 8) {
             return null;

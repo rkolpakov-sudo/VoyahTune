@@ -1,3 +1,5 @@
+import java.security.MessageDigest
+
 plugins {
     id 'com.android.application'
 }
@@ -103,4 +105,85 @@ dependencies {
     testImplementation 'junit:junit:4.13.2'
     testImplementation project(':tests:hil')
     testImplementation 'org.robolectric:robolectric:4.15.1'
+}
+
+// Release identity внутри подписанного APK (SPEC L102; порт reference VoyahBuildIdentity).
+// assets/voyahtune-build.json читает Installer (release-core payload.rs): recipeSha256
+// должен байт-в-байт совпасть с канонической сериализацией recipe из манифеста payload,
+// runtimeHashes — с sha256 артефактов релиза. make_release.sh передаёт -Pvoyah* свойства;
+// без них (dev-сборка) recipeSha256=null, runtimeHashes={} — такую сборку verify не пропускает.
+abstract class VoyahBuildIdentity extends DefaultTask {
+    @Input
+    abstract Property<String> getReleaseVersion()
+    @Input
+    abstract Property<String> getRevision()
+    @Input
+    abstract Property<String> getComponent()
+    @InputFiles
+    @PathSensitive(PathSensitivity.NONE)
+    abstract ConfigurableFileCollection getRecipeFiles()
+    @InputFiles
+    @PathSensitive(PathSensitivity.RELATIVE)
+    abstract ConfigurableFileCollection getRuntimeFiles()
+    @Input
+    abstract MapProperty<String, String> getRuntimeAliases()
+    @OutputDirectory
+    abstract DirectoryProperty getOutputDirectory()
+
+    @TaskAction
+    void generate() {
+        def dir = outputDirectory.get().asFile
+        dir.mkdirs()
+        def hashes = new TreeMap<String, String>()
+        runtimeFiles.files.each { source ->
+            def name = runtimeAliases.get()[source.canonicalPath] ?: source.name
+            hashes[name] = MessageDigest.getInstance('SHA-256').digest(source.bytes).encodeHex().toString()
+        }
+        def recipeFile = recipeFiles.files.size() == 1 ? recipeFiles.files.first() : null
+        def body = [
+            schema         : 3,
+            product        : 'VoyahTune',
+            component      : component.get(),
+            releaseVersion : releaseVersion.get(),
+            buildRevision  : revision.get(),
+            recipeSha256   : recipeFile == null ? null
+                    : MessageDigest.getInstance('SHA-256').digest(recipeFile.bytes).encodeHex().toString(),
+            runtimeHashes  : hashes,
+        ]
+        new File(dir, 'voyahtune-build.json').text =
+                groovy.json.JsonOutput.toJson(body) + '\n'
+    }
+}
+
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        def repoRoot = rootProject.projectDir
+        def identityComponent = android.namespace
+        def identity = tasks.register("generate${variant.name.capitalize()}VoyahIdentity", VoyahBuildIdentity) { task ->
+            task.releaseVersion.set(providers.gradleProperty('voyahReleaseVersion').orElse('0.0.0-dev'))
+            task.revision.set(providers.gradleProperty('voyahBuildRevision').orElse('local'))
+            task.component.set(identityComponent)
+            task.runtimeAliases.convention([:])
+            def recipePath = providers.gradleProperty('voyahInstallRecipe').orNull
+            if (recipePath != null) {
+                def recipeFile = file(recipePath)
+                task.recipeFiles.from(recipeFile)
+                def recipe = new groovy.json.JsonSlurper().parse(recipeFile) as Map
+                def sources = new groovy.json.JsonSlurper().parse(
+                        file(providers.gradleProperty('voyahReleaseSources').get())) as Map
+                recipe['files'].findAll { it['artifact'] != 'native.apk' }.each { operation ->
+                    def entry = (sources['artifacts'] as List).find { it['name'] == operation['artifact'] }
+                    if (entry == null) {
+                        throw new GradleException(
+                                "voyahReleaseSources: нет источника для ${operation['artifact']}")
+                    }
+                    def runtimeSource = new File(repoRoot, entry['source'] as String)
+                    task.runtimeFiles.from(runtimeSource)
+                    task.runtimeAliases.put(runtimeSource.canonicalPath, operation['artifact'] as String)
+                }
+            }
+            task.outputDirectory.set(layout.buildDirectory.dir("generated/voyahIdentity/${variant.name}"))
+        }
+        variant.sources.assets?.addGeneratedSourceDirectory(identity, { it.outputDirectory })
+    }
 }

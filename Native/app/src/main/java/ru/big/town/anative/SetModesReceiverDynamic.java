@@ -72,14 +72,14 @@ public class SetModesReceiverDynamic extends BroadcastReceiver {
             }
         }
         if ("ru.big.town.anative.OPEN_FREEFORM".equals(action)) {
-            String stringExtra = intent.getStringExtra("pkg");
-            int intExtra2 = intent.getIntExtra("display", 0);
-            if (intExtra2 != 0 && intExtra2 != 1) {
-                Log.w(TAG, "OPEN_FREEFORM отклонён: неверный physical display " + intExtra2);
-            } else if (isConfiguredDockPackage(context, stringExtra)) {
-                openFreeformApp(context, stringExtra, intExtra2);
+            String pkg = intent.getStringExtra("pkg");
+            int displayId = intent.getIntExtra("display", 0);
+            if (displayId != 0 && displayId != 1) {
+                Log.w(TAG, "OPEN_FREEFORM отклонён: неверный physical display " + displayId);
+            } else if (isConfiguredDockPackage(context, pkg)) {
+                openFreeformApp(context, pkg, displayId);
             } else {
-                Log.w(TAG, "OPEN_FREEFORM отклонён: пакет не назначен доку: " + stringExtra);
+                Log.w(TAG, "OPEN_FREEFORM отклонён: пакет не назначен доку: " + pkg);
             }
         }
         if ("ru.big.town.anative.OPEN_ON_DISPLAY".equals(action)) {
@@ -275,13 +275,13 @@ public class SetModesReceiverDynamic extends BroadcastReceiver {
         }
     }
 
-    static boolean ensureAppDpi(Context context, String str, int i) {
+    static boolean ensureAppDpi(Context ctx, String str, int i) {
         if (!validPackageName(str)) {
             return false;
         }
         int iSanitizeDpi = sanitizeDpi(i);
         try {
-            ContentResolver contentResolver = context.getContentResolver();
+            ContentResolver contentResolver = ctx.getContentResolver();
             String str2 = "voyahtune_dpi_" + str;
             String strValueOf = String.valueOf(iSanitizeDpi);
             boolean zEquals = strValueOf.equals(Settings.Global.getString(contentResolver, str2));
@@ -292,7 +292,7 @@ public class SetModesReceiverDynamic extends BroadcastReceiver {
             if (zEquals && !zUpdateAppDpiIndex) {
                 return false;
             }
-            sendWinReload(context);
+            sendWinReload(ctx);
             return true;
         } catch (Exception e) {
             Log.w(TAG, "ensureAppDpi " + str + ": " + e.getMessage());

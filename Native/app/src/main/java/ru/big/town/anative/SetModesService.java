@@ -1192,7 +1192,7 @@ public class SetModesService extends Service {
     private void requestSavedConfigSync(String str) {
         Intent intent = new Intent(RESTOREMODE_CONFIG_SYNC_ACTION);
         intent.setClassName(RESTOREMODE_PKG, RESTOREMODE_CONFIG_SYNC_RECEIVER);
-        intent.addFlags(32);
+        intent.addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES);
         try {
             sendBroadcast(intent);
             Log.i(TAG, "saved config sync requested by " + str);
@@ -1201,7 +1201,7 @@ public class SetModesService extends Service {
         }
     }
 
-    private void runWakeSideEffects(String str) {
+    private void runWakeSideEffects(String source) {
         if (this.serviceDestroyed) {
             return;
         }
@@ -1212,10 +1212,10 @@ public class SetModesService extends Service {
             forwardPowerOnToTripStats();
             BatteryHeatService.requestPhysicalWake(this);
             scheduleAncillaryWakeTasks();
-            Log.i(TAG, "wake side-effects started by " + str);
+            Log.i(TAG, "wake side-effects started by " + source);
             return;
         }
-        Log.i(TAG, "wake side-effects coalesced for " + str);
+        Log.i(TAG, "wake side-effects coalesced for " + source);
     }
 
     private void requestWashModeCleanup(final String str) {

@@ -18,11 +18,11 @@ public final class SavedConfigSyncReceiver extends BroadcastReceiver {
             return;
         }
         try {
-            SharedPreferences sharedPreferences = context.getSharedPreferences(PREFS, 0);
-            if (!sharedPreferences.edit().remove("dockPassengerOverride1").remove("dockPassengerOverride1Label").remove("dockPassengerOverride2").remove("dockPassengerOverride2Label").commit()) {
+            SharedPreferences prefs = context.getSharedPreferences(PREFS, 0);
+            if (!prefs.edit().remove("dockPassengerOverride1").remove("dockPassengerOverride1Label").remove("dockPassengerOverride2").remove("dockPassengerOverride2Label").commit()) {
                 Log.w(TAG, "obsolete passenger dock preferences could not be removed");
             }
-            SplitConfigSync.pushAll(context, sharedPreferences);
+            SplitConfigSync.pushAll(context, prefs);
             Log.i(TAG, "saved fullscreen/Dock/steering/app-DPI/keyboard configuration published");
         } catch (RuntimeException e) {
             Log.e(TAG, "saved configuration publication failed", e);

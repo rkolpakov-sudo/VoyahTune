@@ -6,7 +6,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.provider.Settings;
 import android.util.Log;
-import kotlinx.coroutines.DebugKt;
+import java.lang.reflect.Method;
 
 /* JADX INFO: loaded from: classes2.dex */
 public class SetModesConfigReceiver extends BroadcastReceiver {
@@ -65,26 +65,31 @@ public class SetModesConfigReceiver extends BroadcastReceiver {
         }
     }
 
-    private static void applyKeyboardMode(Context context, String str) {
-        String strNormalizeKeyboardMode = normalizeKeyboardMode(str);
-        String strNormalizeKeyboardMode2 = normalizeKeyboardMode(Settings.Global.getString(context.getContentResolver(), "voyahtune_keyboard_mode"));
-        if (!Settings.Global.putString(context.getContentResolver(), "voyahtune_keyboard_mode", strNormalizeKeyboardMode)) {
+    private static void applyKeyboardMode(Context context, String requestedMode) {
+        String mode = normalizeKeyboardMode(requestedMode);
+        String previous = Settings.Global.getString(context.getContentResolver(), "voyahtune_keyboard_mode");
+        String normalizedPrevious = normalizeKeyboardMode(previous);
+        if (!Settings.Global.putString(context.getContentResolver(), "voyahtune_keyboard_mode", mode)) {
             Log.e(TAG, "KEYBOARD_CONFIG: Settings.Global write failed");
             return;
         }
-        if (strNormalizeKeyboardMode.equals(strNormalizeKeyboardMode2)) {
-            Log.i(TAG, "KEYBOARD_CONFIG unchanged: " + strNormalizeKeyboardMode);
+        if (mode.equals(normalizedPrevious)) {
+            Log.i(TAG, "KEYBOARD_CONFIG unchanged: " + mode);
             return;
         }
+        // Хуки живут внутри qgime; только точный рестарт процесса безопасно заменяет их —
+        // load.bin инжектит лишь один раз в новый процесс Android 11.
         try {
-            ActivityManager.class.getMethod("forceStopPackage", String.class).invoke((ActivityManager) context.getSystemService("activity"), "com.qinggan.app.qgime");
-            Log.i(TAG, "KEYBOARD_CONFIG=" + strNormalizeKeyboardMode + "; Qinggan IME restarted");
+            ActivityManager am = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+            Method forceStopPackage = ActivityManager.class.getMethod("forceStopPackage", String.class);
+            forceStopPackage.invoke(am, "com.qinggan.app.qgime");
+            Log.i(TAG, "KEYBOARD_CONFIG=" + mode + "; Qinggan IME restarted");
         } catch (Exception e) {
             Log.e(TAG, "KEYBOARD_CONFIG saved, but Qinggan IME restart failed", e);
         }
     }
 
-    private static String normalizeKeyboardMode(String str) {
-        return ("en".equals(str) || "ru".equals(str)) ? str : DebugKt.DEBUG_PROPERTY_VALUE_OFF;
+    private static String normalizeKeyboardMode(String mode) {
+        return "en".equals(mode) || "ru".equals(mode) ? mode : "off";
     }
 }

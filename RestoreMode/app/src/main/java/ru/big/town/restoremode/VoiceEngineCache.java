@@ -41,7 +41,7 @@ final class VoiceEngineCache<T extends AutoCloseable> {
         this.engine = null;
         if (t != null) {
             try {
-                throw new IllegalArgumentException(String.valueOf(t));
+                t.close();
             } catch (Exception e) {
                 throw new IllegalStateException("Cannot release voice engine", e);
             }

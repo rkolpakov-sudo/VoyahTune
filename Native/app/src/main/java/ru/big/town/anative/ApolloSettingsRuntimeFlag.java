@@ -62,6 +62,8 @@ final class ApolloSettingsRuntimeFlag {
                     i++;
                 } else if (hashSet.size() == 3 && "1".equals(str3) && strNormalizeBootId.equals(str4) && "1".equals(str5)) {
                     return true;
+                } else {
+                    return false;
                 }
             }
         }

@@ -16,7 +16,7 @@ final class DoorPauseTimeline {
         if (i <= 0 || i3 <= 0) {
             return 0;
         }
-        return Math.max(0, Math.round((i * (i3 - Math.max(0, Math.min(i2, i3)))) / i3));
+        return Math.max(0, Math.round(i * (float) (i3 - Math.max(0, Math.min(i2, i3))) / i3));
     }
 
     static long restoreDelayMs(long j, long j2) {

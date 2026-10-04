@@ -28,7 +28,7 @@
                 <action android:name="ru.big.town.restoremode.SPLIT_RATIO_SAVE"/>
             </intent-filter>
         </receiver>
-        <receiver android:exported="true" android:name="ru.big.town.restoremode.SavedConfigSyncReceiver" android:permission="ru.big.town.anative.permission.BIND_SET_MODES_SERVICE"/>
+        <receiver android:exported="true" android:name=".SavedConfigSyncReceiver" android:permission="ru.big.town.anative.permission.BIND_SET_MODES_SERVICE"/>
         <provider android:authorities="ru.big.town.restoremode.restoremodecontentprovider" android:enabled="true" android:exported="true" android:name="ru.big.town.restoremode.RestoreModeContentProvider"/>
         <activity android:exported="true" android:name="ru.big.town.restoremode.MainActivity">
             <intent-filter>

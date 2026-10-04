@@ -9,7 +9,7 @@ final class HookStatusContract {
     static final String AUTHORITY = "ru.big.town.restoremode.restoremodecontentprovider";
     private static final String[] HOOK_IDS = {"vd-bypass", "steering-wheel", "launcher-dock", "multi-display", "apollo-tech", "keyboard-en", "keyboard-ru"};
     private static final String[] HOOK_LABELS = {"Окна / VirtualDisplay", "Кнопки руля", "Док лаунчера", "Перенос между экранами", "Apollo ADAS", "Клавиатура EN", "Клавиатура RU"};
-    static final int MAX_PAYLOAD_LENGTH = 2048;
+    static final int MAX_PAYLOAD_LENGTH = 2_048;
     static final String METHOD_PUBLISH = "publishHookStatusV1";
     static final String PAYLOAD_KEY = "payload_v1";
     static final String PREFERENCES_NAME = "HookStatus";
@@ -77,12 +77,12 @@ final class HookStatusContract {
         if (str == null || str.isEmpty() || str.length() > 2048 || str.indexOf(10) >= 0 || str.indexOf(13) >= 0) {
             return null;
         }
-        String[] strArrSplit = str.split(";", -1);
-        if (strArrSplit.length != HOOK_IDS.length + 3 || !"v=1".equals(strArrSplit[0])) {
+        String[] parts = str.split(";", -1);
+        if (parts.length != 3 + HOOK_IDS.length || !"v=1".equals(parts[0])) {
             return null;
         }
-        String strExactValue = exactValue(strArrSplit[1], "loader");
-        if ((!"running".equals(strExactValue) && !"stopped".equals(strExactValue)) || (pid = parsePid(exactValue(strArrSplit[2], "pid"))) < 0) {
+        String strExactValue = exactValue(parts[1], "loader");
+        if ((!"running".equals(strExactValue) && !"stopped".equals(strExactValue)) || (pid = parsePid(exactValue(parts[2], "pid"))) < 0) {
             return null;
         }
         if (("running".equals(strExactValue) && pid == 0) || ("stopped".equals(strExactValue) && pid != 0)) {
@@ -93,7 +93,7 @@ final class HookStatusContract {
         while (true) {
             String[] strArr = HOOK_IDS;
             if (i < strArr.length) {
-                String strExactValue2 = exactValue(strArrSplit[i + 3], strArr[i]);
+                String strExactValue2 = exactValue(parts[i + 3], strArr[i]);
                 int iIndexOf = strExactValue2 == null ? -1 : strExactValue2.indexOf(58);
                 if (iIndexOf <= 0 || iIndexOf == strExactValue2.length() - 1) {
                     return null;

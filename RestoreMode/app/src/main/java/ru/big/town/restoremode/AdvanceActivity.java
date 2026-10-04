@@ -79,7 +79,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadFactory;
 import java.util.function.Predicate;
-import kotlinx.coroutines.DebugKt;
 import ru.big.town.common.DriveSelectionPolicy;
 
 /* JADX INFO: loaded from: classes2.dex */
@@ -108,7 +107,7 @@ public class AdvanceActivity extends AppCompatActivity {
     private static final String NATIVE_PACKAGE = "ru.big.town.anative";
     private static final String PREF_SHOW_CUSTOM_COMMANDS = "showCustomCommands";
     static final int SECTION_VOICE = 7;
-    private static final long SYSTEM_METRICS_INTERVAL_MS = 5000;
+    private static final long SYSTEM_METRICS_INTERVAL_MS = 5_000L;
     private boolean activityResumed;
     private View apolloGreenSoundContainer;
     private RadioGroup apolloGreenSoundGroup;
@@ -779,23 +778,23 @@ public class AdvanceActivity extends AppCompatActivity {
                 AdvanceActivity.this.m1792lambda$onCreate$19$rubigtownrestoremodeAdvanceActivity(numberPicker2, compoundButton, z);
             }
         });
-        final Switch r7 = (Switch) findViewById(R.id.switchKeyboardEnglish);
-        final Switch r8 = (Switch) findViewById(R.id.switchKeyboardRussian);
-        if (r7 != null && r8 != null) {
-            String strNormalizeKeyboardMode = SplitConfigSync.normalizeKeyboardMode(this.prefs.getString("keyboardMode", DebugKt.DEBUG_PROPERTY_VALUE_OFF));
-            r7.setChecked("en".equals(strNormalizeKeyboardMode));
-            r8.setChecked("ru".equals(strNormalizeKeyboardMode));
+        final Switch switchKeyboardEnglish = (Switch) findViewById(R.id.switchKeyboardEnglish);
+        final Switch switchKeyboardRussian = (Switch) findViewById(R.id.switchKeyboardRussian);
+        if (switchKeyboardEnglish != null && switchKeyboardRussian != null) {
+            String strNormalizeKeyboardMode = SplitConfigSync.normalizeKeyboardMode(this.prefs.getString("keyboardMode", "off"));
+            switchKeyboardEnglish.setChecked("en".equals(strNormalizeKeyboardMode));
+            switchKeyboardRussian.setChecked("ru".equals(strNormalizeKeyboardMode));
             final boolean[] zArr = {false};
-            r7.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() { // from class: ru.big.town.restoremode.AdvanceActivity$$ExternalSyntheticLambda18
+            switchKeyboardEnglish.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() { // from class: ru.big.town.restoremode.AdvanceActivity$$ExternalSyntheticLambda18
                 @Override // android.widget.CompoundButton.OnCheckedChangeListener
                 public final void onCheckedChanged(CompoundButton compoundButton, boolean z) {
-                    AdvanceActivity.this.m1793lambda$onCreate$20$rubigtownrestoremodeAdvanceActivity(zArr, r8, compoundButton, z);
+                    AdvanceActivity.this.m1793lambda$onCreate$20$rubigtownrestoremodeAdvanceActivity(zArr, switchKeyboardRussian, compoundButton, z);
                 }
             });
-            r8.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() { // from class: ru.big.town.restoremode.AdvanceActivity$$ExternalSyntheticLambda19
+            switchKeyboardRussian.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() { // from class: ru.big.town.restoremode.AdvanceActivity$$ExternalSyntheticLambda19
                 @Override // android.widget.CompoundButton.OnCheckedChangeListener
                 public final void onCheckedChanged(CompoundButton compoundButton, boolean z) {
-                    AdvanceActivity.this.m1794lambda$onCreate$21$rubigtownrestoremodeAdvanceActivity(zArr, r7, compoundButton, z);
+                    AdvanceActivity.this.m1794lambda$onCreate$21$rubigtownrestoremodeAdvanceActivity(zArr, switchKeyboardEnglish, compoundButton, z);
                 }
             });
         }
@@ -939,19 +938,17 @@ public class AdvanceActivity extends AppCompatActivity {
     }
 
     /* JADX INFO: renamed from: lambda$onCreate$20$ru-big-town-restoremode-AdvanceActivity, reason: not valid java name */
-    /* synthetic */ void m1793lambda$onCreate$20$rubigtownrestoremodeAdvanceActivity(boolean[] zArr, Switch r3, CompoundButton compoundButton, boolean z) {
+    /* synthetic */ void m1793lambda$onCreate$20$rubigtownrestoremodeAdvanceActivity(boolean[] zArr, Switch switchKeyboardRussian, CompoundButton compoundButton, boolean checked) {
         String str;
         if (zArr[0]) {
             return;
         }
         zArr[0] = true;
-        if (z) {
-            r3.setChecked(false);
-        }
-        if (z) {
+        if (checked) switchKeyboardRussian.setChecked(false);
+        if (checked) {
             str = "en";
         } else {
-            str = r3.isChecked() ? "ru" : DebugKt.DEBUG_PROPERTY_VALUE_OFF;
+            str = switchKeyboardRussian.isChecked() ? "ru" : "off";
         }
         this.prefs.edit().putString("keyboardMode", str).apply();
         SplitConfigSync.pushKeyboard(this, this.prefs);
@@ -959,19 +956,17 @@ public class AdvanceActivity extends AppCompatActivity {
     }
 
     /* JADX INFO: renamed from: lambda$onCreate$21$ru-big-town-restoremode-AdvanceActivity, reason: not valid java name */
-    /* synthetic */ void m1794lambda$onCreate$21$rubigtownrestoremodeAdvanceActivity(boolean[] zArr, Switch r3, CompoundButton compoundButton, boolean z) {
+    /* synthetic */ void m1794lambda$onCreate$21$rubigtownrestoremodeAdvanceActivity(boolean[] zArr, Switch switchKeyboardEnglish, CompoundButton compoundButton, boolean checked) {
         String str;
         if (zArr[0]) {
             return;
         }
         zArr[0] = true;
-        if (z) {
-            r3.setChecked(false);
-        }
-        if (z) {
+        if (checked) switchKeyboardEnglish.setChecked(false);
+        if (checked) {
             str = "ru";
         } else {
-            str = r3.isChecked() ? "en" : DebugKt.DEBUG_PROPERTY_VALUE_OFF;
+            str = switchKeyboardEnglish.isChecked() ? "en" : "off";
         }
         this.prefs.edit().putString("keyboardMode", str).apply();
         SplitConfigSync.pushKeyboard(this, this.prefs);
@@ -2145,20 +2140,20 @@ public class AdvanceActivity extends AppCompatActivity {
                 return ((String) linkedHashMap2.get((String) obj)).compareToIgnoreCase((String) linkedHashMap2.get((String) obj2));
             }
         });
-        for (final String str2 : arrayList) {
+        for (final String fpkg : arrayList) {
             View viewInflate = layoutInflaterFrom.inflate(R.layout.item_app_dpi, (ViewGroup) linearLayout, false);
             ImageView imageView = (ImageView) viewInflate.findViewById(R.id.appDpiIco);
             TextView textView = (TextView) viewInflate.findViewById(R.id.appDpiLabel);
             Spinner spinner = (Spinner) viewInflate.findViewById(R.id.appDpiSpinner);
             try {
-                imageView.setImageDrawable(packageManager.getApplicationIcon(str2));
+                imageView.setImageDrawable(packageManager.getApplicationIcon(fpkg));
             } catch (Exception unused2) {
             }
-            textView.setText((CharSequence) linkedHashMap.get(str2));
+            textView.setText((CharSequence) linkedHashMap.get(fpkg));
             ArrayAdapter arrayAdapter = new ArrayAdapter(this, R.layout.spinner_ratio_item, DPI_LABELS);
             arrayAdapter.setDropDownViewResource(R.layout.spinner_ratio_dropdown);
             spinner.setAdapter((SpinnerAdapter) arrayAdapter);
-            spinner.setSelection(dpiIndex(AppDpiStore.get(this.prefs, str2)), false);
+            spinner.setSelection(dpiIndex(AppDpiStore.get(this.prefs, fpkg)), false);
             spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() { // from class: ru.big.town.restoremode.AdvanceActivity.19
                 @Override // android.widget.AdapterView.OnItemSelectedListener
                 public void onNothingSelected(AdapterView<?> adapterView) {
@@ -2166,11 +2161,10 @@ public class AdvanceActivity extends AppCompatActivity {
 
                 @Override // android.widget.AdapterView.OnItemSelectedListener
                 public void onItemSelected(AdapterView<?> adapterView, View view, int i, long j) {
-                    int i2 = AdvanceActivity.DPI_VALUES[i];
-                    if (i2 != AppDpiStore.get(AdvanceActivity.this.prefs, str2)) {
-                        AppDpiStore.set(AdvanceActivity.this.prefs, str2, i2);
-                        AdvanceActivity advanceActivity = AdvanceActivity.this;
-                        SplitConfigSync.pushAppDpi(advanceActivity, advanceActivity.prefs, str2, i2);
+                    int dpi = AdvanceActivity.DPI_VALUES[i];
+                    if (dpi != AppDpiStore.get(AdvanceActivity.this.prefs, fpkg)) {
+                        AppDpiStore.set(AdvanceActivity.this.prefs, fpkg, dpi);
+                        SplitConfigSync.pushAppDpi(AdvanceActivity.this, prefs, fpkg, dpi);
                     }
                 }
             });
@@ -2407,7 +2401,7 @@ public class AdvanceActivity extends AppCompatActivity {
     }
 
     private void updateSystemMetricsPolling() {
-        boolean z = this.activityResumed && this.currentSection == 6 && !isFinishing();
+        boolean z = activityResumed && currentSection == 6 && !isFinishing();
         if (z == this.systemMetricsActive) {
             return;
         }
@@ -2486,7 +2480,7 @@ public class AdvanceActivity extends AppCompatActivity {
             if (textView3 != null) {
                 textView3.setText(systemMetricsSnapshot.hookStatusText);
             }
-            this.uiHandler.postDelayed(this.systemMetricsTick, SYSTEM_METRICS_INTERVAL_MS);
+            this.uiHandler.postDelayed(systemMetricsTick, SYSTEM_METRICS_INTERVAL_MS);
         }
     }
 
@@ -2510,7 +2504,8 @@ public class AdvanceActivity extends AppCompatActivity {
             j2 = 0;
         }
         long j3 = jMax;
-        return new SystemMetricsSnapshot(j3, Math.max(0L, j3 - j2), j2, readCpuPercent(j), HookStatusContract.renderForUi(getSharedPreferences("HookStatus", 0).getString("payload_v1", null)));
+        String hookPayload = getSharedPreferences("HookStatus", 0).getString(HookStatusContract.PAYLOAD_KEY, null);
+        return new SystemMetricsSnapshot(j3, Math.max(0L, j3 - j2), j2, readCpuPercent(j), HookStatusContract.renderForUi(hookPayload));
     }
 
     private double readCpuPercent(long j) {

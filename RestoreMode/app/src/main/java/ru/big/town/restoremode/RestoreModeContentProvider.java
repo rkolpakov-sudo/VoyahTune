@@ -85,25 +85,25 @@ public class RestoreModeContentProvider extends ContentProvider {
     }
 
     @Override // android.content.ContentProvider
-    public Bundle call(String str, String str2, Bundle bundle) {
+    public Bundle call(String str, String arg, Bundle bundle) {
         boolean z = false;
         if ("driveHookV2".equals(str)) {
             int callingUid = Binder.getCallingUid();
             if (callingUid != 0 && callingUid != 1000 && callingUid != Process.myUid()) {
                 getContext().enforceCallingOrSelfPermission("ru.big.town.anative.permission.BIND_SET_MODES_SERVICE", "Drive hook state");
             }
-            Bundle bundleHook = DriveSelectionPreferences.hook(this.sharedPreferences, "dispatchSettings".equals(str2) ? "snapshot" : str2, bundle, Settings.Global.getInt(getContext().getContentResolver(), "boot_count", -1));
-            if ("dispatchSettings".equals(str2) && bundleHook.getInt("acc", -1) == 2 && SuspensionWidgetProtocol.PENDING.equals(bundleHook.getString("settingsStartup"))) {
+            Bundle bundleHook = DriveSelectionPreferences.hook(this.sharedPreferences, "dispatchSettings".equals(arg) ? "snapshot" : arg, bundle, Settings.Global.getInt(getContext().getContentResolver(), "boot_count", -1));
+            if ("dispatchSettings".equals(arg) && bundleHook.getInt("acc", -1) == 2 && SuspensionWidgetProtocol.PENDING.equals(bundleHook.getString("settingsStartup"))) {
                 try {
                     z = getContext().startForegroundService(new Intent().setClassName("ru.big.town.anative", "ru.big.town.anative.SetModesService").setAction("ru.big.town.anative.ACC_RESTORE")) != null;
                 } catch (RuntimeException e) {
                     Log.w("DriveSelection", "ACC settings dispatch unavailable", e);
                 }
             }
-            if ("dispatchSettings".equals(str2)) {
+            if ("dispatchSettings".equals(arg)) {
                 bundleHook.putBoolean("settingsDispatched", z);
             }
-            if ("user".equals(str2) && bundle != null) {
+            if ("user".equals(arg) && bundle != null) {
                 if (bundle.containsKey("mode")) {
                     notifySavedMode("driveMode", DriveSelectionPreferences.read(this.sharedPreferences).configured);
                 }
@@ -129,17 +129,18 @@ public class RestoreModeContentProvider extends ContentProvider {
             }
         }
         if (!"publishHookStatusV1".equals(str)) {
-            return super.call(str, str2, bundle);
+            return super.call(str, arg, bundle);
         }
         if (Binder.getCallingUid() != 0) {
             throw new SecurityException("Hook status may only be published by the root loader");
         }
         Bundle bundle3 = new Bundle();
-        if (!HookStatusContract.isValidPayload(str2) || getContext() == null) {
+        if (!HookStatusContract.isValidPayload(arg) || getContext() == null) {
             bundle3.putBoolean("stored", false);
             return bundle3;
         }
-        bundle3.putBoolean("stored", getContext().getSharedPreferences("HookStatus", 0).edit().putString("payload_v1", str2).commit());
+        boolean stored = getContext().getSharedPreferences("HookStatus", 0).edit().putString(HookStatusContract.PAYLOAD_KEY, arg).commit();
+        bundle3.putBoolean("stored", stored);
         return bundle3;
     }
 
