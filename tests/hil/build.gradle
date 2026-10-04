@@ -19,3 +19,35 @@ tasks.withType(Test).configureEach {
         exceptionFormat 'full'
     }
 }
+
+// Генерация/сверка REF HIL-replay из реальной трассы (SPEC L112):
+//   gradlew :tests:hil:replay -Ptrace=traces/fork/01.nativelog
+//   gradlew :tests:hil:replay -Ptrace=traces/fork/01.nativelog -Pref=<эталон>
+//   gradlew :tests:hil:replay -Ptrace=traces/original/01.nativelog -Pout=<эталон>
+tasks.register('replay', JavaExec) {
+    group = 'verification'
+    description = 'Транскрипт HIL-replay из logcat-трассы (L112): ' +
+            '-Ptrace=<файл> [--ref=<эталон> | --out=<эталон>]'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'ru.big.town.hil.replay.TranscriptCli'
+    // относительные -Ptrace/-Pref считаются от корня репозитория, а не от tests/hil
+    workingDir = rootDir
+
+    def traceProp = project.findProperty('trace')
+    def refProp = project.findProperty('ref')
+    def outProp = project.findProperty('out')
+    if (traceProp == null) {
+        doFirst {
+            throw new GradleException(
+                    'Укажите -Ptrace=<logcat/nativelog-файл> (см. --help задачи)')
+        }
+    } else {
+        args = ['--trace', traceProp.toString()]
+        if (refProp != null) {
+            args += ['--ref', refProp.toString()]
+        }
+        if (outProp != null) {
+            args += ['--out', outProp.toString()]
+        }
+    }
+}

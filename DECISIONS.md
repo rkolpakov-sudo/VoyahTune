@@ -460,5 +460,55 @@
 - Известные ограничения (не баги, задокументированы): enum VehicleState в
   tests/hil имеет 27 состояний — трассы дадут unsupported-state для прочих
   состояний OEM (реплей деградирует до расширения enum); нормализаторы
-  dumpsys/cantrace тюнятся после первого реального снятия L109/L110; если в
-  легенде появится 5-й TX-тег — править TX_TAGS и фильтр capture-trace вместе.
+   dumpsys/cantrace тюнятся после первого реального снятия L109/L110; если в
+   легенде появится 5-й TX-тег — править TX_TAGS и фильтр capture-trace вместе.
+
+## [2026-10-04][WP2] Car-independent хвост WP2: grant-gate L113, REF-генератор L112, runbook L109-L117
+
+- Контекст: после глубокого ревью закрыты car-independent под-шаги WP2,
+  оставшиеся до доступа к авто (L109/L110 снятие трасс, живой L113).
+- `scripts/grant-gate.sh` (L113), коды 0 — пройден / 1 — провал («СТОП
+  (SPEC L113): стоп проекта, пересмотр архитектуры установки…») / 2 —
+  аргументы/окружение. Четыре проверки: dumpsys `WRITE_CANBUS granted=true`
+  (только строки с WRITE_CANBUS, затем require granted=true — пустой dumpsys
+  тоже провал с внятным текстом), `pidof ru.big.town.anative`, wait-loop на
+  маркер `CanBus callback registered` (до `--timeout`, default 30) и отсутствие
+  `WRITE_CANBUS permission missing` в `logcat -d -t 500`. Маркеры подтверждены
+  grep-ом по Native/CanBusEventHub. Стиль capture-trace.sh: need_value на
+  каждую опцию, usage=шапка файла (sed -n '2,17p'), валидация --timeout как
+  целого >0 до adb.
+- Альтернативы grant-gate: (а) без wait-loop на маркер подписки — отвергнуто
+  (bind/подписка асинхронны, мгновенный grep дал бы ложный провал);
+  (б) мгновенный grep `granted=true` по всему dumpsys — отвергнуто (ложное
+  срабатывание на явление из других секций не исключено).
+- `TranscriptCli` + gradle-задача `:tests:hil:replay` (L112): три режима
+  `--trace` (stdout), `--trace --out` (генерация REF), `--trace --ref`
+  (сверка через TraceReplay.compare; дрейф → 1); 0/1/2 как у parity-diff
+  (1 зарезервирован под содержательный провал). Задача: JavaExec,
+  workingDir=rootDir (иначе относительные -Ptrace резолвились от tests/hil),
+  без -Ptrace — GradleException с подсказкой.
+- Решение (L112 «постоянная регрессия»): канонические REF для CI хранятся в
+  `tests/hil/src/test/resources/replay/refs/<NN>.ref`, генерируются из
+  traces/original/* после L109 и коммитятся вместе с трассами (L115);
+  альтернатива «генерить REF на лету в CI» отвергнута — CI не должен зависеть
+  от артефактов, снятых вручную, а сверка форк-трасс остаётся локальным
+  гейтом по runbook.
+- Альтернативы REF-генератора: (а) только gradle-задача без CLI — отвергнуто
+  (покрытие юнит-тестами без запуска gradle); (б) Groovy-задача без main-класса
+  — отвергнуто (логика транскрипта уже в Java, тесты JUnit).
+- `Docs/parity-runbook.md`: процедура L109-L117 (E9/E10-fingerprint, 12
+  сценариев × 2 прогона, grant-gate до и после L115, allowlist-правила,
+  чек-лист L116, откат L117). Гейт дважды: сразу после установки (до снятия
+  fork-трасс — без granted нет подписки на CAN) и перед приёмкой.
+- Верификация (все зелёные): shellcheck -S error/-S warning по make_release.sh
+  + scripts/capture-trace.sh + scripts/grant-gate.sh — 0; HIL gradle
+  :tests:hil:test — 52/52 (TranscriptCliTest +7); функциональные прогоны
+  задачи replay (match=0, out=0 + git diff --no-index каноничности gen.ref
+  против sample.ref=0, дрейф=1, без -Ptrace=1 с текстом ошибки);
+  grant-gate 6 путей без устройства (--help/--timeout abc/--pkg без
+  значения/--bogus/--timeout 0/нет adb — все rc=2; device-путь через WSL-шим
+  adb — «нет устройства» rc=2); python parity — без изменений.
+- Риск: живой L113 (dumpsys/pidof/подписка на реальном CAN) проверяется только
+  на авто; до этого гейт верифицирован по маркерам из исходников и mock-путям.
+- Статус: готово к авто-этапу — L109/L110 снятие трасс → L111/L112/L113
+  по runbook → L115/L116 приёмка.
