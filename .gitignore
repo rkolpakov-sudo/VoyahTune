@@ -48,3 +48,7 @@ cargo-target/
 *.stackdump
 # Сборка web-интерфейса desktop (vite; CI собирает через npm run build)
 Installer/desktop/dist/
+
+# Приватность владельца (мастер-док телеметрии и его артефакты — ВНЕ репо, R5)
+Qwen_*.md
+art/
