@@ -25,7 +25,8 @@
 set -e
 
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-COMMON="$ROOT/Packaging/payload-common"
+COMMON="$ROOT/Packaging"
+PAYLOAD_COMMON="$COMMON/payload-common"
 BUILD="$ROOT/Releases/build"
 DIST="$ROOT/Releases/dist"
 MANIFEST_SRC="$ROOT/payload/manifest.json"
@@ -38,6 +39,30 @@ blobs/native/voyahtune-updater
 blobs/apk/dns.apk
 blobs/apk/voyahtune-ui-next.apk
 blobs/apk/voyahtune-updater.apk"
+
+# Python нужен для dispatcher'а и manifest.json (regen/verify). На CI это python3;
+# локально под Windows часто остаётся одна заглушка «python3 из Microsoft Store» — тогда берём python.
+PYTHON="${PYTHON:-}"
+if [ -z "$PYTHON" ]; then
+    if python3 -c 'import sys' >/dev/null 2>&1; then
+        PYTHON="python3"
+    elif python -c 'import sys' >/dev/null 2>&1; then
+        PYTHON="python"
+    else
+        echo "Не найден python3/python — сборка manifest.json невозможна." >&2
+        exit 1
+    fi
+fi
+
+# Диспетчер эталонного release-процесса (reference make_release.sh:16-22): флаги
+# настольных установщиков уходят в Installer/scripts/release.py (сборка GUI-установщиков,
+# macOS-only). Наш --payload остаётся здесь: CI job payload ждёт BUILD-INFO/SHA256SUMS.
+for release_arg in "$@"; do
+    case "$release_arg" in
+        --installers|--mac|--windows|--linux)
+            exec "$PYTHON" "$ROOT/Installer/scripts/release.py" "$@" ;;
+    esac
+done
 
 VERSION=""
 MODE=""
@@ -87,20 +112,6 @@ sha256_file() {
     fi
 }
 
-# Python нужен только для manifest.json (regen/verify). На CI это python3; локально под
-# Windows часто остаётся одна заглушка «python3 из Microsoft Store» — тогда берём python.
-PYTHON="${PYTHON:-}"
-if [ -z "$PYTHON" ]; then
-    if python3 -c 'import sys' >/dev/null 2>&1; then
-        PYTHON="python3"
-    elif python -c 'import sys' >/dev/null 2>&1; then
-        PYTHON="python"
-    else
-        echo "Не найден python3/python — сборка manifest.json невозможна." >&2
-        exit 1
-    fi
-fi
-
 file_size() {
     # POSIX-совместимо: wc -c работает и на GNU, и на BSD (macOS).
     wc -c < "$1" | tr -d '[:space:]'
@@ -110,8 +121,12 @@ STAGING_DIR=""
 ZIP_TMP=""
 RELEASE_LOCK=""
 RELEASE_LOCK_HELD=0
+IDENTITY_DIR=""
 
 cleanup_release_stage() {
+    if [ -n "$IDENTITY_DIR" ] && [ -d "$IDENTITY_DIR" ]; then
+        rm -rf "$IDENTITY_DIR" || true
+    fi
     if [ -n "$STAGING_DIR" ] && [ -d "$STAGING_DIR" ]; then
         rm -rf "$STAGING_DIR" || true
     fi
@@ -144,12 +159,95 @@ fi
 RELEASE_LOCK_HELD=1
 trap handle_release_signal HUP INT TERM
 
-[ -d "$COMMON" ] || { echo "Нет $COMMON — источник payload отсутствует." >&2; exit 1; }
+[ -d "$PAYLOAD_COMMON" ] || { echo "Нет $PAYLOAD_COMMON — источник payload отсутствует." >&2; exit 1; }
 [ -f "$MANIFEST_SRC" ] || { echo "Нет $MANIFEST_SRC — базовый контракт payload отсутствует." >&2; exit 1; }
 
 # ---------------------------------------------------------------------------------------------
-# 1. APK (Gradle, единый wrapper в корне репозитория).
+# 0. Контрактные проверки (reference make_release.sh:200-239; порядок — как в
+#     Installer/scripts/release.py). Защищают состав payload и install/remove-скрипты.
 # ---------------------------------------------------------------------------------------------
+verify_payload_contracts() {
+    if ! sh "$COMMON/tests/test_android11_package_lifecycle.sh"; then
+        echo "Android 11 package lifecycle guard failed; release was not created." >&2
+        exit 1
+    fi
+    if ! sh "$COMMON/tests/test_saved_config_startup_wake.sh"; then
+        echo "Startup/wake saved-config guard failed; release was not created." >&2
+        exit 1
+    fi
+    if ! sh "$COMMON/tests/test_keyboard_modes.sh"; then
+        echo "Keyboard opt-in lifecycle guard failed; release was not created." >&2
+        exit 1
+    fi
+    if ! sh "$COMMON/tests/test_hook_status.sh"; then
+        echo "Hook status/install contract guard failed; release was not created." >&2
+        exit 1
+    fi
+    if ! sh "$COMMON/tests/test_app_client.sh"; then
+        echo "App client geometry/packaging guard failed; release was not created." >&2
+        exit 1
+    fi
+    if ! sh "$COMMON/tests/test_mapkit_dpi_client.sh"; then
+        echo "MapKit DPI client guard failed; release was not created." >&2
+        exit 1
+    fi
+    if ! sh "$COMMON/tests/test_acc_restore_hook.sh"; then
+        echo "ACC restore hook guard failed; release was not created." >&2
+        exit 1
+    fi
+    if ! sh "$COMMON/tests/test_drive_reset_hook.sh"; then
+        echo "Account reset hook guard failed; release was not created." >&2
+        exit 1
+    fi
+    if ! sh "$COMMON/tests/test_apollo_safe_device.sh"; then
+        echo "Apollo legacy hook guard failed; release was not created." >&2
+        exit 1
+    fi
+    if ! bash "$ROOT/Utils/android11-oem-stubs/tests/static-checks.sh"; then
+        echo "Android 11 OEM stub harness guard failed; release was not created." >&2
+        exit 1
+    fi
+    if ! sh -n "$ROOT/Packaging/installer/device/install.sh"; then
+        echo "install.sh has invalid shell syntax; release was not created." >&2
+        exit 1
+    fi
+    if ! sh -n "$ROOT/Packaging/installer/device/remove.sh"; then
+        echo "remove.sh has invalid shell syntax; release was not created." >&2
+        exit 1
+    fi
+    # Ключевые JS-агенты и загрузчик обязаны входить в состав payload
+    # (полный реестр — payload/manifest.json, recipe.files).
+    for required in app_client.js load.bin steeringwheelkeys.js; do
+        if [ ! -s "$PAYLOAD_COMMON/$required" ]; then
+            echo "Нет $PAYLOAD_COMMON/$required — состав payload неполон." >&2
+            exit 1
+        fi
+    done
+}
+verify_payload_contracts
+
+# ---------------------------------------------------------------------------------------------
+# 1. Блобы: fetch по sha256 из ре-хоста (уже совпавшие файлы скрипт не качает повторно).
+#     Раньше gradle: release-identity APK хеширует blob-источники при сборке (SPEC L102).
+# ---------------------------------------------------------------------------------------------
+BLOB_SRC_LIST="$(printf '%s\n' "$BLOB_ASSETS" | tr '\n' ' ')"
+# shellcheck disable=SC2086  # пути без пробелов, передаём их как отдельные аргументы
+"$ROOT/scripts/fetch-blobs.sh" $BLOB_SRC_LIST
+
+# ---------------------------------------------------------------------------------------------
+# 2. APK (Gradle, единый wrapper в корне репозитория) + release identity (SPEC L102).
+#     Перед assembleRelease готовим канонический recipe и sources-карту: make_release
+#     передаёт их как -PvoyahInstallRecipe/-PvoyahReleaseSources, задача VoyahBuildIdentity
+#     пишет в APK assets/voyahtune-build.json (recipeSha256 + runtimeHashes), который
+#     verify-payload сверяет с манифестом payload.
+# ---------------------------------------------------------------------------------------------
+REVISION="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
+
+# win_path: MSYS-путь /c/... → C:/... для Windows-JVM gradle; на Linux (cygpath нет) — как есть.
+win_path() {
+    if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else echo "$1"; fi
+}
+
 apk_output() {
     # $1 — модуль; ищем подписанный release APK, при отсутствии ключей — unsigned.
     if [ -f "$ROOT/$1/app/build/outputs/apk/release/app-release.apk" ]; then
@@ -165,8 +263,56 @@ NATIVE_APK=""
 RESTORE_APK=""
 
 if [ "$DO_BUILD" = 1 ]; then
-    echo ">>> gradlew :Native:app:assembleRelease :RestoreMode:app:assembleRelease"
-    (cd "$ROOT" && ./gradlew :Native:app:assembleRelease :RestoreMode:app:assembleRelease -q)
+    IDENTITY_DIR="$(mktemp -d "$BUILD/.identity.XXXXXX")" || exit 1
+    RECIPE_FILE="$IDENTITY_DIR/recipe.json"
+    SOURCES_FILE="$IDENTITY_DIR/sources.json"
+    "$PYTHON" - "$ROOT" "$RECIPE_FILE" "$SOURCES_FILE" <<'PYEOF'
+import json
+import os
+import sys
+
+root, recipe_out, sources_out = sys.argv[1], sys.argv[2], sys.argv[3]
+base = json.load(open(os.path.join(root, "payload", "manifest.json"), encoding="utf-8"))
+recipe = base["recipe"]
+# Каноническая сериализация: compact, ключи по алфавиту (serde_json Map = BTreeMap),
+# без завершающего \n — байт-в-байт совпадает с recipe_sha256 в release-core verify.
+with open(recipe_out, "wb") as f:
+    f.write(json.dumps(recipe, sort_keys=True, separators=(",", ":"),
+                       ensure_ascii=False).encode("utf-8"))
+common = os.path.join(root, "Packaging", "payload-common")
+blob_map = {
+    "frida-inject": "blobs/frida/frida-inject",
+    "voyahtune-ui-maintenance": "blobs/native/voyahtune-ui-maintenance",
+    "voyahtune-updater": "blobs/native/voyahtune-updater",
+    "voyahtune-ui-next.apk": "blobs/apk/voyahtune-ui-next.apk",
+    "voyahtune-updater.apk": "blobs/apk/voyahtune-updater.apk",
+}
+artifacts = []
+for op in recipe["files"]:
+    name = op["artifact"]
+    if name == "native.apk":
+        # identity native.apk считается после его подписи — как в эталоне, не включаем.
+        continue
+    if name in blob_map:
+        src = blob_map[name]
+    elif os.path.isfile(os.path.join(common, name)):
+        src = os.path.join("Packaging", "payload-common", name)
+    else:
+        sys.exit(f"нет источника для {name}")
+    if not os.path.isfile(os.path.join(root, src)):
+        sys.exit(f"нет файла {src}")
+    artifacts.append({"name": name, "source": src})
+with open(sources_out, "w", encoding="utf-8") as f:
+    json.dump({"schema": 1, "artifacts": artifacts}, f, ensure_ascii=False, indent=1)
+PYEOF
+    echo ">>> gradlew :Native:app:assembleRelease :RestoreMode:app:assembleRelease (identity -Pvoyah*)"
+    (cd "$ROOT" && ./gradlew :Native:app:assembleRelease :RestoreMode:app:assembleRelease -q \
+        "-PvoyahReleaseVersion=$VERSION" \
+        "-PvoyahBuildRevision=$REVISION" \
+        "-PvoyahInstallRecipe=$(win_path "$RECIPE_FILE")" \
+        "-PvoyahReleaseSources=$(win_path "$SOURCES_FILE")")
+    rm -rf "$IDENTITY_DIR"
+    IDENTITY_DIR=""
 fi
 
 NATIVE_APK="$(apk_output Native)" || { echo "Нет Native release APK (см. --no-build)." >&2; exit 1; }
@@ -175,20 +321,13 @@ case "$NATIVE_APK" in *unsigned*) echo "ВНИМАНИЕ: native.apk БЕЗ по
 case "$RESTORE_APK" in *unsigned*) echo "ВНИМАНИЕ: restore_mode.apk БЕЗ подписи (ANDROID_KEYSTORE_* не задан)." ;; esac
 
 # ---------------------------------------------------------------------------------------------
-# 2. Блобы: fetch по sha256 из ре-хоста (уже совпавшие файлы скрипт не качает повторно).
-# ---------------------------------------------------------------------------------------------
-BLOB_SRC_LIST="$(printf '%s\n' "$BLOB_ASSETS" | tr '\n' ' ')"
-# shellcheck disable=SC2086  # пути без пробелов, передаём их как отдельные аргументы
-"$ROOT/scripts/fetch-blobs.sh" $BLOB_SRC_LIST
-
-# ---------------------------------------------------------------------------------------------
 # 3. Staging: 29 файлов + manifest.json, сверка состава с payload/manifest.json.
 # ---------------------------------------------------------------------------------------------
 STAGING_DIR="$(mktemp -d "$BUILD/.payload-stage.XXXXXX")" || exit 1
 STAGE="$STAGING_DIR/payload-$VERSION"
 mkdir -p "$STAGE/common"
 
-for f in "$COMMON"/*; do
+for f in "$PAYLOAD_COMMON"/*; do
     name="$(basename "$f")"
     [ "$name" = "README.md" ] && continue
     cp -p "$f" "$STAGE/common/$name"
@@ -199,7 +338,7 @@ for blob in $BLOB_ASSETS; do
     cp -p "$ROOT/$blob" "$STAGE/common/$(basename "$blob")"
 done
 
-"$PYTHON" "$ROOT/Utils/build_payload_manifest.py" "$STAGE" --version "$VERSION" --revision "$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
+"$PYTHON" "$ROOT/Utils/build_payload_manifest.py" "$STAGE" --version "$VERSION" --revision "$REVISION"
 "$PYTHON" "$ROOT/Utils/build_payload_manifest.py" "$STAGE" --verify
 
 # ---------------------------------------------------------------------------------------------
@@ -254,8 +393,7 @@ if [ "$DO_ZIP" = 1 ]; then
         "$VERSION" "$PAYLOAD_URL" "$ZIP_SIZE" "$ZIP_SHA" > "$ENTRY_FILE.tmp"
     mv -f "$ENTRY_FILE.tmp" "$ENTRY_FILE"
 
-    # BUILD-INFO (SPEC L135): revision, тулчейн, builder id, дата.
-    REVISION="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
+    # BUILD-INFO (SPEC L135): revision, тулчейн, builder id, дата (REVISION посчитан в шаге 2).
     GRADLE_V="$(sed -n 's/.*gradle-\([0-9][0-9.]*\)-bin\.zip.*/\1/p' "$ROOT/gradle/wrapper/gradle-wrapper.properties")"
     AGP_V="$(sed -n "s/.*com.android.application' version '\([0-9][0-9.]*\)'.*/\1/p" "$ROOT/build.gradle")"
     JDK_V="$(java -version 2>&1 | sed -n 's/.*version "\([0-9][0-9]*\).*/\1/p' | head -n 1)"

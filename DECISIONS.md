@@ -213,3 +213,151 @@
   `app-release.apk` проходят `apksigner verify` (CN=VoyahTune, fp 212cc2bc…);
   CI run 37112178182 — **5/5 success** (payload/tests/payload-verify/reference-map/
   network-audit). Коммит — по явной команде.
+
+## 2026-10-03][WP1][Приёмка classic_port: staging, OTA-исключение, old-key, план шагов]
+- Контекст: первый полный прогон `test_classic_port` после LF-нормализации —
+  серия падений на стороне классики и расхождения state()/шагов. Разбор каждого
+  падения показал наследственные дефекты reference (код байт-идентичен: engine.rs,
+  plans.rs, integration.py — `diff` только по EOL) и локальные артефакты среды.
+- Решение (5 фиксов):
+  (1) `test_classic_port.classic()` не копировал `apollo-safe-device.sh` в
+  стейдженный релиз → preflight install.sh:31 падал. Добавлено копирование из
+  `Packaging/installer/common/` — как в `copy_common_release_assets` реального
+  релиза (reference-`make_release.sh:264,287`); порт встраивает скрипт через
+  `include_str!`, классике нужен файл в cwd;
+  (2) OTA/Updater: recipe в payload-spec ставит 6 файлов (voyahtune-updater,
+  voyahtune-updater.apk→VoyahTuneUpdater, voyahtune.updater.rc,
+  voyahtune-ota-bootstrap.json, voyahtune-ui-maintenance, voyahtune-ui-next.apk)
+  и пакет ru.big.town.updater, а эталонный install.sh — никогда (так и в
+  reference: spec создан в a0d7021, дополнен 23bca4a «Deliver updater UI through
+  OTA», тест с тех пор красный и не гонялся в CI). В `state()` добавлено
+  документированное исключение OTA_FILES/OTA_PACKAGES — целевое расхождение
+  форка (SPEC L32/L55 «OTA не переносим»), удаление по backlog L34 в WP4;
+  (3) `test_changed_signatures_reset_both_apps`: legacy old-key APK
+  `Native/app/release/app-release.apk` был подписан КЛЮЧОМ PAYLOAD (212cc2bc…,
+  локальная сборка с ANDROID_KEYSTORE_* = CI-ключ) → signers совпадали,
+  `signature_resets` не срабатывал, данные не сбрасывались. APK переподписан
+  Android debug keystore (e7732c02… ≠ payload) — это gitignored-фикстура
+  old_key-путей, semantically «старый ключ»; RestoreMode old (debug) уже был
+  другим ключом;
+  (4) `test_steps_match_plan`: engine безусловно исполняет шаги `updater-lock`
+  (оба действия) и `updater-bootstrap` (install), `classic_steps()` их не
+  перечислял → plan и события part ways. Добавлены оба шага в plans.rs в порядке
+  engine (reference-дефект: файлы идентичны, тест там тоже красный);
+  (5) `test_canbus.run_cli` timeout 60→180: полный install на /mnt/c ~75s+
+  под нагрузкой (секция canbus 803s/16 тестов), в reference 60s — лимит среды,
+  поведение теста не меняется;
+  (6) flaky `catalog` тесты (CACHE_BUSY): на 16 тестовых потоках 6/6 падений —
+  engine-тесты спавнят `sh`, fork наследует OFD с flock, и до exec-закрытия
+  лок переживает `close()` родителя → следующий `try_lock` = EWOULDBLOCK.
+  `lock_with` получил ограниченный retry (100×1ms только на WouldBlock):
+  ложная занятость исчезает, реальная (второй экземпляр, удержание в тестах
+  618/623) по-прежнему даёт CACHE_BUSY после ~100ms; после фикса 6/6 зелёные
+  на 16 потоках.
+- Основание: install.sh — оракул (Docs: «Эталоны: …»), поэтому стейджинг теста
+  приводится к реальному layout релиза, а не наоборот; OTA-исключение chosen
+  перед вырезанием payload-spec, т.к. backlog планово оставляет updater до WP4,
+  а вырезание recipe меняет контракт/фикстуры/identity (recipe_sha256) досрочно;
+  переподписка old-key — локальная фикстура, гитигнорена, ключ не коммитится.
+- Риск: исключение OTA в state() скрывает реальное присутствие OTA-файлов на
+  устройстве до WP4 — mitigated: комментарий в тесте + запись здесь; откат =
+  удалить 2 строки из OTA_FILES/OTA_PACKAGES после вырезания recipe; retry в
+  lock_with добавляет ~100ms реальной занятости (поведение/код ошибки не меняются).
+- Статус: принято (коммит — по явной команде). Полный acceptance-прогон от
+  2026-10-03 19:37–21:15 (acceptance_run.sh → acceptance.txt): classic_port
+  41/41 OK RC=0 (3656s), canbus 16/16 OK RC=0 (755s), integration 18/18 OK
+  RC=0 (1465s), DONE 21:15:52. Прочее: cargo test workspace 2+28+10 = 40/40
+  (гейт «Rust 40»), sync-classic-commands --check RC=0, shellcheck -S error
+  RC=0, guard 9/9, test_release 6 OK, verify-payload RC=0.
+
+## 2026-10-04][WP1][Шаг 1.5 CI: JVM-гейты 303+105 из легенды, Rust 40, Svelte check, shellcheck flip, gui-win/mac]
+- Контекст: SPEC L103 требует job tests (JVM 303+105 из легенды + новые, Rust 40,
+  Svelte check, shellcheck, detachment-audit) и cross-OS сборку GUI. Порт тестов
+  легенды в дерево сделан ранее; шаг — гейты в ci.yml + доведение JVM-тестов до зелени.
+- ci.yml (5 правок, YAML валиден):
+  (1) JVM-шаг запускает `:tests:hil:test :Native:app:testDebugUnitTest
+  :RestoreMode:app:testDebugUnitTest` + новый шаг «JVM legend gate»: count() из
+  атрибутов tests="N" в XML, `[ native -ge 303 ] && [ restore -ge 105 ]`;
+  (2) Rust-гейт: `cargo test --manifest-path Installer/Cargo.toml | tee` (pipefail)
+  + сумма `test result: ok. N passed` >= 40 (default-members = 3 крейта = 2+28+10);
+  (3) setup-node@v4 (node 22, npm cache по Installer/desktop/package-lock.json) +
+  шаг Svelte check (`npm ci && npm run check`);
+  (4) shellcheck flip: `-S error make_release.sh scripts/*.sh` — блокирующий
+  (continue-on-error убран); warning-строка payload-common (`*.sh`, `load.bin`)
+  оставлена `|| true` — легенда-пейлоад не правим (контент пиннится sha256);
+  (5) jobs gui-win (windows-latest) / gui-mac (macos-latest): npm ci + npm run build
+  + `cargo check --manifest-path Installer/Cargo.toml -p voyahtune-desktop`;
+  detachment-audit оставлен report/continue-on-error (flip — WP4, TODO в файле).
+- Порт тестов: 22 файла RestoreMode (105 @Test) + 58 файлов Native из
+  reference-3.14 (легенда — чистый JUnit4, без Robolectric/Mockito); поверх —
+  4 наших файла (FakeCanBusBinder, RobolectricCanBridge, HilBridgeProbeTest,
+  NativeHilScenarioTest). Итог Native: 306 = 303 легенда + 3 наших.
+- Паритет-фиксы main-кода (чиним реконструкцию, не тесты):
+  (1) RestoreMode — 4 фикса: VoiceEngineCache.release (decompile дал
+  `throw IllegalArgumentException(String.valueOf(t))` вместо `t.close()`);
+  VoiceFuzzyMatcher.prepare (безусловный return null в конце тела цикла — fuzzy
+  мёртв; слова-похожие-на-глагол не делали return null как легенда);
+  VoiceCommandRepair.distanceOne (пустой `if (len1>=len2) {}` + безусловный i2++
+  → несохватывание при len1>len2): 9 → 2 → 0 падений, 105/105 зелёные;
+  (2) Native ApolloSettingsRuntimeFlag.isEnabledForBoot: while(true) с
+  `else if (...) { return true; }` БЕЗ else-ветки — вечный цикл при валидном
+  payload с чужим boot id (тест rebootInvalidatesPreviouslyEnabledFlag висел
+  17 мин, найден jstack: 100% CPU на isEnabledForBoot:63). Добавлен `else return false`;
+  (3) Native DoorPauseTimeline.fadeStepVolume: decompile заменил float-арифметику
+  легенды `startVolume * (float)(steps-bounded) / steps` на целочисленное деление
+  → volume 0 вместо 1 (2 падения DoorPauseFadeCursorTest на delayMs). Восстановлено
+  float-приведение.
+- Системный скан (эвристика «while(true), чья верхнеуровневая if/else-if цепочка
+  заканчивается без финального else») по Native+RestoreMode main без JNA: 7
+  кандидатов, все ложные — есть break/return при выходе за границы (OtaStatusProvider,
+  DoorPauseFadeCursor, VoiceCommands, VoiceOrbView, AdvanceActivity + 2 уже
+  починенных). Отдельный grep: других целочисленных делений до Math.round нет.
+- Фикс путей после staged-переименования docs/→Docs/ (rename в индексе из прошлой
+  сессии): ci.yml G-3 читал `docs/reference-map.json` — файла в рабочем дереве нет,
+  первый же коммит сломал бы гейт; build_reference_map.py писал в `docs/` —
+  исправлено на `Docs/`. Спеку/DECISIONS не трогали (исторические ссылки).
+- Локальные гейты (все зелёные): Native 306/306 0 failures (свежий прогон),
+  RestoreMode 105/105, HIL 25, cargo test 40/40, svelte-check 0/0,
+  `npm run build` (svelte-check + vite, dist/ собран) ✓, shellcheck -S error RC=0
+  (warning по payload-common RC=1 — ожидаемо, остаётся || true), YAML OK.
+- Ограничения: `cargo check -p voyahtune-desktop` локально в WSL не проходит —
+  нет pkg-config/libdbus-1-dev/webkit2gtk (системные пакеты Ubuntu, не код; на
+  win/mac этих Linux-зависимостей нет) — фактическая проверка gui-win/gui-mac
+  отложена до CI; HIL=25 — последний живой прогон (03.10), сегодняшний combined
+  прогон взял его UP-TO-DATE; git status содержит staged-переименование docs→Docs
+  из прошлой сессии (не трогали, commit — по явной команде).
+- Статус: L103 готов (коммит — по явной команде). Дальше: L106 приёмка fake ADB →
+  L107 финальный merge wp1.
+
+## 2026-10-04][WP1][Шаг 1.6 Приёмка fake ADB: подписанный payload 4.0.0-build.2, чистая установка поднимает Native/RestoreMode, 42+16+19 зелёные]
+
+- Требование SPEC L106 (SPEC.md:244-245): «наш payload ставится на fake ADB и поднимает
+  Native/RestoreMode; CI tests зелёный; CI payload собирает артефакт с sha256. G1 пройден».
+- Первая сборка payload-4.0.0-build.2 дала НЕПОДПИСАННЫЕ APK: build.gradle ставит
+  signingConfig только при env ANDROID_KEYSTORE_B64, а make_release лишь предупреждает
+  «БЕЗ подписи»; инсталлер упал на плане с APK_SIGNATURE «Magic not found» (нет v2-блока
+  'APK Sig Block 42'). Рецепт подписи найден в прошлых скриптах: gradlew --stop (демон
+  держит старое окружение!) + export ANDROID_KEYSTORE_B64/storepass/alias=voyahtune из
+  C:\Projects\signing\, затем пересборка. После: native.apk и restore_mode.apk имеют
+  APK Sig Block 42, 29/29 verified, `sha256sum -c SHA256SUMS` = 3/3 OK (симуляция CI
+  payload job; dist zip 125108245 байт, sha256 5c40af77...).
+- Эксперимент чистой установки (WSL, fixture-driver + fake ADB, VOYAH_TEST_PAYLOAD=
+  payload-4.0.0-build.2): RC=0; ru.big.town.anative → /system/priv-app/Native/Native.apk,
+  ru.big.town.restoremode → /data/app/ru.big.town.restoremode/base.apk (файлы на месте),
+  updater=running перед финальным reboot, reboots=1, install.lock снят, load.bin
+  установлен. Эти факты зафиксированы новым тестом
+  `test_fresh_install_boots_native_and_restoremode` в Installer/tests/integration.py.
+- Итог приёмки (последовательный прогон, WSL): classic_port 42/42 OK (rerun),
+  canbus 16/16 OK, integration 19/19 OK (включая новый тест).
+- ПЕРВЫЙ прогон classic_port: 14 ошибок — ВСЕ TimeoutExpired(120s) на plan/apply, не
+  assert'ы. Причина средовая: WSL дистрибутив загрузился в момент старта прогона (12:15),
+  в окно попали apt-daily/unattended-upgrades (12:46), logrotate (12:37), tmpfiles-clean
+  (12:30), payload был пересобран за 8 минут до прогона (холодный кэш /mnt/c + первый
+  доступ AV), плюс мои параллельные диагностики. Факты: зависший driver — без дочерних
+  процессов; позже io/memory pressure = 0; чтение payload 0.5с/129MB; одиночный rerun
+  того же теста — OK. Спокойный rerun всего модуля — 42/42 за 5249s.
+- Квирк WSL: acceptance гоняется только в WSL (там linux fixture-driver ищет
+  bundle/adb/adb); Windows-бинарь (cfg!(windows)) ищет adb/adb.exe → ADB_MISSING —
+  windows-python probe без WSL не работает.
+- Статус: L106 локально готов (G1 пройден; «CI tests зелёный» подтверждается первым
+  push — по явной команде; wp1 не закоммичен). Дальше: L107 финальный merge wp1.

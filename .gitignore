@@ -35,5 +35,16 @@ __pycache__/
 .vscode/
 *.log
 
-# Локальный вывод сборки релиза (make_release.sh)
-Releases/
+# Локальный вывод сборки релиза (make_release.sh); исключение — каталог релизов,
+# коммитится в Git (Docs/installer-protocol.md, CATALOG_URL installer-core)
+Releases/*
+!Releases/ota/
+Releases/ota/*
+!Releases/ota/index.json
+
+# Строительный мусор: случайный CARGO_TARGET_DIR с windows-путём внутри Installer
+# и дампы отладчиков
+cargo-target/
+*.stackdump
+# Сборка web-интерфейса desktop (vite; CI собирает через npm run build)
+Installer/desktop/dist/
