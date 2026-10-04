@@ -48,6 +48,10 @@ cargo-target/
 *.stackdump
 # Сборка web-интерфейса desktop (vite; CI собирает через npm run build)
 Installer/desktop/dist/
+# Сборка GUI-инсталлера (build.mjs): bundle пересоздаётся целиком (payload 125 МБ),
+# release-конфиг генерируется под платформу сборки; .gitkeep упразднён
+Installer/desktop/src-tauri/resources/bundle/
+Installer/desktop/src-tauri/tauri.release.conf.json
 
 # Приватность владельца (мастер-док телеметрии и его артефакты — ВНЕ репо, R5)
 Qwen_*.md

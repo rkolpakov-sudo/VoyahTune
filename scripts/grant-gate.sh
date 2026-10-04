@@ -66,9 +66,15 @@ case "$TIMEOUT" in
 esac
 [ "$TIMEOUT" -gt 0 ] || die "--timeout должен быть больше 0: $TIMEOUT"
 
-command -v adb >/dev/null 2>&1 || die "adb не найден в PATH"
-
-ADB=(adb)
+# WSL не видит Windows adb — резолвим по известному пути Android SDK хоста.
+if command -v adb >/dev/null 2>&1; then
+    ADB=(adb)
+else
+    ADB_PATH=$(ls /mnt/c/Users/*/AppData/Local/Android/Sdk/platform-tools/adb.exe \
+        2>/dev/null | head -1 || true)
+    [ -n "$ADB_PATH" ] || die "adb не найден (PATH и Android SDK)"
+    ADB=("$ADB_PATH")
+fi
 if [ -n "$SERIAL" ]; then
     ADB+=(-s "$SERIAL")
 fi
