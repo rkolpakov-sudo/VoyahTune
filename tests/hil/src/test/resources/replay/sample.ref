@@ -1,0 +1,15 @@
+TX57 LOW_BEAM trace=0 emu=0
+TX58 LOW_BEAM=1 accepted emu=1
+TX58 HUM_VSP_FUNCTION_SW rejected
+TX77 accepted {LOW_BEAM=1, AUTO_LAMP_SWITCH=1} emu={LOW_BEAM=1, AUTO_LAMP_SWITCH=1}
+TX77 rejected
+TX58 BCM_RSM_lightSWReason=1 accepted emu=1
+TX57 SREV_SOC_SET rejected
+TX6 trace=4/8 emu=0/0
+TX6 null-reply
+TX9 unavailable
+TX20 completed
+TX36 completion-dropped
+TX77 failed
+TX77 returned 2
+UNSUPPORTED TX58 new-format-something unexpected

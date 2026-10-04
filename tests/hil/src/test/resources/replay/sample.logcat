@@ -1,0 +1,17 @@
+10-04 09:15:01.100  2841  2863 I $$$ OemVehicleState $$$: demand bindService gen=1 returned true
+10-04 09:15:01.200  2841  2863 D CanBusEventHub: routing frame 0x3A2
+10-04 09:15:01.310  2841  2863 I $$$ OemVehicleState $$$: TX57 getVehicleState LOW_BEAM=0
+10-04 09:15:01.640  2841  2863 I $$$ OemVehicleState $$$: TX58 accepted-unconfirmed [door-wake] LOW_BEAM=1
+10-04 09:15:01.980  2841  2863 E $$$ OemVehicleState $$$: TX58 rejected [door-wake] HUM_VSP_FUNCTION_SW
+10-04 09:15:02.250  2841  2863 I $$$ OemVehicleState $$$: TX77 accepted-unconfirmed [wake-bundle] states=Bundle[{LOW_BEAM=1, AUTO_LAMP_SWITCH=1}]
+10-04 09:15:02.510  2841  2863 E $$$ OemVehicleState $$$: TX77 rejected [wake-bundle]
+10-04 09:15:02.770  2841  2863 I $$$ HeadlightCanTransport $$$: TX58 BCM_RSM_lightSWReason state=1
+10-04 09:15:03.010  2841  2863 E $$$ OemVehicleState $$$: TX57 getVehicleState rejected SREV_SOC_SET
+10-04 09:15:03.220  2841  2863 I $$$ OemVehicleState $$$: TX6 getGearStatus ordinal=4 value=8
+10-04 09:15:03.480  2841  2863 I $$$ OemVehicleState $$$: TX6 getGearStatus returned null
+10-04 09:15:03.700  2841  2863 W $$$ OemVehicleState $$$: TX9 getFuelLevel unavailable
+10-04 09:15:03.950  2841  2863 W CanBusEventHub: TX20 took 12 ms
+10-04 09:15:04.100  2841  2863 W $$$ LightSensorService $$$: TX36 completion dropped: CarSignal IO stopped
+10-04 09:15:04.330  2841  2863 E $$$ OemVehicleState $$$: TX77 failed [late-bundle]
+10-04 09:15:04.600  2841  2863 E $$$ OemVehicleState $$$: TX77 returned 2 [late-bundle]
+10-04 09:15:04.900  2841  2863 I $$$ OemVehicleState $$$: TX58 new-format-something unexpected

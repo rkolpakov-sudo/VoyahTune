@@ -141,6 +141,8 @@ jobs:
         run: |
           shellcheck -S warning Packaging/payload-common/*.sh Packaging/payload-common/load.bin || true
           shellcheck -S error make_release.sh scripts/*.sh
+      - name: Parity-diff unit tests (WP2, L111; трассы на авто — L109/L110)
+        run: python3 -m unittest discover -s tests/parity -v
       - name: detachment-audit (report until WP4)
         continue-on-error: true   # TODO(WP4): flip to blocking (L131)
         run: bash scripts/detachment-audit.sh report

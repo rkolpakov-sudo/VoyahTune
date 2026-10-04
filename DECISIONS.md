@@ -381,3 +381,35 @@
 - L107 (SPEC:246 «Откат: git, ветка wp1, один merge-коммит»): wp1 сливается в main одним
   --no-ff merge-коммитом; полный откат WP1 = revert этого коммита. После merge ветка wp1
   остаётся в репозитории как история.
+
+## 2026-10-04][WP2][Шаг 2.0 Каркас паритета без авто: parity-diff, capture, HIL-replay]
+
+- Контекст: WP1 закрыт (merge fde39af, CI зелёный). WP2 (L108-L117) deps: WP1 + авто;
+  снятие трасс L109/L110 требует автомобиля — начат car-independent каркас (команда).
+- `Utils/parity-diff.py` (L111): попарный diff traces/original|fork по 12 сценариям
+  (Приложение A) × 4 вида (logcat, nativelog, dumpsys, cantrace). Нормализация:
+  таймметки/pid/tid, 0x-хекс, UUID, 32+ hex-токены, epoch-ms, t=..ms, стены часов.
+  Классы identical / expected-diff / regression / pending; allowlist —
+  `Docs/parity-expected-diffs.txt` (regex + обязательный комментарий-обоснование).
+  Отчёт `Docs/parity-report.md` (в SPEC L111 путь «docs/...»; в репо каталог Docs/).
+  Коды: 1 при regression; `--strict` делает pending ошибкой (будущий гейт L116).
+  Тесты: `tests/parity/test_parity_diff.py` — 12 unittest на stdlib (pytest нет в репо).
+- `scripts/capture-trace.sh` (L109/L110): 4 файла на сценарий; NativeLog = фильтр по
+  4 TX-тегам легенды (`$$$ OemVehicleState $$$`, `$$$ HeadlightCanTransport $$$`,
+  `$$$ LightSensorService $$$`, `CanBusEventHub`); cantrace best-effort через
+  `--can-cmd` (штатного candump на Android нет). shellcheck -S error чист.
+- HIL-replay (L112): `ru.big.town.hil.replay` {TxRecord, LogcatTxParser, TraceReplay};
+  парсер распознаёт все форматы TX6/9/20/36/57/58/77 из легенды; неизвестный
+  TX-формат → `UNSUPPORTED` в транскрипте (смена формата лога не проходит молча).
+  Транскрипт канонический (без таймметок/pid) сверяется с эталоном
+  `tests/hil/src/test/resources/replay/sample.{logcat,ref}`; бежит в `:tests:hil:test`
+  в CI — постоянная регрессия каждого изменения Native (L112). Тесты: 10 + 6.
+- `Docs/behavior-matrix.md` v1 (L114): шаблон Приложения C, 16 строк (P-01..P-12 +
+  кросс-строки по E1/E3/E4/E7); «захват из OEM» = TBD до L109/L110.
+- `traces/{original,fork}/` в git (артефакты L115 — не игнорируются); начальный
+  `Docs/parity-report.md` — все 48 пар pending, exit 0.
+- CI: добавлен шаг «Parity-diff unit tests» в tests job; HIL-replay уже покрыт
+  существующим `:tests:hil:test`.
+- Статус: каркас зелёный локально (HIL 41, parity 12, shellcheck 0). L108-L117
+  остаются открытыми до доступа к авто: L109/L110 снятие трасс -> L111 отчёт ->
+  L113 grant-gate -> L115/L116 приёмка.
