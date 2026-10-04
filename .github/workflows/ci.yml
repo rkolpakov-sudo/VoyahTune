@@ -111,6 +111,13 @@ jobs:
             Native/app/build/test-results/**
             RestoreMode/app/build/test-results/**
           if-no-files-found: ignore
+      - name: Cache blobs (rehost blobs-v1)
+        uses: actions/cache@v4
+        with:
+          path: blobs
+          key: blobs-${{ hashFiles('blobs/BLOBS-SHA256.txt') }}
+      - name: Fetch blobs (installer-build tests read blobs/)
+        run: bash scripts/fetch-blobs.sh
       - name: Rust tests (installer workspace, gate >= 40)
         run: |
           set -euo pipefail
