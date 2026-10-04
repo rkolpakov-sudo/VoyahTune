@@ -560,7 +560,9 @@
   гейты кампании; write-команды (GUI-инсталлер) остаются у владельца по карточкам.
 - Риск: содержимое Installer/desktop/src-tauri/resources/bundle (payload 125 МБ) и
   tauri.release.conf.json — генерируемые артефакты локальной сборки инсталлера —
-  mitigated: .gitignore += оба пути, .gitkeep упразднён (каталог воссоздаёт build.mjs);
+  mitigated: .gitignore += содержимое resources/bundle/* с исключением .gitkeep
+  (каталог обязателен: tauri.conf.json bundle.resources резолвит его в
+  tauri_build::build, без каталога падает cargo check) и tauri.release.conf.json;
   сборочный drift (Cargo.toml/gen-schemas, только переводы строк) откатывается перед
   коммитом. Полный сценарий с write-командами и красными линиями — приватный
   on-car-campaign.md вне репо (R5).
