@@ -64,6 +64,10 @@ final class ModeFeedbackController implements AutoCloseable {
         if (this.closed) {
             return;
         }
+        if (i == VehicleRestorePolicy.PEDESTRIAN_SOUND_ID) {
+            AvasController.get().onVehicleStateEcho(i2);
+            return;
+        }
         ModeFeedbackDecoder.Feedback feedbackDecode = ModeFeedbackDecoder.decode(i, i2);
         if (feedbackDecode == null) {
             if (NativeLog.get().isRunning()) {

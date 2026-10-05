@@ -25,7 +25,7 @@ final class ReadBackTable {
     }
 
     static boolean isTracked(String str) {
-        return FEATURE_DRIVE_MODE.equals(str) || FEATURE_ENERGY.equals(str) || FEATURE_RECYCLE.equals(str) || FEATURE_SUSPENSION.equals(str) || FEATURE_LIGHT.equals(str);
+        return FEATURE_DRIVE_MODE.equals(str) || FEATURE_ENERGY.equals(str) || FEATURE_RECYCLE.equals(str) || FEATURE_SUSPENSION.equals(str) || FEATURE_LIGHT.equals(str) || FEATURE_AVAS.equals(str);
     }
 
     static String sourceFor(String str) {

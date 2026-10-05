@@ -272,7 +272,7 @@ public class SetModesService extends Service {
                     ApplyEngine.postUserCommand("pedestrian sound", new Runnable() { // from class: ru.big.town.anative.SetModesService$IncomingHandler$$ExternalSyntheticLambda3
                         @Override // java.lang.Runnable
                         public final void run() {
-                            MainActivity.sendPedestrianSoundCommand(z);
+                            AvasController.get().requestUserToggle(z);
                         }
                     });
                     break;
@@ -1259,6 +1259,7 @@ public class SetModesService extends Service {
         cancelAncillaryWakeTasks();
         requestWashModeCleanup("SCREEN_OFF");
         this.sleepController.onSleepComplete();
+        AvasController.get().onSleep("SCREEN_OFF");
     }
 
     /* JADX INFO: Access modifiers changed from: private */
@@ -1274,6 +1275,7 @@ public class SetModesService extends Service {
             }
         }
         this.sleepController.onWakeComplete();
+        AvasController.get().onWakeEvent("SCREEN_ON");
     }
 
     private boolean isScreenInteractive() {
@@ -1305,6 +1307,7 @@ public class SetModesService extends Service {
         } catch (RuntimeException e) {
             Log.w(TAG, "start vehicle state controllers: " + e.getMessage());
         }
+        AvasController.get().init(getApplicationContext());
             try {
                 ContextCompat.registerReceiver(setModesService, this.powerHoldStatusRequestReceiver, new IntentFilter(ACTION_REQUEST_POWER_HOLD_STATUS), BIND_PERMISSION, this.mainHandler, 2);
                 setModesService.powerHoldStatusReceiverRegistered = true;
@@ -1354,6 +1357,7 @@ public class SetModesService extends Service {
                 this.pendingPhysicalWake = false;
                 runWakeSideEffects(powerStateName(i));
                 this.sleepController.onWakeComplete();
+                AvasController.get().onWakeEvent("power " + powerStateName(i));
                 return;
             } else {
                 this.pendingPhysicalWake = true;
@@ -1371,6 +1375,7 @@ public class SetModesService extends Service {
             requestWashModeCleanup("power state " + powerStateName(i));
             ApplyEngine.resetRestoreGate("power state " + powerStateName(i));
             this.sleepController.onSleepComplete();
+            AvasController.get().onSleep("power " + powerStateName(i));
         }
         Log.i(TAG, "onStateChanged() ignored state: " + i);
     }

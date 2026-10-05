@@ -665,7 +665,7 @@ public class SetModesReceiverDynamic extends BroadcastReceiver {
         } else if (!"disablePedestrianSound".equals(str)) {
             return;
         } else {
-            zSendPedestrianSoundCommand = MainActivity.sendPedestrianSoundCommand(z);
+            zSendPedestrianSoundCommand = AvasController.get().requestUserToggle(z);
         }
         if (!zSendPedestrianSoundCommand) {
             Log.w(TAG, "STEER_ACTION " + str + ": CAN failed, toggle not persisted");

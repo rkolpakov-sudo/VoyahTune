@@ -515,7 +515,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     static /* synthetic */ CanRestorePlan.OperationResult lambda$createCanRestorePlan$3(Context context, boolean z) {
-        if (OemVehicleStateTransport.sendVehicleState(context, "HUM_VSP_FUNCTION_SW", 665, VehicleRestorePolicy.pedestrianSoundState(z), "pedestrian sound restore").accepted()) {
+        if (AvasController.get().applySnapshot("pedestrian sound restore")) {
             return CanRestorePlan.OperationResult.ACCEPTED_UNCONFIRMED;
         }
         return CanRestorePlan.OperationResult.TRANSIENT_FAILURE;

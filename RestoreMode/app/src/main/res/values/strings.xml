@@ -217,6 +217,7 @@
     <string name="cmd_feature_light">Свет</string>
     <string name="cmd_feature_recycle">Рекуперация</string>
     <string name="cmd_feature_suspension">Подвеска</string>
+    <string name="cmd_feature_avas">AVAS (звук пешеходов)</string>
     <string name="cmd_status_confirmed">%1$s: подтверждено</string>
     <string name="cmd_status_failed">%1$s: ошибка отправки</string>
     <string name="cmd_status_sending">%1$s: отправка…</string>

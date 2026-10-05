@@ -343,7 +343,7 @@ final class VoiceCommandController {
             } else if (MainActivity.currentSavedToggle(this.service, "disablePedestrianSound")) {
                 zEndsWith = false;
             }
-            boolean zSendPedestrianSoundCommand = MainActivity.sendPedestrianSoundCommand(zEndsWith);
+            boolean zSendPedestrianSoundCommand = AvasController.get().requestUserToggle(zEndsWith);
             if (zSendPedestrianSoundCommand) {
                 MainActivity.persistSavedToggle(this.service, "disablePedestrianSound", zEndsWith);
             }

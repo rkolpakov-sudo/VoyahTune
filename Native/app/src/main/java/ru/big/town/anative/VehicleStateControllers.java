@@ -54,7 +54,7 @@ final class VehicleStateControllers {
         CanBusEventHub canBusEventHub = CanBusEventHub.get(this.appContext);
         this.canBusEventHub = canBusEventHub;
         try {
-            this.canBusSubscription = canBusEventHub.subscribe(23, new int[]{545, 957, 619}, this.stateHandler, new CanBusEventHub.Listener() { // from class: ru.big.town.anative.VehicleStateControllers$$ExternalSyntheticLambda0
+            this.canBusSubscription = canBusEventHub.subscribe(23, new int[]{545, 957, 619, VehicleRestorePolicy.PEDESTRIAN_SOUND_ID}, this.stateHandler, new CanBusEventHub.Listener() { // from class: ru.big.town.anative.VehicleStateControllers$$ExternalSyntheticLambda0
                 @Override // ru.big.town.anative.CanBusEventHub.Listener
                 public final void onCanBusEvent(CanBusEvent canBusEvent) {
                     VehicleStateControllers.this.onCanBusEvent(canBusEvent);

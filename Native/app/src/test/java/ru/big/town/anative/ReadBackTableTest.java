@@ -27,7 +27,6 @@ public class ReadBackTableTest {
     @Test public void unknownFeatureHasNoSource() {
         assertNull(ReadBackTable.sourceFor("climate"));
         assertFalse(ReadBackTable.isTracked("climate"));
-        assertFalse(ReadBackTable.isTracked(ReadBackTable.FEATURE_AVAS));
     }
 
     @Test public void trackedFeaturesCoverReadBackTable() {
@@ -36,5 +35,6 @@ public class ReadBackTableTest {
         assertTrue(ReadBackTable.isTracked(ReadBackTable.FEATURE_RECYCLE));
         assertTrue(ReadBackTable.isTracked(ReadBackTable.FEATURE_SUSPENSION));
         assertTrue(ReadBackTable.isTracked(ReadBackTable.FEATURE_LIGHT));
+        assertTrue(ReadBackTable.isTracked(ReadBackTable.FEATURE_AVAS));
     }
 }

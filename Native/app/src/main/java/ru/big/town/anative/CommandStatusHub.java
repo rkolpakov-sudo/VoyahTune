@@ -79,6 +79,10 @@ final class CommandStatusHub {
         this.dispatcher.onMismatch(str, str2);
     }
 
+    boolean hasActive(String str) {
+        return this.dispatcher.hasActive(str);
+    }
+
     CommandResult lastResult(String str) {
         return this.dispatcher.lastResult(str);
     }

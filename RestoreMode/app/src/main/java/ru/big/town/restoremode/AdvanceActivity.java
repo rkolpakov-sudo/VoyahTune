@@ -3085,7 +3085,20 @@ public class AdvanceActivity extends AppCompatActivity {
         }
         boolean z = i == R.id.pedestrianSoundOn;
         this.prefs.edit().putBoolean("disablePedestrianSound", z).apply();
+        sendPedestrianSound(z);
         Log.i("$$$ Advance pedestrian $$$", z ? "DISABLED (muted)" : "ENABLED");
+    }
+
+    private void sendPedestrianSound(boolean z) {
+        if (!GlobalVars.isBound || GlobalVars.serviceMessenger == null) {
+            Log.w("$$$ Advance pedestrian $$$", "SetModesService не забинден");
+            return;
+        }
+        try {
+            GlobalVars.serviceMessenger.send(Message.obtain(null, 21, z ? 1 : 0, 0));
+        } catch (RemoteException e) {
+            e.printStackTrace();
+        }
     }
 
     private void initSuspensionMaintenance() {
@@ -3510,6 +3523,9 @@ public class AdvanceActivity extends AppCompatActivity {
         }
         if ("light".equals(str)) {
             return R.string.cmd_feature_light;
+        }
+        if ("avas".equals(str)) {
+            return R.string.cmd_feature_avas;
         }
         return 0;
     }
