@@ -697,3 +697,10 @@
 - **Тесты**: 3/3 migration pass; 28/28 Rust unit pass (cargo test); cargo check/build — чисто.
 - **Ограничения**: не покрыты сценарии L146 #4 (обрыв→восстановление) и #5 (остаток init-контракта) — требуют симуляции ADB-ошибок в миграции; GUI поддержка operation=migrate не реализована.
 - **Дальше**: IMP-23 (P0, CP-флаги/нотификации) по L119; IMP-14 фаза 3b (GUI + оставшиеся 2 сценария) — при необходимости.
+
+## [2026-10-05][WP3/WP7][IMP-15 реализован: голос prewarm по ACC ON — SetModesService запускает VoiceWarmupService через 15s после power state 6]
+- **Контекст**: порядок L119 — после IMP-23 (R10/D10: голос прогревается 10-20с после пробуждения); int8-модель уже в payload.
+- **Что сделано**: Docs/imp-15.md — дизайн. SetModesService.java: константа VOICE_PREWARM_DELAY_MS=15000, Runnable voicePrewarmRunnable, методы scheduleVoicePrewarm/cancelVoicePrewarm/triggerVoicePrewarm; в handlePowerStateChanged() при state 6 — запуск таймера, при сне — отмена. triggerVoicePrewarm() отправляет Intent в VoiceWarmupService через startForegroundService.
+- **Тесты**: ручная проверка паттерна (Gradle-сборка Java требует CI); контракт: prewarm не ломает существующий warmup (update() идемпотентен).
+- **Ограничения**: Native→RestoreMode Intent может не дойти при загрузке — fallback: onActivityStarted как раньше.
+- **Дальше**: IMP-03 (Individual) по L119.

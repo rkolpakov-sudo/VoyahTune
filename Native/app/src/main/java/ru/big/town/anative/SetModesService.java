@@ -72,6 +72,7 @@ public class SetModesService extends Service {
     private static final long CAR_POWER_CONNECT_WATCHDOG_MS = 15000;
     private static final long CAR_POWER_RECONNECT_DELAY_MS = 5000;
     private static final long EMBEDDED_LAUNCH_GRACE_MS = 3000;
+    private static final long VOICE_PREWARM_DELAY_MS = 15000;
     static final String EXTRA_EMBEDDED_TASK_PKG = "pkg";
     static final String EXTRA_POWER_HOLD_EXIT_REASON = "exitReason";
     static final String EXTRA_POWER_HOLD_REQUEST_OUTCOME = "requestOutcome";
@@ -184,10 +185,16 @@ public class SetModesService extends Service {
             SetModesService.this.m2066lambda$new$11$rubigtownanativeSetModesService();
         }
     };
-    private final Runnable carPowerReconnectRunnable = new Runnable() { // from class: ru.big.town.anative.SetModesService$$ExternalSyntheticLambda23
+private final Runnable carPowerReconnectRunnable = new Runnable() { // from class: ru.big.town.anative.SetModesService$$ExternalSyntheticLambda23
         @Override // java.lang.Runnable
         public final void run() {
-            SetModesService.this.reconnectCarPowerOnWorker();
+            SetModesService.this.m7683lambda$new$4$rubigtownanativeSetModesService();
+        }
+    };
+    private final Runnable voicePrewarmRunnable = new Runnable() {
+        @Override
+        public final void run() {
+            SetModesService.this.triggerVoicePrewarm();
         }
     };
     private final BroadcastReceiver powerHoldStatusRequestReceiver = new BroadcastReceiver() { // from class: ru.big.town.anative.SetModesService.2
@@ -1207,6 +1214,27 @@ public class SetModesService extends Service {
         this.mainHandler.removeCallbacks(this.floatingBackEnableRunnable);
     }
 
+    private void scheduleVoicePrewarm() {
+        this.mainHandler.removeCallbacks(this.voicePrewarmRunnable);
+        this.mainHandler.postDelayed(this.voicePrewarmRunnable, VOICE_PREWARM_DELAY_MS);
+        Log.i(TAG, "Voice prewarm scheduled in " + VOICE_PREWARM_DELAY_MS + "ms");
+    }
+
+    private void cancelVoicePrewarm() {
+        this.mainHandler.removeCallbacks(this.voicePrewarmRunnable);
+    }
+
+    private void triggerVoicePrewarm() {
+        Log.i(TAG, "Voice prewarm triggered after ACC ON");
+        Intent intent = new Intent();
+        intent.setClassName(RESTOREMODE_PKG, "ru.big.town.restoremode.VoiceWarmupService");
+        try {
+            startForegroundService(intent);
+        } catch (RuntimeException e) {
+            Log.w(TAG, "Voice prewarm startForegroundService failed", e);
+        }
+    }
+
     private void requestSavedConfigSync(String str) {
         Intent intent = new Intent(RESTOREMODE_CONFIG_SYNC_ACTION);
         intent.setClassName(RESTOREMODE_PKG, RESTOREMODE_CONFIG_SYNC_RECEIVER);
@@ -1358,6 +1386,7 @@ public class SetModesService extends Service {
                 runWakeSideEffects(powerStateName(i));
                 this.sleepController.onWakeComplete();
                 AvasController.get().onWakeEvent("power " + powerStateName(i));
+                scheduleVoicePrewarm();
                 return;
             } else {
                 this.pendingPhysicalWake = true;
@@ -1376,6 +1405,7 @@ public class SetModesService extends Service {
             ApplyEngine.resetRestoreGate("power state " + powerStateName(i));
             this.sleepController.onSleepComplete();
             AvasController.get().onSleep("power " + powerStateName(i));
+            cancelVoicePrewarm();
         }
         Log.i(TAG, "onStateChanged() ignored state: " + i);
     }
