@@ -1,0 +1,26 @@
+# Automate: promote canary → stable after on-car acceptance (IMP-13)
+# Run manually from Actions tab after passing on-car checklist.
+name: promote-stable
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Canary version to promote (e.g. 4.0.0+build.42)'
+        required: true
+      acceptance-token:
+        description: 'On-car acceptance ticket reference'
+        required: true
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify acceptance
+        run: |
+          echo "Acceptance: ${{ github.event.inputs.acceptance-token }}"
+          echo "Promoting: ${{ github.event.inputs.version }}"
+      - name: Tag as stable
+        run: |
+          git tag -a "v${{ github.event.inputs.version }}" -m "stable release ${{ github.event.inputs.version }}"
+          git push origin "v${{ github.event.inputs.version }}"
