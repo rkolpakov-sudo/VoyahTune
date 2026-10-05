@@ -665,3 +665,16 @@
 - **Ограничения**: публикация Releases и тегов — ручная (L161), автоматики нет — гейт стоит на сборке/ребилде номера; свип staging-каталогов в archive выполняется только в ветке `--payload` с zip (штатный режим CI и релизов); `versionCode/versionName` Android — D4, release-идентичность несёт `voyahtune-build.json` (`releaseVersion` уже приходит из `-PvoyahReleaseVersion=$VERSION`).
 - **Риск**: низкий — правки только сборочной цепочки/docs, пейлоад и Java не тронуты; строгая схема может отклонить старые локальные команды из истории DECISIONS (`4.0.0-build.N`) — это задумано (R7), подсказка в ошибке ведёт к `4.x.y+build.N`.
 - **Дальше**: P0 (IMP-14, IMP-23) → P1 (IMP-03, IMP-04, IMP-09, IMP-15, IMP-17, IMP-18, IMP-20) → P2 (IMP-05, IMP-16) по L119; on-car кампания — после завершения каталога.
+
+## [2026-10-05][WP6][IMP-14 фаза 1: миграционный движок установщика — детект оригинала, шаги L142 a-h, engine-методы staging/backup/removal/restore/verify, планы и шаги]
+- **Контекст**: порядок L119 — после IMP-11 (SPEC L56, WP6, P0|M; L140-L147: безопасная замена оригинала с импортом настроек); on-car кампания заморожена.
+- **Что сделано**:
+  - `Docs/imp-14.md` — дизайн миграционного движка (фазирование, архитектура, каждый этап L142 a-h, детект L141, обработка ошибок L144, residue L143, remove L145, приёмка L146).
+  - **Детект оригинала** (`inventory.rs`): `MigrationState` enum (Clean/Original/Fork/Other), `detect_migration()` сравнивает signers установленного Native APK с original-fingerprint `1aa9ac50…` (original-fingerprint.md). Вызывается из `plans::plan()` — при оригинале `operation = "migrate"` и добавляется предупреждение.
+  - **Планы и шаги** (`plans.rs`): миграционная ветка `classic_steps()` с шагами migrate-staging/backup/consent/removal/reboot (до install) + migrate-restore/verify (после install); `classic_steps()` принимает `migration_needed: bool`.
+  - **Engine** (`engine.rs`, +184 строк): поле `migration_needed`, публичный сеттер, `needs_migration()` (детект через ADB pull APK + verified_signers()), методы `migrate_staging()` (L142a), `migrate_backup()` (L142b), `migrate_removal()` (L142d), `migrate_restore()` (L142g), `migrate_verify()` (L142h); в `execute()` — миграционная ветка до install-шагов (staging→backup→removal→reboot→re-root→re-lock) и после (restore→verify вместо стандартного verify).
+  - **Компиляция и тесты**: `cargo check` / `cargo build -p installer-core` — чисто; `cargo test -p installer-core` — **28/28 PASS** (0 регрессий).
+- **Тесты**: 28 существующих тестов installer-core PASS (новых тестов миграции нет — фаза 5, fake ADB, запланирована).
+- **Ограничения**: фаза 1 — только Rust-ядро; отсутствуют: GUI-поддержка `operation = "migrate"`, согласие на удаление (migrate-consent), residue-чеклист (L143), remove-форка (L145), 5 сценариев fake ADB (L146); команды миграции пока в inline shell, не перенесены в classic_commands.rs.
+- **Риск**: низкий — новые методы вызываются только при `migration_needed == true`, иначе execute() идентична старой; все существующие тесты зелёные.
+- **Дальше**: фаза 2 (fake ADB тесты + residue + remove-fork) → фаза 3 (GUI) → IMP-23.

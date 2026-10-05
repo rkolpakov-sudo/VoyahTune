@@ -364,7 +364,40 @@ fn classify(
     (state.into(), Some(b.release_version.clone()))
 }
 
-/// UI information only: unavailable metadata must not become an installation gate.
+/// Результат детекта оригинала (L141)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum MigrationState {
+    /// Пакеты не найдены — установка с нуля
+    Clean,
+    /// Пакеты найдены, их подпись = original-fingerprint (нужна миграция)
+    Original,
+    /// Пакеты найдены, их подпись = наш CI-ключ (форк — обновление)
+    Fork,
+    /// Пакеты найдены, подпись не наша и не оригинал
+    Other,
+}
+
+/// L141: package names совпадают (D4) + отпечаток подписи = original-fingerprint.
+/// Сравнивает подписи установленного Native APK с известным отпечатком оригинала.
+pub fn detect_migration(packages: &BTreeMap<String, Package>) -> MigrationState {
+    let native = packages.get(NATIVE);
+    let restore = packages.get(RESTORE);
+    if native.is_none() || restore.is_none() {
+        return MigrationState::Clean;
+    }
+    let signers = &native.unwrap().signers;
+    // original-fingerprint.md: Android Debug (общий для native, restore_mode, updater)
+    let original_fprint = "1aa9ac5067106888c4565a678339debd2ee2a40222063bb5a91a83fbaa03d05b";
+    if signers.is_empty() {
+        // Нет сведений о подписи — не рискуем
+        return MigrationState::Other;
+    }
+    if signers.iter().any(|s| s == &original_fprint) {
+        return MigrationState::Original;
+    }
+    MigrationState::Fork
+}
 pub fn diagnose(adb: &Adb, payload: &Payload, action: crate::plans::Action) -> Inventory {
     match inspect_for_action(adb, payload, action) {
         Ok(i) => i,

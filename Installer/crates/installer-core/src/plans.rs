@@ -1,4 +1,8 @@
-use crate::{inventory::Inventory, payload::Payload, Result};
+use crate::{
+    inventory::{detect_migration, Inventory, MigrationState},
+    payload::Payload,
+    Result,
+};
 use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -84,8 +88,15 @@ pub fn signature_resets(
 pub fn plan(inventory: Inventory, payload: &Payload, action: Action, dns: Dns) -> Result<Plan> {
     let mut warnings=vec!["Совпадение компонентов не означает проверку всех функций на этой прошивке. Автомобиль должен стоять на парковке; питание нельзя отключать до завершения.".into()];
     warnings.extend(inventory.problems.iter().cloned());
+    // IMP-14 (L141): детект оригинала — установлены APK с original-fingerprint
+    let migration_needed = action == Action::Install
+        && inventory.state != "absent"
+        && detect_migration(&inventory.packages) == MigrationState::Original;
     let operation = if action == Action::Remove {
         "remove"
+    } else if migration_needed {
+        // WP6 (L142): оригинал найден — нужна миграция с бэкапом/удалением/восстановлением
+        "migrate"
     } else if inventory.state == "absent" {
         "install"
     } else if inventory.state != "complete" {
@@ -96,6 +107,9 @@ pub fn plan(inventory: Inventory, payload: &Payload, action: Action, dns: Dns) -
     } else {
         "update"
     };
+    if migration_needed {
+        warnings.push("Обнаружен оригинал (Voyah HMI). Его данные будут сохранены, оригинал удалён, затем установлен VoyahTune.".into());
+    }
     if action == Action::Remove {
         warnings.push("Будут удалены VoyahTune, его настройки и журналы; DNS будет восстановлен из сохранённого исходного состояния. Заводская прошивка и состояние загрузчика не восстанавливаются.".into());
     }
@@ -106,7 +120,7 @@ pub fn plan(inventory: Inventory, payload: &Payload, action: Action, dns: Dns) -
     if !resets.is_empty() {
         warnings.push(format!("Другой ключ подписи: {}. Эти приложения будут автоматически удалены вместе с настройками и данными, затем установлены заново.", resets.join(", ")));
     }
-    let steps = classic_steps(action);
+    let steps = classic_steps(action, migration_needed);
     use sha2::{Digest, Sha256};
     Ok(Plan {
         installer_version: crate::compatibility::INSTALLER_VERSION.into(),
@@ -141,11 +155,10 @@ pub fn plan(inventory: Inventory, payload: &Payload, action: Action, dns: Dns) -
 }
 
 /// Shared with the GUI plan; these are presentation boundaries in the classic flow.
-fn classic_steps(action: Action) -> Vec<(&'static str, &'static str)> {
+fn classic_steps(action: Action, migration_needed: bool) -> Vec<(&'static str, &'static str)> {
     let mut s = vec![
         ("preflight", "Подготовка файлов релиза"),
         ("root", "Получение системного доступа"),
-        // engine.execute() запускает ota_prepare() безусловно (оба действия).
         ("updater-lock", "Блокировка установки и сохранение OTA-логов"),
     ];
     if action != Action::Remove {
@@ -162,6 +175,34 @@ fn classic_steps(action: Action) -> Vec<(&'static str, &'static str)> {
             ("settings", "Очистка настроек VoyahTune"),
             ("packages", "Удаление приложений"),
             ("reboot", "Перезагрузка автомобиля"),
+        ]);
+    } else if migration_needed {
+        // WP6 (IMP-14): миграция с оригинала — L142 a-h
+        s.extend([
+            ("migrate-staging", "Сохранение данных оригинала"),
+            ("migrate-backup", "Бэкап системной папки на компьютер"),
+            ("migrate-consent", "Подтверждение удаления оригинала"),
+            ("migrate-removal", "Удаление оригинальных приложений"),
+            ("migrate-reboot", "Перезагрузка после удаления"),
+        ]);
+        // Стандартные шаги установки (после migrate-reboot)
+        s.extend([
+            ("backup", "Сохранение файлов перед заменой"),
+            ("signing-reset", "Переустановка при смене подписи"),
+            ("runtime", "Остановка старых hooks"),
+            ("apollo-migration", "Отключение старой активации Apollo"),
+            ("files", "Установка файлов релиза"),
+            ("migration", "Миграция старого init.logcat.sh"),
+            ("boot-hooks", "Установка boot-hook"),
+        ]);
+        s.extend([
+            ("native", "Установка Native и разрешений"),
+            ("packages", "Установка RestoreMode и настроек"),
+            ("dns", "Настройка DNS"),
+            ("migrate-restore", "Восстановление данных оригинала"),
+            ("updater-bootstrap", "Подготовка первого запуска OTA"),
+            ("reboot", "Перезагрузка автомобиля"),
+            ("migrate-verify", "Проверка владельца разрешений"),
         ]);
     } else {
         s.extend([

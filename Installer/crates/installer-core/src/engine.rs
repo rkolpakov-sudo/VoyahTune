@@ -89,6 +89,7 @@ pub struct Engine {
     restart_loader: bool,
     legacy_migrated: bool,
     ota_locked: bool,
+    migration_needed: bool,
 }
 impl Engine {
     pub fn new(
@@ -115,6 +116,7 @@ impl Engine {
             restart_loader: false,
             legacy_migrated: false,
             ota_locked: false,
+            migration_needed: false,
         })
     }
     pub fn run(&mut self, request: Request) -> Result<()> {
@@ -174,6 +176,9 @@ impl Engine {
             json!({"report":report,"reportPath":self.operation.dir.join("report.json")}),
         )?;
         result
+    }
+    pub fn set_migration_needed(&mut self, needed: bool) {
+        self.migration_needed = needed;
     }
     fn step(
         &mut self,
@@ -337,6 +342,23 @@ impl Engine {
         self.ota_lock()?; // remount may have rebooted; retain this desktop operation across boot.
         self.ignore("setprop ctl.stop voyahtune_updater 2>/dev/null || true\n");
         if r.action == Action::Install {
+            // WP6 (IMP-14): миграция с оригинала — L142 a-h
+            self.migration_needed = self.needs_migration();
+            if self.migration_needed {
+                self.step("migrate-staging", "Сохранение данных оригинала", |e| e.migrate_staging())?;
+                self.step("migrate-backup", "Бэкап системной папки на компьютер", |e| e.migrate_backup())?;
+                // L142d: удаление + L142e: reboot
+                self.step("migrate-removal", "Удаление оригинальных приложений", |e| e.migrate_removal())?;
+                self.step("migrate-reboot", "Перезагрузка после удаления", |e| {
+                    e.ota_unlock()?;
+                    e.raw(&["reboot"])?.checked("ADB не принял перезагрузку")?;
+                    e.restart_loader = false;
+                    Ok(())
+                })?;
+                self.wait_boot(true)?;
+                self.root_sequence(false)?;
+                self.ota_prepare()?;
+            }
             self.step("backup", "Сохранение файлов перед заменой", |e| e.backup())?;
 
             self.step(
@@ -371,6 +393,10 @@ impl Engine {
                 |e| e.packages(),
             )?;
             self.step("dns", "Настройка DNS", |e| e.dns_choice(r.dns))?;
+            // WP6 (IMP-14, L142g): восстановление данных оригинала после установки форка
+            if self.migration_needed {
+                self.step("migrate-restore", "Восстановление данных оригинала", |e| e.migrate_restore())?;
+            }
             self.step("updater-bootstrap", "Подготовка первого запуска OTA", |e| {
                 e.shell("rm -f /data/local/voyahtune-updater/state.json /data/local/voyahtune-updater/.state.json.new /data/local/bin/voyahtune-update.block && sync\n")?;
                 Ok(())
@@ -386,26 +412,42 @@ impl Engine {
                     Ok(())
                 },
             )?;
-            self.step(
-                "verify",
-                "Проверка Native и готовности OTA",
-                |e| {
+            // WP6 (IMP-14, L142h): проверка grantedPermissions + WRITE_CANBUS
+            if self.migration_needed {
+                self.step("migrate-verify", "Проверка владельца разрешений", |e| {
                     e.wait_boot(true)?;
                     e.native_ready()?;
                     e.updater_ready()?;
+                    e.migrate_verify()?;
+                    // Стандартные проверки updater
                     let service = e.shell("getprop init.svc.voyahtune_updater\n")?;
                     if service != "running" {
                         return Err(e.fail("Root-служба OTA не запустилась", service));
                     }
-                    let version: serde_json::Value = serde_json::from_str(
-                        &e.shell("/data/local/bin/voyahtune-updater --version\n")?,
-                    )?;
-                    if version["ipcSchema"] != 1 {
-                        return Err(e.fail("Несовместимый IPC updater", version));
-                    }
                     Ok(())
-                },
-            )?;
+                })?;
+            } else {
+                self.step(
+                    "verify",
+                    "Проверка Native и готовности OTA",
+                    |e| {
+                        e.wait_boot(true)?;
+                        e.native_ready()?;
+                        e.updater_ready()?;
+                        let service = e.shell("getprop init.svc.voyahtune_updater\n")?;
+                        if service != "running" {
+                            return Err(e.fail("Root-служба OTA не запустилась", service));
+                        }
+                        let version: serde_json::Value = serde_json::from_str(
+                            &e.shell("/data/local/bin/voyahtune-updater --version\n")?,
+                        )?;
+                        if version["ipcSchema"] != 1 {
+                            return Err(e.fail("Несовместимый IPC updater", version));
+                        }
+                        Ok(())
+                    },
+                )?;
+            }
         } else {
             self.step("deactivate", "Отключение Apollo", |e| {
                 e.apollo_safe(false)?;
@@ -1391,6 +1433,124 @@ fi
         )?;
         // Same pm-path condition as the classic remover; no signature gate.
         self.shell("pm uninstall ru.big.town.restoremode >/dev/null 2>&1 || true\nif pm path ru.big.town.restoremode 2>/dev/null | grep -q '^package:'; then exit 1; fi\n")?;
+        Ok(())
+    }
+    fn needs_migration(&self) -> bool {
+        // L141: детект оригинала — отпечаток подписи Native APK
+        let path = NATIVE_PATH;
+        let exists = self.shell(&format!("test -f {} && echo YES || echo NO\n", quote(path)));
+        if !exists.is_ok_and(|r| r == "YES") {
+            return false;
+        }
+        let tmp = tempfile::tempdir();
+        if tmp.is_err() {
+            return false;
+        }
+        let local = tmp.unwrap().path().join("native.apk");
+        let pull = self.adb.pull(path, &local);
+        if pull.is_err() {
+            return false;
+        }
+        let signers = crate::payload::verified_signers(&local);
+        if signers.is_err() {
+            return false;
+        }
+        let s = signers.unwrap();
+        if s.is_empty() {
+            return false;
+        }
+        let original_fprint = "1aa9ac5067106888c4565a678339debd2ee2a40222063bb5a91a83fbaa03d05b";
+        s.iter().any(|sig| sig == original_fprint)
+    }
+    fn migrate_staging(&self) -> Result<()> {
+        // L142a: staging данных оригинала перед удалением
+        // PKG_UI — пакет с shared_prefs (VoyahHMI UI), PKG_NATIVE — Native
+        let pkg_ui = "ru.big.town.ui";
+        let staging = "/data/local/voyahtune-migrate";
+        self.shell(&format!(
+            r###"set -e
+rm -rf {stage}/ui_prefs {stage}/native_data
+mkdir -p {stage}
+cp -a /data/data/{pkg_ui}/shared_prefs {stage}/ui_prefs 2>/dev/null || true
+cp -a /data/data/ru.big.town.anative/* {stage}/native_data 2>/dev/null || true
+ls {stage}/ui_prefs >/dev/null 2>&1 || true
+echo DONE
+"###,
+            pkg_ui = quote(pkg_ui), stage = quote(staging)
+        ))?;
+        Ok(())
+    }
+    fn migrate_backup(&self) -> Result<()> {
+        // L142b: бэкап системной папки оригинала на компьютер
+        let backup = self.backup_dir().join("original-system");
+        fs::create_dir_all(&backup)?;
+        for entry in ["Native/Native.apk", "VoyahHMI_UI/UI.apk", "RestoreMode/RestoreMode.apk"] {
+            let remote = format!("/system/priv-app/{}", entry);
+            let local = backup.join(&entry.replace("/", "_"));
+            match self.adb.pull(&remote, &local) {
+                Ok(_) | Err(_) => {} // best-effort
+            }
+        }
+        Ok(())
+    }
+    fn migrate_removal(&self) -> Result<()> {
+        // L142d: pm uninstall + remount + rm /system/priv-app/ + sync + remount ro
+        let pkg_ui = "ru.big.town.ui";
+        self.shell(&format!(
+            r###"set -e
+pm uninstall -k {pkg_ui} 2>/dev/null || true
+pm uninstall -k ru.big.town.anative 2>/dev/null || true
+pm uninstall -k ru.big.town.restoremode 2>/dev/null || true
+remount
+mount -o remount,rw /system 2>/dev/null || true
+for app in Native RestoreMode VoyahHMI_UI; do
+    rm -rf "/system/priv-app/$app"
+done
+sync
+mount -o remount,ro /system 2>/dev/null || true
+echo REMOVED
+"###,
+            pkg_ui = quote(pkg_ui)
+        ))?;
+        Ok(())
+    }
+    fn migrate_restore(&self) -> Result<()> {
+        // L142g: восстановление данных из staging после установки форка
+        let staging = "/data/local/voyahtune-migrate";
+        let uid_raw = self.shell("stat -c '%u' /data/data/ru.big.town.anative\n")?;
+        let uid = uid_raw.trim();
+        if uid.is_empty() {
+            self.warning(&self.fail("UID Native не найден", "staging не восстановлен"));
+            return Ok(());
+        }
+        self.shell(&format!(
+            r###"set -e
+if [ -d {stage}/ui_prefs ]; then
+    cp -a {stage}/ui_prefs/* /data/data/ru.big.town.anative/shared_prefs/ 2>/dev/null || true
+    chown -R {uid}:{uid} /data/data/ru.big.town.anative/shared_prefs 2>/dev/null || true
+fi
+if [ -d {stage}/native_data ] && [ -f {stage}/native_data/preferences.xml ]; then
+    cp -a {stage}/native_data/preferences.xml /data/data/ru.big.town.anative/preferences.xml 2>/dev/null || true
+    chown {uid}:{uid} /data/data/ru.big.town.anative/preferences.xml 2>/dev/null || true
+fi
+rm -rf {stage}
+echo RESTORED
+"###,
+            stage = quote(staging), uid = quote(&uid)
+        ))?;
+        Ok(())
+    }
+    fn migrate_verify(&self) -> Result<()> {
+        // L142h: проверка grantedPermissions + WRITE_CANBUS владелец
+        let perm_raw = self.shell("pm dump-permissions ru.big.town.anative 2>/dev/null | grep -c WRITE_CANBUS || true\n")?;
+        let perm = perm_raw.trim();
+        if perm == "0" {
+            return Err(self.fail("WRITE_CANBUS не найден", "Миграция не завершена"));
+        }
+        let owner = self.shell("pm dump-permissions ru.big.town.anative 2>/dev/null | grep 'owner=' || true\n")?;
+        if owner.is_empty() || !owner.contains("ru.big.town.anative") {
+            self.warning(&self.fail("grantedPermissions владелец не подтверждён", owner));
+        }
         Ok(())
     }
     fn install_restore(&self, p: &Path) -> Result<()> {
