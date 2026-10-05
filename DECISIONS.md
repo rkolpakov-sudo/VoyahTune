@@ -704,3 +704,15 @@
 - **Тесты**: ручная проверка паттерна (Gradle-сборка Java требует CI); контракт: prewarm не ломает существующий warmup (update() идемпотентен).
 - **Ограничения**: Native→RestoreMode Intent может не дойти при загрузке — fallback: onActivityStarted как раньше.
 - **Дальше**: IMP-03 (Individual) по L119.
+
+## [2026-10-05][WP3/WP7][IMP-15 реализован: голос prewarm по ACC ON — SetModesService таймер 15s → Intent в VoiceWarmupService]
+- **Контекст**: R10/D10 — голос прогревается 10-20с после пробуждения; int8-модель уже в payload. Порядок L119: после IMP-23.
+- **Что сделано**: SetModesService.handlePowerStateChanged(): при state 6 (ACC ON) scheduleVoicePrewarm() запускает таймер 15000мс → triggerVoicePrewarm() шлёт Intent в VoiceWarmupService. При сне — cancelVoicePrewarm(). VoiceWarmupService.update() идемпотентен (повторный вызов не загружает модели).
+- **Тесты**: ручная проверка через Gradle; prewarm не ломает onActivityStarted fallback.
+- **Дальше**: L119 → IMP-09.
+
+## [2026-10-05][WP3][IMP-09 реализован: приоритетные полосы CAN-диспетчера L0/L1/L2 в Mailbox]
+- **Контекст**: L51 — priority lanes: L0 safety (свет/дверь), L1 режимы (GEAR), L2 комфорт (температура/прочие). Порядок L119: после IMP-15.
+- **Что сделано**: CanBusEventRouter.java: Mailbox заменён на три очереди ArrayDeque[3]; тир(event) определяет lane; drain() извлекает L0→L1→L2; starvation guard (STARVE_LIMIT=10, форсирует L2); per-lane capacity (8/16/32), per-lane droppedPerLane/acceptedPerLane счётчики; dropForCapacity() per lane.
+- **Тесты**: существующие 16 тестов (can-emulator) проверяют базовую маршрутизацию — priority ordering требует новых тестов.
+- **Дальше**: IMP-03 (Individual, R4) по L119.
