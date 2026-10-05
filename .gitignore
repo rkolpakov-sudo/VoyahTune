@@ -58,3 +58,6 @@ Installer/desktop/src-tauri/tauri.release.conf.json
 # Приватность владельца (мастер-док телеметрии и его артефакты — ВНЕ репо, R5)
 Qwen_*.md
 art/
+
+# Резервный комплект владельца (Приложение E) — хранится локально, не в git
+VoyahTune-Installer-*.exe
