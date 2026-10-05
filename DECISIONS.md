@@ -690,3 +690,10 @@
 - **Что сделано**: engine.rs (+32 строки): residue_check() — L143 чеклист (6 проверок: Updater/OTA/Frida/DNS/apollo-backup/yandexcloud, best-effort через ignore), шаг residue после verify; remove_fork() — L145 восстановление оригинала из backup + очистка, шаг remove-fork в ветке удаления до reboot.
 - **Тесты**: 28/28 PASS (cargo test), cargo check — чисто.
 - **Ограничения**: backup remove-fork использует backup_dir() (сессионный, не постоянный) — restore-пути на компьютер при remove-форка требуют отдельного механизма сохранения backup между операциями.
+
+## [2026-10-05][WP6][IMP-14 фаза 3: улучшенный детект оригинала по build metadata + fake ADB тесты (L146) — 3/3 pass]
+- **Контекст**: завершение IMP-14 (фазы 1-2: ядро + residue/remove-fork, коммиты 5d66b47, 60ee4e1).
+- **Что сделано**: inventory.rs: detect_migration() теперь определяет оригинал также по отсутствию/несовпадению build.product (не только signers) — для fake ADB и оригиналов без подписей. Installer/tests/test_migration.py: 3 сценария fake ADB (L146) — S1 план с operation=migrate, S2 полный apply миграции (staging→backup→removal→reboot→install→restore→verify), S3 remove форка — все 3 PASS (199s).
+- **Тесты**: 3/3 migration pass; 28/28 Rust unit pass (cargo test); cargo check/build — чисто.
+- **Ограничения**: не покрыты сценарии L146 #4 (обрыв→восстановление) и #5 (остаток init-контракта) — требуют симуляции ADB-ошибок в миграции; GUI поддержка operation=migrate не реализована.
+- **Дальше**: IMP-23 (P0, CP-флаги/нотификации) по L119; IMP-14 фаза 3b (GUI + оставшиеся 2 сценария) — при необходимости.
