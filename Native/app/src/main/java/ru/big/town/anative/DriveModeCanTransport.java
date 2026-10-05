@@ -31,12 +31,20 @@ final class DriveModeCanTransport {
     }
 
     static DispatchResult dispatch(Context context, String str) {
-        Map<OemVehicleStateTransport.StateKey, Integer> mapStatesFor = statesFor(context, str);
+        final Map<OemVehicleStateTransport.StateKey, Integer> mapStatesFor = statesFor(context, str);
         if (mapStatesFor == null) {
             return DispatchResult.TRANSIENT_FAILURE;
         }
-        if (OemVehicleStateTransport.sendBundle(context, mapStatesFor, "drive mode: " + str).accepted()) {
-            Log.i(TAG, "OEM drive-mode bundle accepted-unconfirmed: " + str);
+        if (CommandStatusHub.get().submit(ReadBackTable.FEATURE_DRIVE_MODE, new CommandDispatcher.SendAction() { // from class: ru.big.town.anative.DriveModeCanTransport.1
+            @Override // ru.big.town.anative.CommandDispatcher.SendAction
+            public boolean send() {
+                if (OemVehicleStateTransport.sendBundle(context, mapStatesFor, "drive mode: " + str).accepted()) {
+                    Log.i(TAG, "OEM drive-mode bundle accepted-unconfirmed: " + str);
+                    return true;
+                }
+                return false;
+            }
+        })) {
             return DispatchResult.ACCEPTED_UNCONFIRMED;
         }
         return DispatchResult.TRANSIENT_FAILURE;

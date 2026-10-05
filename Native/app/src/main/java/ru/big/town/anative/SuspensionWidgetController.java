@@ -60,6 +60,7 @@ final class SuspensionWidgetController {
         if (this.pending >= 0) {
             this.pending = -1;
             this.message = "Изменение высоты не подтверждено";
+            CommandStatusHub.get().mismatch(ReadBackTable.FEATURE_SUSPENSION, ReadBackTable.SOURCE_ASC);
             publish();
         }
     }
@@ -202,6 +203,7 @@ final class SuspensionWidgetController {
             this.pending = -1;
             this.worker.removeCallbacks(this.timeout);
             this.message = "Высота подтверждена";
+            CommandStatusHub.get().ack(ReadBackTable.FEATURE_SUSPENSION, ReadBackTable.SOURCE_ASC);
         } else if (this.pending < 0 && "Нет данных подвески".equals(this.message) && SuspensionWidgetPolicy.validHeight(this.height)) {
             this.message = "";
         }
@@ -230,11 +232,21 @@ final class SuspensionWidgetController {
 
     /* JADX INFO: renamed from: lambda$select$3$ru-big-town-anative-SuspensionWidgetController, reason: not valid java name */
     /* synthetic */ void m2137lambda$select$3$rubigtownanativeSuspensionWidgetController(final int i) {
-        final String strDispatch = dispatch(i);
+        final String[] strArr = new String[1];
+        CommandStatusHub.get().submit(ReadBackTable.FEATURE_SUSPENSION, new CommandDispatcher.SendAction() { // from class: ru.big.town.anative.SuspensionWidgetController.1
+            @Override // ru.big.town.anative.CommandDispatcher.SendAction
+            public boolean send() {
+                String strDispatch = SuspensionWidgetController.this.dispatch(i);
+                strArr[0] = strDispatch;
+                return strDispatch.isEmpty();
+            }
+        });
+        String str = strArr[0];
+        final String strDispatch2 = str == null ? "Команда не выполнена" : str;
         this.worker.post(new Runnable() { // from class: ru.big.town.anative.SuspensionWidgetController$$ExternalSyntheticLambda6
             @Override // java.lang.Runnable
             public final void run() {
-                SuspensionWidgetController.this.m2136lambda$select$2$rubigtownanativeSuspensionWidgetController(strDispatch, i);
+                SuspensionWidgetController.this.m2136lambda$select$2$rubigtownanativeSuspensionWidgetController(strDispatch2, i);
             }
         });
     }

@@ -212,4 +212,13 @@
     <string name="wash_mode_confirmation">Перед активацией включите P. Автомобиль немедленно выключится. Бесключевое открытие и закрытие временно станет недоступно; снаружи используйте физический ключ. Для выхода из режима нажмите педаль тормоза.</string>
     <string name="wash_mode_title">Режим мойки</string>
     <string name="wiper_cold_desc">Данная опция переводит дворники в сервисный режим при открытии водительской двери и возвращает в обычный режим при включении автомобиля. Это помогает дворникам не примерзать к стеклу, если ночью ударит мороз. Включайте на холодный сезон. Обязательно проверьте, что не включен режим дворников Auto, иначе работать не будет!</string>
+    <string name="cmd_feature_driveMode">Режим движения</string>
+    <string name="cmd_feature_energy">Энергия</string>
+    <string name="cmd_feature_light">Свет</string>
+    <string name="cmd_feature_recycle">Рекуперация</string>
+    <string name="cmd_feature_suspension">Подвеска</string>
+    <string name="cmd_status_confirmed">%1$s: подтверждено</string>
+    <string name="cmd_status_failed">%1$s: ошибка отправки</string>
+    <string name="cmd_status_sending">%1$s: отправка…</string>
+    <string name="cmd_status_timeout">%1$s: нет подтверждения</string>
 </resources>

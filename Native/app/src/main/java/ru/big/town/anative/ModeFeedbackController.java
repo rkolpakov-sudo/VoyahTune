@@ -75,6 +75,7 @@ final class ModeFeedbackController implements AutoCloseable {
             } catch (RuntimeException e) {
                 Log.w(TAG, "persist feedback: " + e.getMessage());
             }
+            CommandStatusHub.get().ack(feedbackDecode.modeKey, ReadBackTable.SOURCE_VCU_INDICATION);
             if (NativeLog.get().isRunning()) {
                 Log.i(TAG, "VSTATE mode id=" + i + " state=" + i2);
             }

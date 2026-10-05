@@ -591,3 +591,18 @@
 - **Проверка**: \:Native:app:testDebugUnitTest\ 325/325 PASS (новых: 14 SleepControllerTest + 5 PendingApplySeriesTest); регресс-тесты 3.22 (ModeSyncPolicyTest, ApplyEngineRunStateTest) зелёные.
 - **Риск**: низкий (car-independent); on-car валидация — в будущем окне кампании.
 - **Дальше**: IMP-01 (CommandResult + read-back) → IMP-02 (AVAS state-machine).
+
+## [2026-10-05][WP3][IMP-01 реализован: CommandResult + read-back диспетчер + AckProvider + UI-бейдж]
+- **Контекст**: порядок L119 — после IMP-06 (P0, SPEC L43, R3 «нет физического подтверждения команд»); кампания on-car на паузе, работа car-independent.
+- **Что сделано**:
+  - \CommandResult\ (ядро): state SENT|PENDING_ACK|CONFIRMED|FAILED|TIMEOUT, feature/sentAt/ackSource/attempts.
+  - \CommandDispatcher\ (ядро): окно read-back 1500мс; ретраи ≤2; backoff 300/900мс джиттер ±10%; \onAck\ подтверждает (в т.ч. во время backoff), \onMismatch\ → FAILED с источником; новый submit вытесняет предыдущую команду фичи (FAILED); \submit\ возвращает boolean (синхронный результат первой отправки — вызывающий код не меняется асинхронно); \markSent\ ДО вызова action.send() + проверка active после — защита от синхронного echo (reentrant ack во время send иначе затирал состояние PENDING_ACK'ом и планировал мёртвое окно); исключения в send → fail без падения.
+  - \ReadBackTable\ — read-back таблица SPEC: режимы → VCU_Indication 0x2FA; подвеска → ASC 785/959; свет → SWReason; AVAS → бит TX57 (IMP-02).
+  - \CommandStatusHub\ — прод-обвязка: HandlerThread «CommandStatus» (НЕ main — ретраи выполняют блокирующие транзакции), SystemClock; каждый переход → Log + broadcast \ACTION_COMMAND_RESULT\ (setPackage restoremode, BIND_SET_MODES_SERVICE) по образцу publishPowerHoldStatus.
+  - AckProvider-врезки (только добавление вызовов, поведение не меняется): \ModeFeedbackController.onVehicleState\ → ack(modeKey); \SuspensionWidgetController\ checkCompletion/reached → ack, timeout 45с → mismatch; \LightSensorService.onLightSwReason\ → ack при desired==target, mismatch при расхождении.
+  - Миграция фич (отправка теперь идёт через submit): \DriveModeCanTransport.dispatch\ (feature driveMode), \SuspensionWidgetController.dispatch\ (suspension), \LightSensorService commit → setHeadlights\ (light). CanRestorePlan НЕ подключён — у restore-плана свой retry-цикл (ApplyEngine), двойные ретраи исключены.
+  - UI-бейдж: \AdvanceActivity.commandStatusText\ (layout-строка под шапкой, ids.xml+strings.xml) + \commandResultReceiver\ (register/unregister по образцу settingSyncReceiver) → «отправка/подтверждено/ошибка/нет подтверждения» + pill_pending/active/error.
+- **Тесты**: \:Native:app:testDebugUnitTest\ — новых 21: CommandDispatcherTest 11 (отклик/молчание×3-попытки/поздний/mismatch/supersede/исключение/джиттер-границы [270,330]+[810,990]), CommandReadBackEmulatorTest 4 (can-emulator: ACK→CONFIRMED, SILENT→TIMEOUT за 3 транзакции, LATE 250мс→CONFIRMED, CONFLICTING→FAILED), ReadBackTableTest 6. Итог по трём модулям (Native+RestoreMode+hil): 503/503 PASS, 0 failures.
+- **Ограничения**: источник LightStatus не врезан (коды датчика фар не документированы в коде — подтверждение света только через SWReason); AVAS-фича подключается в IMP-02; restore-серию (sendRestoreSequence) на диспетчер не мигрировали (свой retry); UI-бейдж — последнее событие, история не ведётся.
+- **Риск**: низкий (car-independent; ack-врезки только публикуют события); смежные механизмы (45с-таймаут подвески, 5с reassert света) продолжают работать как раньше.
+- **Дальше**: IMP-02 (AVAS state-machine: Docs/avas-state-machine.md → Native → UI-бейдж+тумблер → HIL → on-car ×10).

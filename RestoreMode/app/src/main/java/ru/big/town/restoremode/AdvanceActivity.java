@@ -148,6 +148,7 @@ public class AdvanceActivity extends AppCompatActivity {
     private NumberPicker pickerCustomCommandCount;
     private SharedPreferences prefs;
     private TextView sectionTitle;
+    private TextView commandStatusText;
     private LinearLayout splitPresetsContainer;
     private LinearLayout steerDvrLongList;
     private LinearLayout steerDvrShortList;
@@ -261,6 +262,12 @@ public class AdvanceActivity extends AppCompatActivity {
             }
         }
     });
+    private final BroadcastReceiver commandResultReceiver = new BroadcastReceiver() { // from class: ru.big.town.restoremode.AdvanceActivity.5x
+        @Override // android.content.BroadcastReceiver
+        public void onReceive(Context context, Intent intent) {
+            AdvanceActivity.this.renderCommandResult(intent);
+        }
+    };
     private final BroadcastReceiver luxReceiver = new BroadcastReceiver() { // from class: ru.big.town.restoremode.AdvanceActivity.5
         @Override // android.content.BroadcastReceiver
         public void onReceive(Context context, Intent intent) {
@@ -488,6 +495,7 @@ public class AdvanceActivity extends AppCompatActivity {
         this.buttonApplyAdvance = (Button) findViewById(R.id.buttonApplyAdvance);
         this.applyProgressAdvance = (ProgressBar) findViewById(R.id.applyProgressAdvance);
         this.sectionTitle = (TextView) findViewById(R.id.sectionTitle);
+        this.commandStatusText = (TextView) findViewById(R.id.commandStatusText);
         this.canCommandsEditor = (EditText) findViewById(R.id.rawCanCodes);
         this.buttonBack = (ImageButton) findViewById(R.id.buttonBack);
         NumberPicker numberPicker = (NumberPicker) findViewById(R.id.pickerCustomCommandCount);
@@ -3455,6 +3463,57 @@ public class AdvanceActivity extends AppCompatActivity {
         }
     }
 
+    /* JADX INFO: Access modifiers changed from: private */
+    public void renderCommandResult(Intent intent) {
+        TextView textView = this.commandStatusText;
+        if (textView == null || intent == null) {
+            return;
+        }
+        String stringExtra = intent.getStringExtra("feature");
+        String stringExtra2 = intent.getStringExtra("state");
+        if (stringExtra == null || stringExtra2 == null) {
+            return;
+        }
+        int iCommandFeatureName = commandFeatureName(stringExtra);
+        String string = iCommandFeatureName != 0 ? getString(iCommandFeatureName) : stringExtra;
+        int i = R.string.cmd_status_sending;
+        int i2 = R.drawable.pill_pending;
+        if ("CONFIRMED".equals(stringExtra2)) {
+            i = R.string.cmd_status_confirmed;
+            i2 = R.drawable.pill_active;
+        } else if ("FAILED".equals(stringExtra2)) {
+            i = R.string.cmd_status_failed;
+            i2 = R.drawable.pill_error;
+        } else if ("TIMEOUT".equals(stringExtra2)) {
+            i = R.string.cmd_status_timeout;
+            i2 = R.drawable.pill_error;
+        } else if (!"SENT".equals(stringExtra2) && !"PENDING_ACK".equals(stringExtra2)) {
+            return;
+        }
+        textView.setText(getString(i, string));
+        textView.setBackgroundResource(i2);
+        textView.setVisibility(0);
+    }
+
+    private static int commandFeatureName(String str) {
+        if ("driveMode".equals(str)) {
+            return R.string.cmd_feature_driveMode;
+        }
+        if ("energy".equals(str)) {
+            return R.string.cmd_feature_energy;
+        }
+        if ("recycle".equals(str)) {
+            return R.string.cmd_feature_recycle;
+        }
+        if ("suspension".equals(str)) {
+            return R.string.cmd_feature_suspension;
+        }
+        if ("light".equals(str)) {
+            return R.string.cmd_feature_light;
+        }
+        return 0;
+    }
+
     @Override // androidx.fragment.app.FragmentActivity, android.app.Activity
     protected void onResume() {
         VoiceSettingsPage voiceSettingsPage;
@@ -3475,6 +3534,7 @@ public class AdvanceActivity extends AppCompatActivity {
         registerReceiver(this.luxReceiver, new IntentFilter("ru.big.town.anative.LUX_UPDATE"), 2);
         registerReceiver(this.modeSyncReceiver, new IntentFilter("ru.big.town.anative.MODE_SYNCED"), 2);
         registerReceiver(this.settingSyncReceiver, new IntentFilter("ru.big.town.anative.SETTING_SYNCED"), "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE", null, 2);
+        registerReceiver(this.commandResultReceiver, new IntentFilter("ru.big.town.anative.ACTION_COMMAND_RESULT"), "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE", null, 2);
         Intent intent = new Intent("ru.big.town.anative.REQUEST_LUX_UPDATE");
         intent.setPackage(NATIVE_PACKAGE);
         sendBroadcast(intent);
@@ -3497,6 +3557,10 @@ public class AdvanceActivity extends AppCompatActivity {
         try {
             unregisterReceiver(this.settingSyncReceiver);
         } catch (Exception unused3) {
+        }
+        try {
+            unregisterReceiver(this.commandResultReceiver);
+        } catch (Exception unused4) {
         }
     }
 

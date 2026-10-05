@@ -1482,12 +1482,17 @@ public class LightSensorService extends Service {
     }
 
     /* JADX INFO: renamed from: lambda$commit$22$ru-big-town-anative-LightSensorService, reason: not valid java name */
-    /* synthetic */ boolean m1962lambda$commit$22$rubigtownanativeLightSensorService(long j, boolean z) {
+    /* synthetic */ boolean m1962lambda$commit$22$rubigtownanativeLightSensorService(long j, final boolean z) {
         if (!MANUAL_AUTO_GATE.isAutomaticActionCurrent(j)) {
             Log.i(TAG, "auto-light action superseded by newer manual intent");
             return false;
         }
-        return MainActivity.setHeadlights(this, z);
+        return CommandStatusHub.get().submit(ReadBackTable.FEATURE_LIGHT, new CommandDispatcher.SendAction() { // from class: ru.big.town.anative.LightSensorService.1
+            @Override // ru.big.town.anative.CommandDispatcher.SendAction
+            public boolean send() {
+                return MainActivity.setHeadlights(LightSensorService.this, z);
+            }
+        });
     }
 
     /* JADX INFO: renamed from: lambda$commit$23$ru-big-town-anative-LightSensorService, reason: not valid java name */
@@ -1533,7 +1538,11 @@ public class LightSensorService extends Service {
             return;
         }
         if (this.everSent && boolReasonToDesired.booleanValue() == this.headlightsOn) {
+            CommandStatusHub.get().ack(ReadBackTable.FEATURE_LIGHT, ReadBackTable.SOURCE_LIGHT_SW_REASON);
             return;
+        }
+        if (this.everSent) {
+            CommandStatusHub.get().mismatch(ReadBackTable.FEATURE_LIGHT, ReadBackTable.SOURCE_LIGHT_SW_REASON);
         }
         commit(boolReasonToDesired.booleanValue(), "ext-sensor reason=" + i);
     }

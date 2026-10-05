@@ -577,6 +577,7 @@
     <id name="search_src_text" />
     <id name="search_voice_btn" />
     <id name="sectionTitle" />
+    <id name="commandStatusText" />
     <id name="select_dialog_listview" />
     <id name="selected" />
     <id name="selection_type" />
