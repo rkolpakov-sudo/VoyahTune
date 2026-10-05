@@ -8,6 +8,7 @@
 #   device       ГУ-гейт: единственное устройство, батарея, место, пакеты,
 #                WRITE_CANBUS, маркер канала CAN -> art/campaign/<ts>/preflight-device.txt
 #   audit TAG    Снимок состояния ГУ (до/после) -> art/campaign/<ts>/audit-TAG/
+#   shot         Скриншот экрана ГУ -> art/campaign/screens/screen-NNN.png
 #   postinstall  После установки форка: grant-gate + интеграционные чеки
 #
 # Коды выхода: 0 — PASS (можно продолжать по карточке); 1 — FAIL (СТОП кампании,
@@ -17,6 +18,7 @@
 #   scripts/campaign.sh env
 #   scripts/campaign.sh device
 #   scripts/campaign.sh audit baseline
+#   scripts/campaign.sh shot
 #   scripts/campaign.sh postinstall
 set -euo pipefail
 
@@ -28,7 +30,7 @@ die() {
 }
 
 usage() {
-    sed -n '2,19p' "$0"
+    sed -n '2,22p' "$0"
 }
 
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
@@ -230,6 +232,26 @@ cmd_postinstall() {
     finish
 }
 
+# --- shot: скриншот экрана ГУ (хронологическая лента) ------------------------
+cmd_shot() {
+    [ -n "$ADB" ] || die "adb не найден (PATH и Android SDK)"
+    "$ADB" get-state >/dev/null 2>&1 || die "нет устройства"
+    local dir="$ROOT/art/campaign/screens"
+    mkdir -p "$dir"
+    local n file
+    n=$(ls "$dir"/screen-*.png 2>/dev/null \
+        | sed -E 's/.*screen-0*([0-9]+)\.png/\1/' | sort -n | tail -1)
+    n=$((${n:-0} + 1))
+    file="$dir/screen-$(printf '%03d' "$n").png"
+    if "$ADB" exec-out screencap -p > "$file" 2>/dev/null && [ -s "$file" ]; then
+        pass "скриншот ГУ: ${file#"$ROOT"/}"
+    else
+        rm -f "$file"
+        fail "screencap не дал изображения (экран выключен? попробуйте ещё раз)"
+    fi
+    finish
+}
+
 # --- dispatcher ---------------------------------------------------------------
 [ $# -ge 1 ] || { usage; exit 2; }
 cmd="$1"
@@ -238,6 +260,7 @@ case "$cmd" in
     env)         [ $# -eq 0 ] || die "env не принимает аргументов"; cmd_env ;;
     device)      [ $# -eq 0 ] || die "device не принимает аргументов"; cmd_device ;;
     audit)       cmd_audit "$@" ;;
+    shot)        [ $# -eq 0 ] || die "shot не принимает аргументов"; cmd_shot ;;
     postinstall) [ $# -eq 0 ] || die "postinstall не принимает аргументов"; cmd_postinstall ;;
     -h|--help)   usage; exit 0 ;;
     *)           die "неизвестная подкоманда: $cmd (env|device|audit|postinstall)" ;;
