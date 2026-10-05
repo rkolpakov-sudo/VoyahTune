@@ -716,3 +716,8 @@
 - **Что сделано**: CanBusEventRouter.java: Mailbox заменён на три очереди ArrayDeque[3]; тир(event) определяет lane; drain() извлекает L0→L1→L2; starvation guard (STARVE_LIMIT=10, форсирует L2); per-lane capacity (8/16/32), per-lane droppedPerLane/acceptedPerLane счётчики; dropForCapacity() per lane.
 - **Тесты**: существующие 16 тестов (can-emulator) проверяют базовую маршрутизацию — priority ordering требует новых тестов.
 - **Дальше**: IMP-03 (Individual, R4) по L119.
+
+## [2026-10-05][WP3][IMP-03 дизайн: Individual — выбор A/B по трассам WP2 (R4)]
+- **Контекст**: L45/R4 — Individual: одна TX77 вместо двух OEM-кадров (аудит). Порядок L119: после IMP-09.
+- **Что сделано**: Docs/imp-03.md — дизайн: трасса A (две TX77: режим → руль/педаль), трасса B (fallback + лог ошибок), HIL-сценарий.
+- **Дальше**: IMP-04 (SettingsRepository) по L119.
