@@ -196,7 +196,7 @@ md_generic_failure_line=$(printf '%s\n' "$md_function" \
 # Scheduling is exercised behaviorally by test_parallel_hook_loader.py. This contract retains
 # early init and exact-identity/backoff guarantees without enforcing a serial hook queue.
 require_fixed "$LOAD_BIN" 'WATCHDOG_CYCLE_SECONDS=1'
-require_fixed "$LOAD_BIN" 'WORKER_LANES="acc steering multidisplay launcher vd apollo keyboard apps status"'
+require_fixed "$LOAD_BIN" 'WORKER_LANES="acc steering multidisplay launcher vd apollo keyboard apps status crashes"'
 require_fixed "$LOAD_BIN" 'supervise_workers'
 require_fixed "$LOAD_BIN" 'acquire_worker_lock'
 

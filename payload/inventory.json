@@ -37,8 +37,8 @@
     {
       "name": "load.bin",
       "path": "common/load.bin",
-      "sha256": "5bc3a9dd66ee0342b687825808f8e4c81989c161052cc43b660af0584d551391",
-      "size": 76561,
+      "sha256": "1624fbbd6a9e96fbf9955bf18f8e86411685061c5f1273553d6e4bf4a81dcfce",
+      "size": 81117,
       "type": "shell",
       "role": "supported-source",
       "extract_strategy": "copy-as-source",

@@ -158,7 +158,14 @@ MD_RETRY_LONG_SECONDS=60
 WATCHDOG_CYCLE_SECONDS=1
 OPTIONAL_CYCLE_SECONDS=5
 WORKER_PREFIX=/data/local/tmp/voyahtune_worker
-WORKER_LANES="acc steering multidisplay launcher vd apollo keyboard apps status"
+# IMP-08 crash artifacts: canonical store + best-effort mirror into the app sandbox so the
+# report export never needs direct /data/local access (same reasoning as the status provider).
+WORKER_LANES="acc steering multidisplay launcher vd apollo keyboard apps status crashes"
+CRASH_ROOT=/data/local/voyahtune/crashes
+CRASH_MIRROR=/data/data/ru.big.town.restoremode/files/crashes
+CRASH_MARK=/data/local/tmp/voyahtune_crash.mark
+CRASH_WINDOW=30
+CRASH_KEEP=10
 APOLLO_MARK=/data/local/tmp/voyahtune_apollo.pid
 APOLLO_ATTEMPT=/data/local/tmp/voyahtune_apollo.attempt
 APOLLO_LOG=/data/local/tmp/voyahtune_apollo.txt
@@ -1658,6 +1665,101 @@ cleanup_worker() {
         || rm -f "$WORKER_LOCK"
 }
 
+# IMP-08 crash artifacts lane: copy tombstones within a +-30s window around the newest mtime
+# plus bounded dumpsys snapshots, keep the last CRASH_KEEP incidents under CRASH_ROOT and mirror
+# each incident into the app sandbox for the local "save report" export. Two-tick stability: the
+# first cycle only records the observed epoch, the next cycle collects it, so a tombstone that is
+# still being appended is never copied half-written. Host fixtures have no dumpsys -> no-op.
+collect_crash_artifacts() {
+    [ -x /system/bin/dumpsys ] || return 0
+    CA_NEWEST=0
+    for CA_TOMB in /data/tombstones/tombstone_*; do
+        [ -f "$CA_TOMB" ] || continue
+        CA_M=$(stat -c %Y "$CA_TOMB" 2>/dev/null) || CA_M=0
+        case "$CA_M" in ''|*[!0-9]*) CA_M=0 ;; esac
+        [ "$CA_M" -gt "$CA_NEWEST" ] && CA_NEWEST=$CA_M
+    done
+    [ "$CA_NEWEST" -gt 0 ] || return 0
+    CA_STATE=none; CA_MARK_VALUE=0
+    [ ! -r "$CRASH_MARK" ] || IFS='|' read -r CA_STATE CA_MARK_VALUE < "$CRASH_MARK"
+    case "$CA_MARK_VALUE" in ''|*[!0-9]*) CA_MARK_VALUE=0 ;; esac
+    if [ "$CA_STATE" = ready ] && [ "$CA_MARK_VALUE" = "$CA_NEWEST" ]; then
+        return 0
+    fi
+    if [ "$CA_STATE" != pending ] || [ "$CA_MARK_VALUE" != "$CA_NEWEST" ]; then
+        CA_STAGE="$CRASH_MARK.$$.new"
+        if printf 'pending|%s\n' "$CA_NEWEST" > "$CA_STAGE" \
+                && mv -f "$CA_STAGE" "$CRASH_MARK"; then
+            logi "crash artifacts observed epoch=$CA_NEWEST; collecting next cycle"
+        else
+            rm -f "$CA_STAGE"
+        fi
+        return 0
+    fi
+    CA_DIR="$CRASH_ROOT/$CA_NEWEST"
+    rm -rf "$CA_DIR"
+    if ! mkdir -p "$CA_DIR"; then
+        loge "crash artifacts mkdir failed dir=$CA_DIR"
+        return 1
+    fi
+    for CA_TOMB in /data/tombstones/tombstone_*; do
+        [ -f "$CA_TOMB" ] || continue
+        CA_M=$(stat -c %Y "$CA_TOMB" 2>/dev/null) || continue
+        case "$CA_M" in ''|*[!0-9]*) continue ;; esac
+        [ "$CA_M" -ge $((CA_NEWEST - CRASH_WINDOW)) ] || continue
+        [ "$CA_M" -le $((CA_NEWEST + CRASH_WINDOW)) ] || continue
+        CA_NAME=$(basename "$CA_TOMB")
+        cat "$CA_TOMB" > "$CA_DIR/$CA_NAME.txt" 2>/dev/null || rm -f "$CA_DIR/$CA_NAME.txt"
+    done
+    timeout -k 2 32 /system/bin/dumpsys -t 30 window > "$CA_DIR/dumpsys_window.txt" 2>&1 || :
+    timeout -k 2 32 /system/bin/dumpsys -t 30 activity activities > "$CA_DIR/dumpsys_activity.txt" 2>&1 || :
+    timeout -k 2 32 /system/bin/dumpsys -t 30 meminfo > "$CA_DIR/dumpsys_meminfo.txt" 2>&1 || :
+    {
+        echo "collected=$(date -u +%Y%m%dT%H%M%SZ 2>/dev/null)"
+        echo "boot_id=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null)"
+        echo "loader_pid=${SUPERVISOR_PID:-$$}"
+        cat /proc/uptime 2>/dev/null
+    } > "$CA_DIR/context.txt" 2>/dev/null || :
+    CA_KEEP_I=0
+    for CA_NAME in $(ls -1 "$CRASH_ROOT" 2>/dev/null | sort -rn); do
+        case "$CA_NAME" in ''|*[!0-9]*) continue ;; esac
+        CA_KEEP_I=$((CA_KEEP_I + 1))
+        [ "$CA_KEEP_I" -le "$CRASH_KEEP" ] && continue
+        rm -rf "$CRASH_ROOT/$CA_NAME"
+    done
+    crash_mirror_artifacts
+    CA_STAGE="$CRASH_MARK.$$.new"
+    if printf 'ready|%s\n' "$CA_NEWEST" > "$CA_STAGE" && mv -f "$CA_STAGE" "$CRASH_MARK"; then
+        logi "crash artifacts collected epoch=$CA_NEWEST dir=$CA_DIR"
+        return 0
+    fi
+    rm -f "$CA_STAGE"
+    return 1
+}
+
+crash_mirror_artifacts() {
+    CM_BASE=/data/data/ru.big.town.restoremode
+    [ -d "$CM_BASE" ] || return 0
+    CM_UID=$(stat -c %u "$CM_BASE" 2>/dev/null) || return 0
+    case "$CM_UID" in ''|*[!0-9]*) return 0 ;; esac
+    rm -rf "$CRASH_MIRROR"
+    mkdir -p "$CRASH_MIRROR" || return 0
+    CM_COPIED=0
+    for CM_DIR in "$CRASH_ROOT"/*; do
+        [ -d "$CM_DIR" ] || continue
+        cp -R "$CM_DIR" "$CRASH_MIRROR/" && CM_COPIED=1
+    done
+    if [ "$CM_COPIED" != 1 ]; then
+        rm -rf "$CRASH_MIRROR"
+        return 0
+    fi
+    chown -R "$CM_UID:$CM_UID" "$CRASH_MIRROR" 2>/dev/null \
+        || chown -R "$CM_UID" "$CRASH_MIRROR" 2>/dev/null || :
+    chmod -R 755 "$CRASH_MIRROR" 2>/dev/null || :
+    restorecon -RF "$CRASH_MIRROR" 2>/dev/null || :
+    return 0
+}
+
 run_worker() {
     WORKER_LANE=$1
     SUPERVISOR_TOKEN=$2
@@ -1672,7 +1774,7 @@ run_worker() {
     trap 'exit 143' TERM
     WORKER_INTERVAL=$WATCHDOG_CYCLE_SECONDS
     case "$WORKER_LANE" in
-        apollo|keyboard|apps|status) WORKER_INTERVAL=$OPTIONAL_CYCLE_SECONDS ;;
+        apollo|keyboard|apps|status|crashes) WORKER_INTERVAL=$OPTIONAL_CYCLE_SECONDS ;;
     esac
     while supervisor_is_live; do
         case "$WORKER_LANE" in
@@ -1685,6 +1787,7 @@ run_worker() {
             keyboard) keyboard_cycle ;;
             apps) discover_app_client ;;
             status) collect_worker_states; publish_hook_status running ;;
+            crashes) collect_crash_artifacts ;;
         esac
         sleep "$WORKER_INTERVAL"
     done

@@ -2513,7 +2513,14 @@ public class AdvanceActivity extends AppCompatActivity {
         }
         long j3 = jMax;
         String hookPayload = getSharedPreferences("HookStatus", 0).getString(HookStatusContract.PAYLOAD_KEY, null);
-        return new SystemMetricsSnapshot(j3, Math.max(0L, j3 - j2), j2, readCpuPercent(j), HookStatusContract.renderForUi(hookPayload));
+        String hookStatusText = HookStatusContract.renderForUi(hookPayload);
+        try {
+            // IMP-08: тик реконсиляции ловит переход grace-окна без смены payload.
+            hookStatusText += "\n" + HookGenerationRegistry.reconcile(this, hookPayload).describe();
+        } catch (RuntimeException e) {
+            Log.w("HookGeneration", "reconcile failed: " + e.getMessage());
+        }
+        return new SystemMetricsSnapshot(j3, Math.max(0L, j3 - j2), j2, readCpuPercent(j), hookStatusText);
     }
 
     private double readCpuPercent(long j) {

@@ -141,6 +141,15 @@ public class RestoreModeContentProvider extends ContentProvider {
         }
         boolean stored = getContext().getSharedPreferences("HookStatus", 0).edit().putString(HookStatusContract.PAYLOAD_KEY, arg).commit();
         bundle3.putBoolean("stored", stored);
+        if (stored) {
+            // IMP-08: boot-reconciliation — факт (payload) сверяется с манифестом сразу при
+            // публикации, без открытого UI. Ошибка реконсиляции не должна ронять публикацию.
+            try {
+                HookGenerationRegistry.reconcile(getContext(), arg);
+            } catch (RuntimeException e) {
+                Log.w("HookGeneration", "reconcile failed", e);
+            }
+        }
         return bundle3;
     }
 

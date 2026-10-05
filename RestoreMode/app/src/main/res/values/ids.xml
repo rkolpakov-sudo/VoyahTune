@@ -191,6 +191,7 @@
     <id name="buttonReboot" />
     <id name="buttonSaveStarButton" />
     <id name="buttonShareLog" />
+    <id name="buttonShareReport" />
     <id name="buttonTripHistory" />
     <id name="buttonTripReset" />
     <id name="cache_measures" />

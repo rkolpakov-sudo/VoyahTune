@@ -8,13 +8,18 @@ import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 import android.view.View;
 import android.widget.CompoundButton;
 import android.widget.ScrollView;
 import android.widget.Switch;
 import android.widget.TextView;
+import android.widget.Toast;
 import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.FileProvider;
+import java.io.File;
+import java.io.IOException;
 import kotlinx.coroutines.DebugKt;
 
 /* JADX INFO: loaded from: classes2.dex */
@@ -115,6 +120,62 @@ public class LoggingActivity extends AppCompatActivity {
 
     public void onButtonShareLog(View view) {
         sendBroadcast(new Intent(ACTION_LOGGING_SHARE).setPackage(NATIVE_PKG));
+    }
+
+    // IMP-08: локальный отчёт стабильности (payload + реконсиляция + журнал поколений +
+    // crash-артефакты лоадера) собирается в фоне и отдаётся через FileProvider, без сети.
+    public void onButtonShareReport(View view) {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                File built;
+                try {
+                    String payload = getSharedPreferences(HookStatusContract.PREFERENCES_NAME, 0)
+                            .getString(HookStatusContract.PAYLOAD_KEY, null);
+                    String reconciliation;
+                    try {
+                        reconciliation = HookGenerationRegistry
+                                .reconcile(LoggingActivity.this, payload).describe();
+                    } catch (RuntimeException e) {
+                        reconciliation = "Сверка: недоступна (" + e.getMessage() + ")";
+                    }
+                    String journal = HookGenerationRegistry.journalText(
+                            getSharedPreferences(HookGenerationRegistry.PREFERENCES_NAME, 0));
+                    String status = HookReportExporter.composeStatus(
+                            payload,
+                            HookStatusContract.renderForUi(payload),
+                            reconciliation,
+                            journal,
+                            HookGenerationRegistry.bootCount(LoggingActivity.this),
+                            BuildConfig.VERSION_NAME,
+                            System.currentTimeMillis());
+                    built = HookReportExporter.buildReport(getFilesDir(), getCacheDir(), status);
+                } catch (IOException | RuntimeException e) {
+                    Log.w("LoggingActivity", "report build failed: " + e.getMessage());
+                    final String message = "Отчёт не собран: " + e.getMessage();
+                    uiHandler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            Toast.makeText(LoggingActivity.this, message, Toast.LENGTH_LONG).show();
+                        }
+                    });
+                    return;
+                }
+                final File report = built;
+                uiHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        Intent send = new Intent(Intent.ACTION_SEND);
+                        send.setType("application/zip");
+                        send.putExtra(Intent.EXTRA_STREAM, FileProvider.getUriForFile(
+                                LoggingActivity.this,
+                                "ru.big.town.restoremode.fileprovider", report));
+                        send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                        startActivity(Intent.createChooser(send, "Сохранить отчёт"));
+                    }
+                });
+            }
+        }, "hook-report").start();
     }
 
     /* JADX INFO: Access modifiers changed from: private */

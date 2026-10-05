@@ -7,8 +7,8 @@ import java.util.Map;
 /* JADX INFO: loaded from: classes2.dex */
 final class HookStatusContract {
     static final String AUTHORITY = "ru.big.town.restoremode.restoremodecontentprovider";
-    private static final String[] HOOK_IDS = {"vd-bypass", "steering-wheel", "launcher-dock", "multi-display", "apollo-tech", "keyboard-en", "keyboard-ru"};
-    private static final String[] HOOK_LABELS = {"Окна / VirtualDisplay", "Кнопки руля", "Док лаунчера", "Перенос между экранами", "Apollo ADAS", "Клавиатура EN", "Клавиатура RU"};
+    static final String[] HOOK_IDS = {"vd-bypass", "steering-wheel", "launcher-dock", "multi-display", "apollo-tech", "keyboard-en", "keyboard-ru"};
+    static final String[] HOOK_LABELS = {"Окна / VirtualDisplay", "Кнопки руля", "Док лаунчера", "Перенос между экранами", "Apollo ADAS", "Клавиатура EN", "Клавиатура RU"};
     static final int MAX_PAYLOAD_LENGTH = 2_048;
     static final String METHOD_PUBLISH = "publishHookStatusV1";
     static final String PAYLOAD_KEY = "payload_v1";
@@ -71,7 +71,7 @@ final class HookStatusContract {
         }
     }
 
-    private static Snapshot parse(String str) {
+    static Snapshot parse(String str) {
         int pid;
         int pid2;
         if (str == null || str.isEmpty() || str.length() > 2048 || str.indexOf(10) >= 0 || str.indexOf(13) >= 0) {
@@ -134,7 +134,7 @@ final class HookStatusContract {
         return -1;
     }
 
-    private static final class Entry {
+    static final class Entry {
         final int pid;
         final String state;
 
@@ -144,7 +144,7 @@ final class HookStatusContract {
         }
     }
 
-    private static final class Snapshot {
+    static final class Snapshot {
         final Map<String, Entry> hooks;
         final int loaderPid;
         final String loaderState;

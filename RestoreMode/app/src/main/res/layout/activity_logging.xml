@@ -13,5 +13,6 @@
             <TextView android:textSize="18.0px" android:textColor="#c8d0da" android:id="@id/textLog" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="" android:textIsSelectable="true" android:fontFamily="monospace" />
         </ScrollView>
         <Button android:textSize="26.0dp" android:textColor="#ffffff" android:id="@id/buttonShareLog" android:layout_width="match_parent" android:layout_height="70.0dp" android:layout_marginTop="14.0dp" android:text="Выгрузить логи" android:onClick="onButtonShareLog" android:backgroundTint="#2f7fd0" app:cornerRadius="20.0dp" />
+        <Button android:textSize="26.0dp" android:textColor="#ffffff" android:id="@id/buttonShareReport" android:layout_width="match_parent" android:layout_height="70.0dp" android:layout_marginTop="10.0dp" android:text="Сохранить отчёт" android:onClick="onButtonShareReport" android:backgroundTint="#3f8f5f" app:cornerRadius="20.0dp" />
     </LinearLayout>
 </LinearLayout>
