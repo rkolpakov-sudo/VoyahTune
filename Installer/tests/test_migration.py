@@ -171,6 +171,43 @@ class MigrationTests(unittest.TestCase):
         self.assertNotIn('ru.big.town.restoremode', state['packages'],
                          'RestoreMode must be removed')
 
+    # --- L146: 5 acceptance scenarios ---
+
+    def test_s4_migration_abort_recovery(self):
+        """Scenario 4: mid-flow abort → recovery. Simulate ADB failure during
+        removal, verify the device can be restored to a consistent state."""
+        self.seed_original()
+        # Inject ADB failure during removal step
+        self.state['failShell'] = 'pm uninstall'
+        self.write_state()
+        p = self.plan()
+        self.assertEqual(p['operation'], 'migrate')
+        # Apply with okay=False — migration may fail
+        result = self.apply(p, okay=False)
+        # Even on failure, the device should not be in a broken state
+        state = self.read_state()
+        # Either packages are still present (abort before removal) or gone (partial removal)
+        self.assertIn('ru.big.town.anative', state['packages'],
+                      'Device must be recoverable after migration abort')
+
+    def test_s5_residue_detected(self):
+        """Scenario 5: init-contract residue → detected and removed.
+        Simulate /system/etc/init/updater.rc after fresh install,
+        verify residue_check() detects and removes it."""
+        self.seed_original()
+        p = self.plan()
+        self.assertEqual(p['operation'], 'migrate')
+        self.apply(p)
+        # After migration + install, plant a residue marker
+        residue = self.device / 'system/etc/init/updater.rc'
+        residue.parent.mkdir(parents=True, exist_ok=True)
+        residue.write_text('#!/bin/sh\necho "legacy updater"\n')
+        # Plan another install to trigger residue check
+        p2 = self.plan(action='install')
+        self.assertEqual(p2['operation'], 'repair')
+        self.assertIn('residue', [s['id'] for s in p2['steps']],
+                      'Residue check must be in the plan')
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -35,11 +35,19 @@ final class DriveModeCanTransport {
         if (mapStatesFor == null) {
             return DispatchResult.TRANSIENT_FAILURE;
         }
+        if ("INDIVIDUAL".equals(str)) {
+            // IMP-03 (R4): две TX77 — кадр режима, затем кадр руль/педаль
+            return dispatchSplitIndividual(context, mapStatesFor, str);
+        }
+        return dispatchBundle(context, mapStatesFor, str);
+    }
+
+    private static DispatchResult dispatchBundle(Context context, Map<OemVehicleStateTransport.StateKey, Integer> states, String label) {
         if (CommandStatusHub.get().submit(ReadBackTable.FEATURE_DRIVE_MODE, new CommandDispatcher.SendAction() { // from class: ru.big.town.anative.DriveModeCanTransport.1
             @Override // ru.big.town.anative.CommandDispatcher.SendAction
             public boolean send() {
-                if (OemVehicleStateTransport.sendBundle(context, mapStatesFor, "drive mode: " + str).accepted()) {
-                    Log.i(TAG, "OEM drive-mode bundle accepted-unconfirmed: " + str);
+                if (OemVehicleStateTransport.sendBundle(context, states, "drive mode: " + label).accepted()) {
+                    Log.i(TAG, "OEM drive-mode bundle accepted-unconfirmed: " + label);
                     return true;
                 }
                 return false;
@@ -48,6 +56,51 @@ final class DriveModeCanTransport {
             return DispatchResult.ACCEPTED_UNCONFIRMED;
         }
         return DispatchResult.TRANSIENT_FAILURE;
+    }
+
+    private static DispatchResult dispatchSplitIndividual(Context context, Map<OemVehicleStateTransport.StateKey, Integer> states, String label) {
+        // Трасса A: две TX77 в порядке OEM — режим, затем руль/педаль
+        Log.i(TAG, "Individual split: sending mode frame first");
+        final boolean[] firstAccepted = {false};
+        // First TX77: mode (DRIVING_MODE_SET)
+        if (!CommandStatusHub.get().submit(ReadBackTable.FEATURE_DRIVE_MODE, new CommandDispatcher.SendAction() {
+            @Override
+            public boolean send() {
+                // Filter to mode-only keys
+                java.util.Map<OemVehicleStateTransport.StateKey, Integer> modeOnly = new java.util.LinkedHashMap();
+                for (java.util.Map.Entry<OemVehicleStateTransport.StateKey, Integer> e : states.entrySet()) {
+                    if (e.getKey().name.contains("DRIVING_MODE") || e.getKey().name.contains("EPS_MODE")) {
+                        modeOnly.put(e.getKey(), e.getValue());
+                    }
+                }
+                firstAccepted[0] = OemVehicleStateTransport.sendBundle(context, modeOnly, "individual mode: " + label).accepted();
+                return firstAccepted[0];
+            }
+        })) {
+            Log.w(TAG, "Individual mode frame failed; fallback to single bundle");
+            return dispatchBundle(context, states, label + " (fallback)");
+        }
+        // Second TX77: steering/pedal (PROP_MODE_SET)
+        final boolean[] secondAccepted = {false};
+        if (!CommandStatusHub.get().submit(ReadBackTable.FEATURE_DRIVE_MODE, new CommandDispatcher.SendAction() {
+            @Override
+            public boolean send() {
+                java.util.Map<OemVehicleStateTransport.StateKey, Integer> pedalOnly = new java.util.LinkedHashMap();
+                for (java.util.Map.Entry<OemVehicleStateTransport.StateKey, Integer> e : states.entrySet()) {
+                    if (e.getKey().name.contains("PROP_MODE")) {
+                        pedalOnly.put(e.getKey(), e.getValue());
+                    }
+                }
+                secondAccepted[0] = OemVehicleStateTransport.sendBundle(context, pedalOnly, "individual pedal: " + label).accepted();
+                return secondAccepted[0];
+            }
+        })) {
+            Log.w(TAG, "Individual pedal frame failed; second TX77 lost (ASC 785/959)");
+            // Трасса B fallback: first уже принят, логируем ошибку
+            return DispatchResult.ACCEPTED_UNCONFIRMED;
+        }
+        Log.i(TAG, "Individual split OK: mode + pedal both accepted");
+        return DispatchResult.ACCEPTED_UNCONFIRMED;
     }
 
     static Map<OemVehicleStateTransport.StateKey, Integer> statesFor(Context context, String str) {
