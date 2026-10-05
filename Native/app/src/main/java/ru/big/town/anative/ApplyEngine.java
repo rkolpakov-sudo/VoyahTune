@@ -18,6 +18,12 @@ public final class ApplyEngine {
     private static final Object RESTORE_LOCK = new Object();
     private static final RestoreRunState RESTORE_RUN_STATE = new RestoreRunState();
     private static final ModeSyncPolicy MODE_SYNC_POLICY = new ModeSyncPolicy();
+    private static final PendingApplySeries APPLY_SERIES = new PendingApplySeries(new PendingApplySeries.Runner() {
+        @Override // ru.big.town.anative.PendingApplySeries.Runner
+        public final void run(Runnable runnable, long j, long j2, long j3, boolean z) {
+            applyInternal(runnable, j, j2, j3, z);
+        }
+    });
 
     public enum WakeActionResult {
         SUCCESS,
@@ -238,12 +244,11 @@ public final class ApplyEngine {
             }
             final long j = jCurrentRestoreEpoch;
             final long jBeginRestoreGate = beginRestoreGate(str);
-            handlerBg.post(new Runnable() { // from class: ru.big.town.anative.ApplyEngine$$ExternalSyntheticLambda10
-                @Override // java.lang.Runnable
-                public final void run() {
-                    ApplyEngine.applyInternal(runnable, jBeginRestoreGate, jCurrentGeneration, j, z);
-                }
-            });
+            PendingApplySeries.Offer offer = APPLY_SERIES.offer(jBeginRestoreGate, jCurrentGeneration, j, z, runnable);
+            if (offer.superseded != null) {
+                handlerBg.removeCallbacks(offer.superseded);
+            }
+            handlerBg.post(offer.toPost);
         }
     }
 

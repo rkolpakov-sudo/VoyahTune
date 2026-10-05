@@ -31,6 +31,7 @@ public class SetModesReceiverDynamic extends BroadcastReceiver {
     public static volatile int repeat = 7;
     private final Runnable sleepCallback;
     private final Runnable wakeCallback;
+    private final SleepController sleepController;
 
     static /* synthetic */ boolean lambda$openFreeformApp$3() {
         return true;
@@ -44,12 +45,13 @@ public class SetModesReceiverDynamic extends BroadcastReceiver {
     }
 
     public SetModesReceiverDynamic() {
-        this(null, null);
+        this(null, null, new SleepController());
     }
 
-    SetModesReceiverDynamic(Runnable runnable, Runnable runnable2) {
+    SetModesReceiverDynamic(Runnable runnable, Runnable runnable2, SleepController sleepController) {
         this.sleepCallback = runnable;
         this.wakeCallback = runnable2;
+        this.sleepController = sleepController;
     }
 
     @Override // android.content.BroadcastReceiver
@@ -137,18 +139,27 @@ public class SetModesReceiverDynamic extends BroadcastReceiver {
             }
         }
         if ("android.intent.action.SCREEN_OFF".equals(action) && !z) {
-            ApplyEngine.resetRestoreGate("SCREEN_OFF");
-            Runnable runnable2 = this.sleepCallback;
-            if (runnable2 != null) {
-                runnable2.run();
+            if (this.sleepController.onSleepTrigger(SleepController.Event.SCREEN_OFF)) {
+                ApplyEngine.resetRestoreGate("SCREEN_OFF");
+                Runnable runnable2 = this.sleepCallback;
+                if (runnable2 != null) {
+                    runnable2.run();
+                }
+                Log.i(TAG, "onReceive SCREEN_OFF — mode sync gate reset");
+            } else {
+                Log.i(TAG, "onReceive duplicate SCREEN_OFF ignored, session=" + this.sleepController.sessionId());
             }
-            Log.i(TAG, "onReceive SCREEN_OFF — mode sync gate reset");
         }
         if (!z && ("android.intent.action.SCREEN_ON".equals(action) || "com.android.server.jobscheduler.GARAGE_MODE_OFF".equals(action))) {
-            Log.i(TAG, "onReceive ACTION_SCREEN_ON or GARAGE_MODE_OFF");
-            ApplyEngine.activateWake(action);
-            if ("android.intent.action.SCREEN_ON".equals(action) && (runnable = this.wakeCallback) != null) {
-                runnable.run();
+            SleepController.Event event = "android.intent.action.SCREEN_ON".equals(action) ? SleepController.Event.SCREEN_ON : SleepController.Event.GARAGE_WAKE;
+            if (this.sleepController.onWakeTrigger(event)) {
+                Log.i(TAG, "onReceive ACTION_SCREEN_ON or GARAGE_MODE_OFF");
+                ApplyEngine.activateWake(action);
+                if ("android.intent.action.SCREEN_ON".equals(action) && (runnable = this.wakeCallback) != null) {
+                    runnable.run();
+                }
+            } else {
+                Log.i(TAG, "onReceive duplicate SCREEN_ON ignored, session=" + this.sleepController.sessionId());
             }
         }
         if (z && ("android.intent.action.SCREEN_ON".equals(action) || "android.intent.action.SCREEN_OFF".equals(action) || "com.android.server.jobscheduler.GARAGE_MODE_OFF".equals(action))) {

@@ -581,3 +581,13 @@
 - Статус: принято; Этапы 1-8 on-car-campaign.md НЕ исполняются; условие возобновления —
   завершённые IMP-06 -> IMP-01 -> IMP-02 (порядок L119) с HIL-тестами, новый билд,
   повторный гейт 0 кампании.
+
+## [2026-10-04][WP3][IMP-06 реализован: SleepController + session_id + дедуп экрана + объединение серий apply]
+- **Контекст**: порядок L119 — IMP-06 первым (P0, SPEC L48, R2/R12); кампания on-car на паузе, работа car-independent.
+- **Что сделано**:
+  - \SleepController\ (Native): AWAKE→SLEEPING→ASLEEP→WAKING; монотонный session_id (бамп на входе в sleep-период); отбраковка устаревшей работы через \isCurrentSession\; дедуп повторных SCREEN_ON/SCREEN_OFF; power/garage-события НЕ дедупятся (цепочки эффектов разные — поведение 3.22 сохранено).
+  - Врезки: \SetModesReceiverDynamic\ (дедуп-гейт ДО resetRestoreGate/activateWake), \SetModesService\ (fallback-обработчики → onSleepComplete/onWakeComplete; power-state ветки; \pendingPhysicalWake\ с тегом сессии; тег ancillary-wake-задач 3/5/6с → отбраковка чужой сессии).
+  - \PendingApplySeries\ — объединение серий manual-apply: не начатый предыдущий task superseded (removeCallbacks), payload'и переносятся (все выполняются один раз — как в 3.22), один runCycle вместо N.
+- **Проверка**: \:Native:app:testDebugUnitTest\ 325/325 PASS (новых: 14 SleepControllerTest + 5 PendingApplySeriesTest); регресс-тесты 3.22 (ModeSyncPolicyTest, ApplyEngineRunStateTest) зелёные.
+- **Риск**: низкий (car-independent); on-car валидация — в будущем окне кампании.
+- **Дальше**: IMP-01 (CommandResult + read-back) → IMP-02 (AVAS state-machine).

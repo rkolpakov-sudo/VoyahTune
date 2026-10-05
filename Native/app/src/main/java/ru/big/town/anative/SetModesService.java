@@ -145,6 +145,9 @@ public class SetModesService extends Service {
     private boolean receiverRegistered = false;
     private final String CHANNEL_ID = "screen_monitor_channel";
     private final CarPowerCallbackGate carPowerCallbackGate = new CarPowerCallbackGate();
+    private final SleepController sleepController = new SleepController();
+    private long ancillaryWakeSession = -1;
+    private long pendingWakeSession = -1;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private boolean startupInitialized = false;
     private boolean wakeSessionActive = false;
@@ -154,19 +157,25 @@ public class SetModesService extends Service {
     private final Runnable startNowPlayingRunnable = new Runnable() { // from class: ru.big.town.anative.SetModesService$$ExternalSyntheticLambda19
         @Override // java.lang.Runnable
         public final void run() {
-            SetModesService.this.m2065lambda$new$10$rubigtownanativeSetModesService();
+            if (SetModesService.this.ancillaryWakeSessionCurrent()) {
+                SetModesService.this.m2065lambda$new$10$rubigtownanativeSetModesService();
+            }
         }
     };
     private final Runnable reassertFloatingBackRunnable = new Runnable() { // from class: ru.big.town.anative.SetModesService$$ExternalSyntheticLambda20
         @Override // java.lang.Runnable
         public final void run() {
-            SetModesService.this.reassertFloatingBack();
+            if (SetModesService.this.ancillaryWakeSessionCurrent()) {
+                SetModesService.this.reassertFloatingBack();
+            }
         }
     };
     private final Runnable autoLaunchRunnable = new Runnable() { // from class: ru.big.town.anative.SetModesService$$ExternalSyntheticLambda21
         @Override // java.lang.Runnable
         public final void run() {
-            SetModesService.this.maybeAutoLaunchRestoreMode();
+            if (SetModesService.this.ancillaryWakeSessionCurrent()) {
+                SetModesService.this.maybeAutoLaunchRestoreMode();
+            }
         }
     };
     private final Runnable floatingBackEnableRunnable = new Runnable() { // from class: ru.big.town.anative.SetModesService$$ExternalSyntheticLambda22
@@ -1173,7 +1182,16 @@ public class SetModesService extends Service {
         this.wakeSessionActive = false;
     }
 
+    private boolean ancillaryWakeSessionCurrent() {
+        if (this.sleepController.isCurrentSession(this.ancillaryWakeSession)) {
+            return true;
+        }
+        Log.i(TAG, "ancillary wake task dropped: session " + this.ancillaryWakeSession + " is stale (current " + this.sleepController.sessionId() + ")");
+        return false;
+    }
+
     private void scheduleAncillaryWakeTasks() {
+        this.ancillaryWakeSession = this.sleepController.sessionId();
         this.mainHandler.removeCallbacks(this.startNowPlayingRunnable);
         this.mainHandler.postDelayed(this.startNowPlayingRunnable, 6000L);
         this.mainHandler.removeCallbacks(this.reassertFloatingBackRunnable);
@@ -1240,6 +1258,7 @@ public class SetModesService extends Service {
         endWakeSession();
         cancelAncillaryWakeTasks();
         requestWashModeCleanup("SCREEN_OFF");
+        this.sleepController.onSleepComplete();
     }
 
     /* JADX INFO: Access modifiers changed from: private */
@@ -1248,8 +1267,13 @@ public class SetModesService extends Service {
         requestWashModeCleanup("SCREEN_ON");
         if (this.pendingPhysicalWake) {
             this.pendingPhysicalWake = false;
-            runWakeSideEffects("deferred CarPower wake");
+            if (this.sleepController.isCurrentSession(this.pendingWakeSession)) {
+                runWakeSideEffects("deferred CarPower wake");
+            } else {
+                Log.i(TAG, "deferred CarPower wake dropped: session " + this.pendingWakeSession + " is stale (current " + this.sleepController.sessionId() + ")");
+            }
         }
+        this.sleepController.onWakeComplete();
     }
 
     private boolean isScreenInteractive() {
@@ -1300,7 +1324,7 @@ public class SetModesService extends Service {
             public final void run() {
                 SetModesService.this.handleScreenOnFallback();
             }
-        });
+        }, setModesService.sleepController);
         ScreenLiftTaskRestorer screenLiftTaskRestorer = new ScreenLiftTaskRestorer(setModesService.getApplicationContext());
         setModesService.screenLiftTaskRestorer = screenLiftTaskRestorer;
         screenLiftTaskRestorer.register();
@@ -1322,15 +1346,18 @@ public class SetModesService extends Service {
         }
         Log.i(TAG, "Power state changed: " + i + " (" + powerStateName(i) + ")");
         if (isWakeState(i)) {
+            this.sleepController.onWakeTrigger(SleepController.Event.POWER_WAKE);
             requestWashModeCleanup("power state " + powerStateName(i));
             ApplyEngine.activateWake("power state " + powerStateName(i));
             if (isScreenInteractive() || i == 6 || i == 8) {
                 this.screenOffObserved = false;
                 this.pendingPhysicalWake = false;
                 runWakeSideEffects(powerStateName(i));
+                this.sleepController.onWakeComplete();
                 return;
             } else {
                 this.pendingPhysicalWake = true;
+                this.pendingWakeSession = this.sleepController.sessionId();
                 Log.i(TAG, "physical wake side-effects deferred until SCREEN_ON");
                 return;
             }
@@ -1338,10 +1365,12 @@ public class SetModesService extends Service {
         if (isSleepOrShutdownState(i)) {
             this.screenOffObserved = true;
             this.pendingPhysicalWake = false;
+            this.sleepController.onSleepTrigger(SleepController.Event.POWER_SLEEP);
             endWakeSession();
             cancelAncillaryWakeTasks();
             requestWashModeCleanup("power state " + powerStateName(i));
             ApplyEngine.resetRestoreGate("power state " + powerStateName(i));
+            this.sleepController.onSleepComplete();
         }
         Log.i(TAG, "onStateChanged() ignored state: " + i);
     }
