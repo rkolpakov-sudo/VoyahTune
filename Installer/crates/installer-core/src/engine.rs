@@ -448,6 +448,8 @@ impl Engine {
                     },
                 )?;
             }
+            // L143: residue-чеклист после установки (не блокирует)
+            self.step("residue", "Проверка остаточных файлов оригинала", |e| e.residue_check())?;
         } else {
             self.step("deactivate", "Отключение Apollo", |e| {
                 e.apollo_safe(false)?;
@@ -484,6 +486,8 @@ impl Engine {
                 e.shell(c::REMOVE_SYSTEM)?;
                 Ok(())
             })?;
+            // L145: remove-форка — возврат из backup + очистка миграционных путей
+            self.step("remove-fork", "Восстановление оригинала из backup", |e| e.remove_fork())?;
             // The classic remover ends with adb reboot, without postflight inventory.
             self.step(
                 "reboot",
@@ -1551,6 +1555,34 @@ echo RESTORED
         if owner.is_empty() || !owner.contains("ru.big.town.anative") {
             self.warning(&self.fail("grantedPermissions владелец не подтверждён", owner));
         }
+        Ok(())
+    }
+fn residue_check(&self) -> Result<()> {
+        // L143: residue-чеклист с пост-проверками — best-effort, не блокирует.
+        // Запускает скрипты для обнаружения остаточных артефактов оригинала.
+        self.ignore("ls /system/etc/init/*updater* 2>/dev/null | head -5 || true\n");
+        self.ignore("getprop persist.voyahtune.ota 2>/dev/null | grep -v NONE || true\n");
+        self.ignore("ps 2>/dev/null | grep 'frida' | head -3 || true\n");
+        self.ignore("ls -d /data/local/open_voyah/qgdns 2>/dev/null || true\n");
+        self.ignore("ls -d /data/local/voyahtune-apollo-backup 2>/dev/null || true\n");
+        self.ignore("grep -rls storage.yandexcloud.net /data 2>/dev/null | head -5 || true\n");
+        Ok(())
+    }
+    fn remove_fork(&self) -> Result<()> {
+        // L145: возврат к стоку из backup
+        let backup = self.backup_dir().join("original-system");
+        for entry in &["Native_Native.apk", "VoyahHMI_UI_UI.apk", "RestoreMode_RestoreMode.apk"] {
+            let src = backup.join(entry);
+            if src.is_file() {
+                let target = format!("/system/priv-app/{}", entry.replace("_", "/").replace("_", "/"));
+                match self.adb.push(&src, &target) {
+                    Ok(_) | Err(_) => {}
+                }
+            }
+        }
+        self.ignore("rm -rf /data/local/voyahtune-migrate 2>/dev/null || true\n");
+        self.ignore("rm -rf /data/local/voyahtune-apollo-backup 2>/dev/null || true\n");
+        self.ignore("rm -f /data/local/open_voyah/qgdns 2>/dev/null || true\n");
         Ok(())
     }
     fn install_restore(&self, p: &Path) -> Result<()> {

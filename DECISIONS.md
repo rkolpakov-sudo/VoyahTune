@@ -678,3 +678,15 @@
 - **Ограничения**: фаза 1 — только Rust-ядро; отсутствуют: GUI-поддержка `operation = "migrate"`, согласие на удаление (migrate-consent), residue-чеклист (L143), remove-форка (L145), 5 сценариев fake ADB (L146); команды миграции пока в inline shell, не перенесены в classic_commands.rs.
 - **Риск**: низкий — новые методы вызываются только при `migration_needed == true`, иначе execute() идентична старой; все существующие тесты зелёные.
 - **Дальше**: фаза 2 (fake ADB тесты + residue + remove-fork) → фаза 3 (GUI) → IMP-23.
+
+## [2026-10-05][WP6][IMP-14 фаза 2: residue-чеклист L143 + remove-fork L145 + шаги в execute()]
+- **Контекст**: продолжение IMP-14 (фаза 1 — ядро миграции, коммит 5d66b47).
+- **Что сделано**:  (+32 строки):  — L143 чеклист (6 проверок: Updater/OTA/Frida/DNS/apollo-backup/yandexcloud, best-effort через ignore), шаг  после verify;  — L145 восстановление оригинала из backup + очистка, шаг  в ветке удаления до reboot.
+- **Тесты**: 28/28 PASS (cargo test), cargo check — чисто.
+- **Ограничения**: backup remove-fork использует  (сессионный, не постоянный) — restore-пути на компьютер при remove-форка требуют отдельного механизма сохранения backup между операциями.
+
+## [2026-10-05][WP6][IMP-14 фаза 2: residue-чеклист L143 + remove-fork L145 + шаги в execute()]
+- **Контекст**: продолжение IMP-14 (фаза 1 — ядро миграции, коммит 5d66b47).
+- **Что сделано**: engine.rs (+32 строки): residue_check() — L143 чеклист (6 проверок: Updater/OTA/Frida/DNS/apollo-backup/yandexcloud, best-effort через ignore), шаг residue после verify; remove_fork() — L145 восстановление оригинала из backup + очистка, шаг remove-fork в ветке удаления до reboot.
+- **Тесты**: 28/28 PASS (cargo test), cargo check — чисто.
+- **Ограничения**: backup remove-fork использует backup_dir() (сессионный, не постоянный) — restore-пути на компьютер при remove-форка требуют отдельного механизма сохранения backup между операциями.
