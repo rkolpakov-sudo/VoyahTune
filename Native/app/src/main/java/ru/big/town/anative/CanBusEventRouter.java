@@ -15,6 +15,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
 final class CanBusEventRouter {
     private static final int DEFAULT_MAILBOX_CAPACITY = 32;
     private static final int DRAIN_SLICE = 1;
+    // IMP-09: priority lanes
+    static final int LANE_0 = 0; // safety (LIGHT_STATUS, DOOR)
+    static final int LANE_1 = 1; // modes (GEAR, DRIVING_MODE signals)
+    static final int LANE_2 = 2; // comfort (AMBIENT_TEMPERATURE, other VEHICLE_STATE)
+    private static final int LANE_COUNT = 3;
+    private static final int STARVE_LIMIT = 10;
+    private static final int[] CAPACITY_PER_LANE = {8, 16, 32};
     static final int INTEREST_AMBIENT_TEMPERATURE = 32;
     static final int INTEREST_CONNECTION = 1;
     static final int INTEREST_DOOR = 2;
@@ -122,17 +129,33 @@ final class CanBusEventRouter {
         }
     }
 
+    static int tier(CanBusEvent canBusEvent) {
+        // IMP-09: L0 safety, L1 modes, L2 comfort
+        switch (canBusEvent.kind) {
+            case LIGHT_STATUS: case DOOR:
+                return LANE_0;
+            case GEAR:
+                return LANE_1;
+            default:
+                return LANE_2;
+        }
+    }
+
     /* JADX INFO: Access modifiers changed from: private */
     static final class Mailbox {
-        private final int capacity;
+        private final int[] capacityPerLane = {CAPACITY_PER_LANE[0], CAPACITY_PER_LANE[1], CAPACITY_PER_LANE[2]};
         private volatile boolean closed;
         private boolean drainScheduled;
-        private long dropped;
+        private long[] droppedPerLane = {0, 0, 0};
+        private long[] acceptedPerLane = {0, 0, 0};
+        private int starveCount;
         private final Executor executor;
         private final int interestMask;
         private final Listener listener;
         private final Set<Integer> vehicleStateIds = new HashSet();
-        private final ArrayDeque<CanBusEvent> queue = new ArrayDeque<>();
+        private final ArrayDeque<CanBusEvent>[] queues = new ArrayDeque[] {
+            new ArrayDeque<>(), new ArrayDeque<>(), new ArrayDeque<>()
+        };
         private final Map<Integer, CanBusEvent> lastAccepted = new HashMap();
         private final Runnable drainRunnable = new Runnable() { // from class: ru.big.town.anative.CanBusEventRouter$Mailbox$$ExternalSyntheticLambda0
             @Override // java.lang.Runnable
@@ -155,7 +178,9 @@ final class CanBusEventRouter {
             }
             this.executor = executor;
             this.listener = listener;
-            this.capacity = i2;
+            this.capacityPerLane[LANE_0] = Math.max(2, i2 / 4);
+            this.capacityPerLane[LANE_1] = Math.max(2, i2 / 2);
+            this.capacityPerLane[LANE_2] = Math.max(2, i2);
         }
 
         boolean hasInterest(int i) {
@@ -186,14 +211,18 @@ final class CanBusEventRouter {
                         return;
                     }
                     if (canBusEvent.connectionEpoch > this.acceptedEpoch) {
-                        this.queue.clear();
+                        for (int lane = 0; lane < LANE_COUNT; lane++) {
+                            this.queues[lane].clear();
+                        }
                         this.lastAccepted.clear();
                         this.acceptedEpoch = canBusEvent.connectionEpoch;
                     }
+                    int lane = CanBusEventRouter.tier(canBusEvent);
+                    ArrayDeque<CanBusEvent> queue = this.queues[lane];
                     int iSignalKey = canBusEvent.signalKey();
                     boolean z = true;
                     if (canBusEvent.samePayload(this.lastAccepted.get(Integer.valueOf(iSignalKey)))) {
-                        if (this.drainScheduled || this.queue.isEmpty()) {
+                        if (this.drainScheduled || queue.isEmpty()) {
                             z = false;
                         } else {
                             this.drainScheduled = true;
@@ -201,16 +230,18 @@ final class CanBusEventRouter {
                     } else {
                         this.lastAccepted.put(Integer.valueOf(iSignalKey), canBusEvent);
                         if (!canBusEvent.isOrderedTransition()) {
-                            removeQueuedLevel(iSignalKey);
+                            removeQueuedLevel(lane, iSignalKey);
                         }
-                        if (this.queue.size() == this.capacity) {
-                            CanBusEvent canBusEventDropForCapacity = dropForCapacity();
-                            if (this.lastAccepted.get(Integer.valueOf(canBusEventDropForCapacity.signalKey())) == canBusEventDropForCapacity) {
-                                this.lastAccepted.remove(Integer.valueOf(canBusEventDropForCapacity.signalKey()));
+                        int capacity = this.capacityPerLane[lane];
+                        if (queue.size() == capacity) {
+                            CanBusEvent dropped = dropForCapacity(lane);
+                            if (dropped != null && this.lastAccepted.get(Integer.valueOf(dropped.signalKey())) == dropped) {
+                                this.lastAccepted.remove(Integer.valueOf(dropped.signalKey()));
                             }
-                            this.dropped++;
+                            this.droppedPerLane[lane]++;
                         }
-                        this.queue.addLast(canBusEvent);
+                        queue.addLast(canBusEvent);
+                        this.acceptedPerLane[lane]++;
                         if (this.drainScheduled) {
                             z = false;
                         } else {
@@ -245,22 +276,24 @@ final class CanBusEventRouter {
             }
         }
 
-        private void removeQueuedLevel(int i) {
-            if (this.queue.isEmpty()) {
+        private void removeQueuedLevel(int lane, int i) {
+            ArrayDeque<CanBusEvent> queue = this.queues[lane];
+            if (queue.isEmpty()) {
                 return;
             }
-            ArrayList arrayList = new ArrayList(this.queue.size());
-            while (!this.queue.isEmpty()) {
-                CanBusEvent canBusEventRemoveFirst = this.queue.removeFirst();
-                if (canBusEventRemoveFirst.signalKey() != i) {
-                    arrayList.add(canBusEventRemoveFirst);
+            ArrayList arrayList = new ArrayList(queue.size());
+            while (!queue.isEmpty()) {
+                CanBusEvent event = queue.removeFirst();
+                if (event.signalKey() != i) {
+                    arrayList.add(event);
                 }
             }
-            this.queue.addAll(arrayList);
+            queue.addAll(arrayList);
         }
 
-        private CanBusEvent dropForCapacity() {
-            Iterator<CanBusEvent> it = this.queue.iterator();
+        private CanBusEvent dropForCapacity(int lane) {
+            ArrayDeque<CanBusEvent> queue = this.queues[lane];
+            Iterator<CanBusEvent> it = queue.iterator();
             while (it.hasNext()) {
                 CanBusEvent next = it.next();
                 if (next.kind != CanBusEvent.Kind.CONNECTION && next.kind != CanBusEvent.Kind.CONNECTION_LOST && !next.isOrderedTransition()) {
@@ -268,7 +301,7 @@ final class CanBusEventRouter {
                     return next;
                 }
             }
-            Iterator<CanBusEvent> it2 = this.queue.iterator();
+            Iterator<CanBusEvent> it2 = queue.iterator();
             while (it2.hasNext()) {
                 CanBusEvent next2 = it2.next();
                 if (next2.kind != CanBusEvent.Kind.CONNECTION && next2.kind != CanBusEvent.Kind.CONNECTION_LOST) {
@@ -276,7 +309,7 @@ final class CanBusEventRouter {
                     return next2;
                 }
             }
-            return this.queue.removeFirst();
+            return queue.removeFirst();
         }
 
         private void scheduleDrain() {
@@ -295,24 +328,52 @@ final class CanBusEventRouter {
                 if (this.closed) {
                     return;
                 }
-                CanBusEvent canBusEventPollFirst = this.queue.pollFirst();
-                if (canBusEventPollFirst == null) {
+                // IMP-09: drain priority L0 > L1 > L2 with starvation guard
+                CanBusEvent event = null;
+                for (int lane = LANE_0; lane <= LANE_2 && event == null; lane++) {
+                    if (!this.queues[lane].isEmpty()) {
+                        event = this.queues[lane].pollFirst();
+                        break;
+                    }
+                }
+                // Starvation guard: if L2 hasn't been drained in STARVE_LIMIT cycles
+                if (event == null) {
+                    this.starveCount = 0;
+                } else {
+                    int tier = CanBusEventRouter.tier(event);
+                    if (tier < LANE_2) {
+                        this.starveCount++;
+                        if (this.starveCount >= STARVE_LIMIT && !this.queues[LANE_2].isEmpty()) {
+                            // Force-drain L2 to prevent starvation
+                            this.queues[LANE_2].addFirst(event);
+                            event = this.queues[LANE_2].pollFirst();
+                            this.starveCount = 0;
+                        }
+                    } else {
+                        this.starveCount = 0;
+                    }
+                }
+                if (event == null) {
                     this.drainScheduled = false;
                     return;
                 }
                 try {
-                    this.listener.onCanBusEvent(canBusEventPollFirst);
+                    this.listener.onCanBusEvent(event);
                 } catch (RuntimeException unused) {
                 }
                 synchronized (this) {
                     if (this.closed) {
                         return;
                     }
-                    boolean zIsEmpty = this.queue.isEmpty();
-                    if (zIsEmpty) {
-                        this.drainScheduled = false;
+                    boolean empty = true;
+                    for (int lane = 0; lane < LANE_COUNT; lane++) {
+                        if (!this.queues[lane].isEmpty()) {
+                            empty = false;
+                            break;
+                        }
                     }
-                    if (zIsEmpty) {
+                    if (empty) {
+                        this.drainScheduled = false;
                         return;
                     }
                     scheduleDrain();
@@ -322,14 +383,18 @@ final class CanBusEventRouter {
 
         synchronized void close() {
             this.closed = true;
-            this.queue.clear();
+            for (int lane = 0; lane < LANE_COUNT; lane++) {
+                this.queues[lane].clear();
+            }
             this.drainScheduled = false;
         }
 
         synchronized void invalidateThrough(long j) {
             if (!this.closed && j > this.invalidatedThroughEpoch) {
                 this.invalidatedThroughEpoch = j;
-                this.queue.clear();
+                for (int lane = 0; lane < LANE_COUNT; lane++) {
+                    this.queues[lane].clear();
+                }
                 this.lastAccepted.clear();
             }
         }
