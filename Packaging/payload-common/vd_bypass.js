@@ -29,14 +29,16 @@ Java.perform(function () {
     var installed = [];
     var FF, ffConfigReplayTimer = null, ffHotAttachTimer = null;
     var ffReloadTimer = null, ffTraversalTimer = null;
+    var geometryCheckTimer = null, geometryCheckScheduledAt = 0;
     var ffHotAttachPending = false, ffHookState = "preparing";
     var restoreAgentWindows = null, agentWindowRollbackIncomplete = false;
 
     function cancelFreeformPending() {
-        [ffConfigReplayTimer, ffHotAttachTimer, ffReloadTimer, ffTraversalTimer].forEach(function (timer) {
+        [ffConfigReplayTimer, ffHotAttachTimer, ffReloadTimer, ffTraversalTimer, geometryCheckTimer].forEach(function (timer) {
             if (timer !== null) clearTimeout(timer);
         });
         ffConfigReplayTimer = ffHotAttachTimer = ffReloadTimer = ffTraversalTimer = null;
+        geometryCheckTimer = null;
         ffHotAttachPending = false;
         if (FF) ++FF.hookEpoch;
     }
@@ -402,6 +404,174 @@ Java.perform(function () {
             return false;
         }
     }
+    // ============================================================================================
+    // IMP-07) GEOMETRY-WATCHDOG (SPEC L49): снимок ожидаемых freeform-bounds, триггеры сверки
+    //  (config-change / panel-lift / display-change / wake / app-launch), самолечение с дебаунсом
+    //  700мс, LKG в персист, кольцевой журнал мутаций геометрии. Поведение 3.22 (проверки до
+    //  мутаций, mGlobalLock-контекст) = база; KPI L170: heal ≤2с (лог ниже).
+    //  • Чек только читает и лечит через существующие безопасные пути: refresh → снимок/traversal,
+    //    потерянный hot-attach → attachFreeformHotHooks. Никогда не вызывает failAgent, не мутирует
+    //    Settings и не заходит в hot-path layoutWindowLw.
+    //  • Дебаунс-окно 700мс КОАЛЕСЦЕНЦИЯ: первое событие планирует чек, события внутри окна
+    //    его не сдвигают (запаздывание ограничено окном → KPI ≤2с, нет голодания при config storm).
+    //    Окно закрывается cancelFreeformPending (SCREEN_OFF/отключение) и epoch-guard по FF.hookEpoch
+    //    (bump в scheduleFreeformHotAttach — вместо чека traversal делает сам attach).
+    //  • LKG — JSON одной строкой, атомарная запись .new+rename (образец publishAgentStatus);
+    //    restore только на старте при неудачном refresh. В чеке restore не вызывается: in-memory
+    //    удерживает последнее применённое (более новое) состояние, откат к LKG там был бы регрессией.
+    //  • Журнал кольцевой (GEOMETRY_JOURNAL_LIMIT), dedup последней записи — повторные чеки без
+    //    изменений молчат; файл переписывается целиком как status.v1.
+    // ============================================================================================
+    var GEOMETRY_WATCHDOG_DEBOUNCE_MS = 700;
+    var GEOMETRY_JOURNAL_LIMIT = 30;
+    var GEOMETRY_LKG_PATH = "/data/local/open_voyah/vd_hooks/geometry.lkg";
+    var GEOMETRY_JOURNAL_PATH = "/data/local/open_voyah/vd_hooks/geometry.journal";
+    var geometryJournal = null, geometryJournalLastKey = "";
+
+    function writeAgentTextFileAtomic(path, content) {
+        var out = Java.use("java.io.FileWriter").$new(path + ".new", false);
+        try {
+            var line = content + "\n";
+            out.write.overload("java.lang.String", "int", "int").call(out, line, 0, line.length);
+        } finally { out.close(); }
+        var File = Java.use("java.io.File");
+        if (!File.$new(path + ".new").renameTo(File.$new(path))) {
+            throw new Error("agent file atomic rename failed: " + path);
+        }
+    }
+    function geometryViewportSummary() {
+        return FF.left + "," + FF.top + "," + FF.right + "," + FF.bottom
+                + "/" + FF.compactBottom + " lift=" + FF.liftType + " on=" + FF.on;
+    }
+    function lkgMatchesCurrent(lkg) {
+        return lkg !== null && lkg.v === 1 && lkg.on === FF.on
+                && lkg.left === FF.left && lkg.top === FF.top
+                && lkg.right === FF.right && lkg.bottom === FF.bottom
+                && lkg.compactBottom === FF.compactBottom
+                && lkg.liftType === FF.liftType;
+    }
+    function readGeometryLkg() {
+        try {
+            var reader = Java.use("java.io.BufferedReader").$new(
+                    Java.use("java.io.FileReader").$new(GEOMETRY_LKG_PATH));
+            try {
+                var line = reader.readLine();
+                if (line === null) return null;
+                var parsed = JSON.parse(String(line));
+                return (parsed && parsed.v === 1) ? parsed : null;
+            } finally { reader.close(); }
+        } catch (e) {
+            return null;
+        }
+    }
+    function writeGeometryLkg() {
+        writeAgentTextFileAtomic(GEOMETRY_LKG_PATH, JSON.stringify({ v: 1,
+                on: FF.on, left: FF.left, top: FF.top, right: FF.right,
+                bottom: FF.bottom, compactBottom: FF.compactBottom,
+                liftType: FF.liftType, ts: Date.now() }));
+    }
+    function writeGeometryLkgIfChanged() {
+        if (lkgMatchesCurrent(readGeometryLkg())) return false;
+        writeGeometryLkg();
+        return true;
+    }
+    function restoreGeometryFromLkg() {
+        var lkg = readGeometryLkg();
+        if (lkg === null) return false;
+        var valid = typeof lkg.on === "boolean"
+                && Number.isInteger(lkg.left) && Number.isInteger(lkg.top)
+                && Number.isInteger(lkg.right) && Number.isInteger(lkg.bottom)
+                && Number.isInteger(lkg.compactBottom)
+                && [lkg.left, lkg.top, lkg.right, lkg.bottom, lkg.compactBottom]
+                        .every(function (n) { return n <= 2147483647; })
+                && lkg.left >= 0 && lkg.top >= 0 && lkg.right > lkg.left
+                && lkg.bottom > lkg.top && lkg.compactBottom > lkg.top
+                && lkg.compactBottom <= lkg.bottom
+                && (lkg.liftType === 1 || lkg.liftType === 2);
+        if (!valid) return false;
+        FF.on = lkg.on;
+        FF.left = lkg.left;
+        FF.top = lkg.top;
+        FF.right = lkg.right;
+        FF.bottom = lkg.bottom;
+        FF.compactBottom = lkg.compactBottom;
+        FF.liftType = lkg.liftType;
+        Log.i(TAG, "freeform geometry restored from LKG: " + geometryViewportSummary());
+        return true;
+    }
+    function geometryJournalLoad() {
+        if (geometryJournal !== null) return;
+        geometryJournal = [];
+        try {
+            var reader = Java.use("java.io.BufferedReader").$new(
+                    Java.use("java.io.FileReader").$new(GEOMETRY_JOURNAL_PATH));
+            try {
+                var line;
+                while ((line = reader.readLine()) !== null) {
+                    line = String(line);
+                    if (line.length > 0) geometryJournal.push(line);
+                }
+            } finally { reader.close(); }
+        } catch (e) { /* журнала ещё нет */ }
+        if (geometryJournal.length > 0) {
+            geometryJournalLastKey = geometryJournal[geometryJournal.length - 1]
+                    .split("|").slice(1, 4).join("|");
+        }
+    }
+    function geometryJournalAppend(trigger, action, detail) {
+        geometryJournalLoad();
+        var key = trigger + "|" + action + "|" + (detail || "");
+        if (key === geometryJournalLastKey) return;
+        geometryJournal.push(Date.now() + "|" + key);
+        while (geometryJournal.length > GEOMETRY_JOURNAL_LIMIT) geometryJournal.shift();
+        geometryJournalLastKey = key;
+        try {
+            writeAgentTextFileAtomic(GEOMETRY_JOURNAL_PATH, geometryJournal.join("\n"));
+        } catch (e) {
+            Log.w(TAG, "geometry journal persist failed: " + e);
+        }
+    }
+    function scheduleGeometryCheck(trigger) {
+        if (agentFailed || !FF || geometryCheckTimer !== null) return;
+        geometryCheckScheduledAt = Date.now();
+        var epoch = FF.hookEpoch;
+        geometryCheckTimer = setTimeout(function () {
+            geometryCheckTimer = null;
+            if (agentFailed || epoch !== FF.hookEpoch || !FF.on || !FF.screenOn) return;
+            Java.perform(function () {
+                try { runGeometryCheck(trigger); }
+                catch (e) { Log.w(TAG, "geometry watchdog check failed: " + e); }
+            });
+        }, GEOMETRY_WATCHDOG_DEBOUNCE_MS);
+    }
+    function runGeometryCheck(trigger) {
+        if (agentFailed || !FF.on || !FF.screenOn) return;
+        var healed = false;
+        if (!refreshFreeformCfg()) {
+            geometryJournalAppend(trigger, "config-invalid", "settings rejected, snapshot retained");
+        }
+        if (writeGeometryLkgIfChanged()) {
+            geometryJournalAppend(trigger, "snapshot-update", geometryViewportSummary());
+            requestFreeformTraversalOnce("geometry watchdog trigger=" + trigger);
+            healed = true;
+        }
+        if (SYSTEM_SERVER_FREEFORM_HOT_HOOKS
+                && (!ffLayoutAttached || !ffConfigAttached) && !ffHotAttachPending) {
+            attachFreeformHotHooks("geometry watchdog trigger=" + trigger);
+            if (ffLayoutAttached && ffConfigAttached) {
+                geometryJournalAppend(trigger, "hook-reattach", "layout=1 config=1");
+                healed = true;
+            } else {
+                geometryJournalAppend(trigger, "hook-reattach-failed",
+                        "layout=" + ffLayoutAttached + " config=" + ffConfigAttached);
+            }
+        }
+        if (healed) {
+            Log.i(TAG, "geometry watchdog heal trigger=" + trigger + " in "
+                    + (Date.now() - geometryCheckScheduledAt) + "ms");
+        }
+    }
+    installed.push("geometry watchdog (lkg+journal)");
     // Блэклист системных пакетов + наши ru.big.town.*. settings/documentsui — исключения.
     function ffBlacklisted(pkg) {
         if (!pkg) return true;
@@ -583,7 +753,12 @@ Java.perform(function () {
         return ffWindowRemove.call(this);
     };
 
-    if (!refreshFreeformCfg()) throw new Error("initial policy unavailable");
+    if (!refreshFreeformCfg()) {
+        if (!restoreGeometryFromLkg()) throw new Error("initial policy unavailable");
+        geometryJournalAppend("startup", "startup-lkg-restore", geometryViewportSummary());
+    } else if (writeGeometryLkgIfChanged()) {
+        geometryJournalAppend("startup", "snapshot-update", geometryViewportSummary());
+    }
     resolveFreeformTraversalRequester();
     if (SYSTEM_SERVER_FREEFORM_HOT_HOOKS) {
         installed.push("system_server freeform hot hooks enabled");
@@ -604,6 +779,7 @@ Java.perform(function () {
                     argumentTypes: ["android.content.Context", "android.content.Intent"],
                     implementation: function (c, i) {
                         if (agentFailed) return;
+                        scheduleGeometryCheck("config-change");
                         if (ffReloadTimer !== null) clearTimeout(ffReloadTimer);
                         var epoch = FF.hookEpoch;
                         ffReloadTimer = setTimeout(function () {
@@ -661,6 +837,7 @@ Java.perform(function () {
                                 return;
                             }
                             if (agentFailed || (type !== 1 && type !== 2) || type === FF.liftType) return;
+                            scheduleGeometryCheck("panel-lift");
                             FF.liftType = type;
                             Log.i(TAG, "screen lift changed type=" + FF.liftType
                                     + " effectiveBottom=" + ffBottom());
@@ -851,6 +1028,7 @@ Java.perform(function () {
                 var pkg = this.packageName.value;
                 if (ffBlacklisted(pkg)) return result;
                 ffApplyTaskDpi(ffTaskField.get(this), pkg);
+                scheduleGeometryCheck("app-launch");
             } catch (e) { /* не роняем WM */ }
             return result;
         };
@@ -876,6 +1054,7 @@ Java.perform(function () {
             ffDisplayChangedMethod.implementation = function (displayContent) {
                 ffDisplayChangedMethod.call(this, displayContent);
                 if (!FF.on || !FF.screenOn || ffDisplayChangedApplying) return;
+                scheduleGeometryCheck("display-change");
                 try {
                     if (displayContent === null) return;
                     var displayId = displayContent.getDisplayId();
@@ -1057,6 +1236,7 @@ Java.perform(function () {
                                 if (FF.screenOn) return;
                                 var attachDelay = noteFreeformScreenTransition();
                                 FF.screenOn = true;
+                                scheduleGeometryCheck("wake");
                                 refreshFreeformCfg();
                                 if (!restoreTrackedWindows(!FF.on)) {
                                     failAgent("window.restore"); return;
