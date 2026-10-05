@@ -16,6 +16,8 @@ PATTERNS=(
   "DatagramSocket"
   "InetAddress"
   "android.webkit.WebView.loadUrl"
+  "android.webkit.WebView.loadData"
+  "grpc"
 )
 
 # WP1: перво-партийный код живёт в Gradle-деревьях (src-reconstructed переехал)
