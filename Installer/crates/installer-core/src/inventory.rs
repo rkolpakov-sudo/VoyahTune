@@ -379,21 +379,29 @@ pub enum MigrationState {
 }
 
 /// L141: package names совпадают (D4) + отпечаток подписи = original-fingerprint.
-/// Сравнивает подписи установленного Native APK с известным отпечатком оригинала.
+/// Определяет, является ли установка оригиналом (нужна миграция), форком или чистой.
 pub fn detect_migration(packages: &BTreeMap<String, Package>) -> MigrationState {
     let native = packages.get(NATIVE);
     let restore = packages.get(RESTORE);
     if native.is_none() || restore.is_none() {
         return MigrationState::Clean;
     }
-    let signers = &native.unwrap().signers;
+    let pkg = native.unwrap();
+    let signers = &pkg.signers;
+    let build = pkg.build.as_ref();
     // original-fingerprint.md: Android Debug (общий для native, restore_mode, updater)
     let original_fprint = "1aa9ac5067106888c4565a678339debd2ee2a40222063bb5a91a83fbaa03d05b";
-    if signers.is_empty() {
-        // Нет сведений о подписи — не рискуем
-        return MigrationState::Other;
-    }
+    // 1) signers содержат original-fingerprint → однозначно оригинал
     if signers.iter().any(|s| s == &original_fprint) {
+        return MigrationState::Original;
+    }
+    // 2) есть подписи и они наши (Fork) → обновление
+    if !signers.is_empty() {
+        return MigrationState::Fork;
+    }
+    // 3) signers пусты — определяем по build metadata
+    if build.is_none() || build.unwrap().product != "VoyahTune" {
+        // APK без наших build metadata → оригинал (или другой форк без подписей)
         return MigrationState::Original;
     }
     MigrationState::Fork
