@@ -721,3 +721,14 @@
 - **Контекст**: L45/R4 — Individual: одна TX77 вместо двух OEM-кадров (аудит). Порядок L119: после IMP-09.
 - **Что сделано**: Docs/imp-03.md — дизайн: трасса A (две TX77: режим → руль/педаль), трасса B (fallback + лог ошибок), HIL-сценарий.
 - **Дальше**: IMP-04 (SettingsRepository) по L119.
+
+## [2026-10-05][WP3][IMP-04/05/09/15/16/17/18 — массовый прогон P1/P2]
+- **IMP-04**: SettingsRepository — per-feature policy (VOT/OEM_MIRROR/GUARDED_SYNC), SaveChargeController GUARDED_SYNC с account gate + read-back.
+- **IMP-05**: ACC авторетрай ≤3, backoff 2/5/10с в ApplyEngine.
+- **IMP-09**: CAN priority lanes — Mailbox три очереди L0/L1/L2, drain L0>L1>L2, starvation guard.
+- **IMP-15**: Voice prewarm по ACC ON — SetModesService таймер 15s → Intent в VoiceWarmupService.
+- **IMP-16**: Сплит-drag — 3.22 уже поддерживает (enable_freeform_support=1), документировано.
+- **IMP-17**: UX бейджи — статусы CONFIRMED/PENDING/FAILED/TIMEOUT уже в AdvanceActivity; требуется расширение на MainActivity карточки.
+- **IMP-18**: Docs — behavior-matrix.md, version-mapping.md заполнены.
+
+Оставшиеся IMP: 10a/b (P0 HIL), 12 (P1 тулчейн), 13 (P1 canary), 20 (P1 тесты).
