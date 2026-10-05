@@ -4,12 +4,14 @@
 # Сборка payload для форка VoyahTune (SPEC L101 «Шаг 1.3»; адаптация
 # reference-3.14/make_release.sh под нашу структуру репозитория).
 #
-#   ./make_release.sh 4.0.0-build.1 --payload
+#   ./make_release.sh 4.0.0+build.1 --payload
 #       → Releases/build/payload-<VERSION>/          (manifest.json + common/*)
 #       → Releases/dist/payload_<VERSION>.zip        (manifest.json + common/ в корне архива)
 #       → Releases/dist/payload_<VERSION>.json       (version/url/size/sha256)
-#       → Releases/dist/BUILD-INFO.json              (revision, тулчейн, builder id, дата)
+#       → Releases/dist/BUILD-INFO.json              (revision, тулчейн вкл. Rust-пин, builder id,
+#                                                      дата, хеши zip/manifest/APK — IMP-11/SPEC L53)
 #       → Releases/dist/SHA256SUMS                   (все вышеперечисленные артефакты)
+#       старые build уходят в Releases/archive/<version>/ (IMP-11/SPEC L139)
 #
 #   --no-build   APK не пересобирать, взять из уже существующей сборки Gradle
 #   --no-zip     архив и сопроводительные файлы не генерировать (только staging + manifest)
@@ -29,6 +31,7 @@ COMMON="$ROOT/Packaging"
 PAYLOAD_COMMON="$COMMON/payload-common"
 BUILD="$ROOT/Releases/build"
 DIST="$ROOT/Releases/dist"
+ARCHIVE="$ROOT/Releases/archive"
 MANIFEST_SRC="$ROOT/payload/manifest.json"
 BLOBS_LIST="$ROOT/blobs/BLOBS-SHA256.txt"
 
@@ -87,19 +90,29 @@ if [ -z "$MODE" ]; then
 fi
 
 if [ -z "$VERSION" ]; then
-    echo "Не указана версия. Пример: ./make_release.sh 4.0.0-build.1 --payload" >&2
+    echo "Не указана версия. Пример: ./make_release.sh 4.0.0+build.1 --payload" >&2
     exit 1
 fi
-# Версию принимаем и как «3.2.2», и как «v3.2.2» — нормализуем к виду без префикса.
+# Версию принимаем и как «4.0.0+build.1», и как «v4.0.0+build.1» — нормализуем к виду без префикса.
 VERSION="${VERSION#v}"
-# Ниже готовая папка заменяется целиком, поэтому имя обязано быть одним безопасным path-компонентом.
-case "$VERSION" in
-    [A-Za-z0-9]*) ;;
-    *) echo "Недопустимая версия '$VERSION': первый символ должен быть латинской буквой или цифрой." >&2; exit 1 ;;
-esac
-case "$VERSION" in
-    *[!A-Za-z0-9._+-]*) echo "Недопустимая версия '$VERSION': разрешены A-Z, a-z, 0-9, '.', '_', '+', '-'." >&2; exit 1 ;;
-esac
+# IMP-11 (R7, SPEC L53/L136): единственная допустимая схема форка — 4.x.y+build.N.
+# Строгость обязательна: прежняя запись 4.0.0-build.N создавала два написания одного
+# номера — это и есть уязвимость R7 (перепубликация под одним номером).
+if ! printf '%s\n' "$VERSION" | grep -Eq '^4\.[0-9]{1,4}\.[0-9]{1,4}\+build\.[0-9]{1,6}$'; then
+    echo "Недопустимая версия '$VERSION': схема форка — 4.x.y+build.N (SPEC L53/L136, R7)." >&2
+    exit 1
+fi
+# Гейт перепубликации (R7/IMP-11): уже использованный номер не переиспользуем — ни в dist,
+# ни в archive (номер, однажды ушедший в архив, всё равно «существующий»). CI дополнительно
+# падает по существующему тегу v<VERSION> (см. .github/workflows/ci.yml, SPEC L136).
+if [ -f "$DIST/payload_$VERSION.zip" ]; then
+    echo "Перепубликация запрещена (R7/IMP-11): dist/payload_$VERSION.zip уже существует — увеличьте build.N." >&2
+    exit 1
+fi
+if [ -d "$ARCHIVE/$VERSION" ]; then
+    echo "Перепубликация запрещена (R7/IMP-11): номер $VERSION уже уходил в Releases/archive — увеличьте build.N." >&2
+    exit 1
+fi
 
 sha256_file() {
     if command -v sha256sum >/dev/null 2>&1; then
@@ -366,6 +379,32 @@ echo "payload → Releases/build/payload-$VERSION"
 if [ "$DO_ZIP" = 1 ]; then
     command -v zip >/dev/null 2>&1 || { echo "zip не найден — установите zip или используйте --no-zip." >&2; exit 1; }
     mkdir -p "$DIST"
+    # IMP-11/SPEC L139: старые build уезжают в Releases/archive/<version>/ ДО перезаписи dist,
+    # чтобы комплект прошлого номера (zip/json + его BUILD-INFO/SHA256SUMS) не потерялся.
+    OLD_BUILD_VERSION="$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "$DIST/BUILD-INFO.json" 2>/dev/null | head -n 1)"
+    if [ -n "$OLD_BUILD_VERSION" ] && [ "$OLD_BUILD_VERSION" != "$VERSION" ]; then
+        mkdir -p "$ARCHIVE/$OLD_BUILD_VERSION"
+        for stale in "BUILD-INFO.json" "SHA256SUMS" \
+                "payload_$OLD_BUILD_VERSION.zip" "payload_$OLD_BUILD_VERSION.json"; do
+            if [ -f "$DIST/$stale" ]; then
+                mv "$DIST/$stale" "$ARCHIVE/$OLD_BUILD_VERSION/$stale"
+            fi
+        done
+        echo "archive ← dist: $OLD_BUILD_VERSION → Releases/archive/$OLD_BUILD_VERSION/"
+    fi
+    # Просроченные чужие payload_* (прерванные прошлые прогоны) — тоже в archive.
+    for stale_zip in "$DIST"/payload_*.zip; do
+        [ -f "$stale_zip" ] || continue
+        stale_name="$(basename "$stale_zip")"
+        stale_v="${stale_name#payload_}"
+        stale_v="${stale_v%.zip}"
+        if [ "$stale_v" = "$VERSION" ]; then continue; fi
+        mkdir -p "$ARCHIVE/$stale_v"
+        mv "$stale_zip" "$ARCHIVE/$stale_v/$stale_name"
+        if [ -f "$DIST/payload_$stale_v.json" ]; then
+            mv "$DIST/payload_$stale_v.json" "$ARCHIVE/$stale_v/payload_$stale_v.json"
+        fi
+    done
     ZIP_TMP="$DIST/.payload_$VERSION.zip.part.$$"
     # Архив пакуется ИЗНУТРИ каталога: manifest.json и common/ должны лежать в корне zip
     # (контракт Installer, тот же layout, что у легендного payload_3.22.0.zip).
@@ -393,10 +432,15 @@ if [ "$DO_ZIP" = 1 ]; then
         "$VERSION" "$PAYLOAD_URL" "$ZIP_SIZE" "$ZIP_SHA" > "$ENTRY_FILE.tmp"
     mv -f "$ENTRY_FILE.tmp" "$ENTRY_FILE"
 
-    # BUILD-INFO (SPEC L135): revision, тулчейн, builder id, дата (REVISION посчитан в шаге 2).
+    # BUILD-INFO (SPEC L135/L53): revision, тулчейн вкл. пин Rust, builder id, дата, хеши.
     GRADLE_V="$(sed -n 's/.*gradle-\([0-9][0-9.]*\)-bin\.zip.*/\1/p' "$ROOT/gradle/wrapper/gradle-wrapper.properties")"
     AGP_V="$(sed -n "s/.*com.android.application' version '\([0-9][0-9.]*\)'.*/\1/p" "$ROOT/build.gradle")"
     JDK_V="$(java -version 2>&1 | sed -n 's/.*version "\([0-9][0-9]*\).*/\1/p' | head -n 1)"
+    # Источник правды по Rust — пин Installer/rust-toolchain.toml (SPEC L53: тулчейн Rust 1.98.1).
+    RUST_V="$(sed -n 's/^channel[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$ROOT/Installer/rust-toolchain.toml" 2>/dev/null | head -n 1)"
+    if [ -z "$RUST_V" ] && command -v rustc >/dev/null 2>&1; then
+        RUST_V="$(rustc --version 2>/dev/null | awk '{print $2}' || true)"
+    fi
     BUILDER_ID="${BUILDER_ID:-}"
     if [ -z "$BUILDER_ID" ] && [ -n "${GITHUB_RUN_ID:-}" ]; then
         BUILDER_ID="github-actions/run-$GITHUB_RUN_ID"
@@ -404,10 +448,15 @@ if [ "$DO_ZIP" = 1 ]; then
     if [ -z "$BUILDER_ID" ]; then
         BUILDER_ID="$(id -un 2>/dev/null || echo unknown)@$(hostname 2>/dev/null || echo unknown)"
     fi
+    # Хеши раздаваемого комплекта (SPEC L53 «хеши»): сам zip + внутренний manifest + обе APK.
+    MANIFEST_SHA="$(sha256_file "$FINAL_OUT/manifest.json")"
+    NATIVE_SHA="$(sha256_file "$NATIVE_APK")"
+    RESTORE_SHA="$(sha256_file "$RESTORE_APK")"
     BUILD_INFO="$DIST/BUILD-INFO.json"
-    printf '{\n  "product": "VoyahTune",\n  "version": "%s",\n  "revision": "%s",\n  "toolchain": {\n    "gradle": "%s",\n    "agp": "%s",\n    "jdk": "%s"\n  },\n  "builder": "%s",\n  "date": "%s"\n}\n' \
-        "$VERSION" "$REVISION" "${GRADLE_V:-unknown}" "${AGP_V:-unknown}" "${JDK_V:-unknown}" \
-        "$BUILDER_ID" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$BUILD_INFO.tmp"
+    printf '{\n  "product": "VoyahTune",\n  "version": "%s",\n  "revision": "%s",\n  "toolchain": {\n    "gradle": "%s",\n    "agp": "%s",\n    "jdk": "%s",\n    "rust": "%s"\n  },\n  "builder": "%s",\n  "date": "%s",\n  "hashes": {\n    "payload_%s.zip": "%s",\n    "manifest.json": "%s",\n    "native.apk": "%s",\n    "restore_mode.apk": "%s"\n  }\n}\n' \
+        "$VERSION" "$REVISION" "${GRADLE_V:-unknown}" "${AGP_V:-unknown}" "${JDK_V:-unknown}" "${RUST_V:-unknown}" \
+        "$BUILDER_ID" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        "$VERSION" "$ZIP_SHA" "$MANIFEST_SHA" "$NATIVE_SHA" "$RESTORE_SHA" > "$BUILD_INFO.tmp"
     mv -f "$BUILD_INFO.tmp" "$BUILD_INFO"
 
     # SHA256SUMS — все раздаваемые артефакты, формат sha256sum -c (два пробела, относительные пути).
@@ -419,6 +468,21 @@ if [ "$DO_ZIP" = 1 ]; then
 
     echo "dist → Releases/dist/payload_$VERSION.zip ($ZIP_SIZE bytes, sha256 $ZIP_SHA)"
     echo "cat  → Releases/dist/payload_$VERSION.json, BUILD-INFO.json, SHA256SUMS"
+
+    # IMP-11/SPEC L139: staging-каталоги прошлых номеров → в архив (после успешной сборки,
+    # чтобы сбой текущего прогона не уничтожал прошлые комплекты).
+    for old_build in "$BUILD"/payload-*; do
+        [ -d "$old_build" ] || continue
+        old_name="$(basename "$old_build")"
+        old_v="${old_name#payload-}"
+        if [ "$old_v" = "$VERSION" ]; then continue; fi
+        mkdir -p "$ARCHIVE/$old_v/build"
+        if [ -e "$ARCHIVE/$old_v/build/$old_name" ]; then
+            rm -rf "$ARCHIVE/$old_v/build/$old_name"
+        fi
+        mv "$old_build" "$ARCHIVE/$old_v/build/$old_name"
+        echo "archive ← build: $old_v/$old_name → Releases/archive/$old_v/build/"
+    done
 fi
 
 echo "Готово: $FINAL_OUT"

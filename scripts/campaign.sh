@@ -102,7 +102,7 @@ cmd_env() {
     if [ -n "$exe" ]; then
         pass "GUI-инсталлер собран: ${exe#"$ROOT"/}"
     else
-        fail "нет VoyahTune-Installer.exe (сборка: node Installer/scripts/build.mjs --payload Releases/build/payload-4.0.0-build.2)"
+        fail "нет VoyahTune-Installer.exe (сборка: node Installer/scripts/build.mjs --payload Releases/build/payload-<VERSION> схемы 4.x.y+build.N)"
     fi
 
     [ -f "$ROOT/payload/manifest.json" ] && pass "payload/manifest.json" \
