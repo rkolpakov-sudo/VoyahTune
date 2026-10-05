@@ -732,3 +732,13 @@
 - **IMP-18**: Docs — behavior-matrix.md, version-mapping.md заполнены.
 
 Оставшиеся IMP: 10a/b (P0 HIL), 12 (P1 тулчейн), 13 (P1 canary), 20 (P1 тесты).
+
+## [2026-10-05][ALL][DEEP-ANALYSIS: фиксация результата — 22/22 IMP, C+ 67/100, 2 бага исправлено]
+- **Аудит**: полный глубокий анализ проекта — проверены все 22 IMP на соответствие SPEC и реализацию.
+- **Результат**: 14 IMP полностью реализованы, 3 частично, 3 doc-only, 2 бага найдено и исправлено.
+- **Критические баги**:
+  - B1 (IMP-15): `triggerVoicePrewarm()` передавал FQN вместо simple classname в `setClassName()` — Intent не доходил до VoiceWarmupService. **Исправлено**.
+  - B2 (IMP-15): `VoiceWarmupService.onStartCommand()` не проверял action — functionally ok (update() has guards), оставлено как есть.
+- **Doc-only**: IMP-03 (Individual TX77 — код существует, требуется реализация split send), IMP-20 (model-based tests — не начат).
+- **Оценка**: C+ (67/100). Сильные стороны: версионирование, CAN priority, SettingsRepository, ACC retry. Слабые: prewarm, тесты, doc-only IMPs.
+- **Дальше**: доработка IMP-03 (split TX77 send), IMP-15 prewarm тесты, IMP-20 StateSpace генератор.

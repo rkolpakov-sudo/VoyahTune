@@ -1227,7 +1227,7 @@ private final Runnable carPowerReconnectRunnable = new Runnable() { // from clas
     private void triggerVoicePrewarm() {
         Log.i(TAG, "Voice prewarm triggered after ACC ON");
         Intent intent = new Intent();
-        intent.setClassName(RESTOREMODE_PKG, "ru.big.town.restoremode.VoiceWarmupService");
+        intent.setClassName(RESTOREMODE_PKG, "VoiceWarmupService");
         try {
             startForegroundService(intent);
         } catch (RuntimeException e) {
