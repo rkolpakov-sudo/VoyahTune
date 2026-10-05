@@ -1547,6 +1547,36 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    /** IMP-17: Show result badge on card (CONFIRMED/PENDING/FAILED/TIMEOUT). */
+    private void setCardResultBadge(View cardView, String status) {
+        if (cardView == null || status == null) return;
+        TextView badge = (TextView) cardView.findViewById(R.id.cardResultBadge);
+        if (badge == null) return;
+        int pill;
+        String label;
+        switch (status) {
+            case "CONFIRMED":
+                label = "Выполнено";
+                pill = R.drawable.pill_active;
+                break;
+            case "FAILED":
+                label = "Ошибка";
+                pill = R.drawable.pill_error;
+                break;
+            case "TIMEOUT":
+                label = "Таймаут";
+                pill = R.drawable.pill_error;
+                break;
+            default:
+                label = "Отправлено";
+                pill = R.drawable.pill_pending;
+                break;
+        }
+        badge.setText(label);
+        badge.setBackgroundResource(pill);
+        badge.setVisibility(0);
+    }
+
     private void showEmbeddedAppWidget(View view, AppWidgetStore.Entry entry) {
         AppWidgetStore.Profile profileSelected = entry.selected();
         showEmbeddedAppWidget(view, entry, profileSelected.packageName, profileSelected.dpi);

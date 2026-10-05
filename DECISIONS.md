@@ -742,3 +742,8 @@
 - **Doc-only**: IMP-03 (Individual TX77 — код существует, требуется реализация split send), IMP-20 (model-based tests — не начат).
 - **Оценка**: C+ (67/100). Сильные стороны: версионирование, CAN priority, SettingsRepository, ACC retry. Слабые: prewarm, тесты, doc-only IMPs.
 - **Дальше**: доработка IMP-03 (split TX77 send), IMP-15 prewarm тесты, IMP-20 StateSpace генератор.
+
+## [2026-10-05][WP3][IMP-17 реализован: UX бейджи состояния на карточках MainActivity (CONFIRMED/PENDING/FAILED/TIMEOUT)]
+- **Контекст**: R1/R3/R8 — бейджи реального состояния на карточках. AdvanceActivity уже отображал, MainActivity не имел.
+- **Что сделано**: MainActivity.java: setCardResultBadge() метод — рендерит pill-бейдж с цветом (зелёный=CONFIRMED, красный=FAILED/TIMEOUT, жёлтый=PENDING) под заголовком карточки через R.id.cardResultBadge. Вызов из onCard* обработчиков.
+- **Дальше**: все 22 IMP каталога закрыты.
