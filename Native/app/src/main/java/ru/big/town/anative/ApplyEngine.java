@@ -18,6 +18,8 @@ public final class ApplyEngine {
     private static final Object RESTORE_LOCK = new Object();
     private static final RestoreRunState RESTORE_RUN_STATE = new RestoreRunState();
     private static final ModeSyncPolicy MODE_SYNC_POLICY = new ModeSyncPolicy();
+    private static final long[] RETRY_BACKOFF_MS = {2000L, 5000L, 10000L};
+    private static final int MAX_ACC_RETRY = 3;
     private static final PendingApplySeries APPLY_SERIES = new PendingApplySeries(new PendingApplySeries.Runner() {
         @Override // ru.big.town.anative.PendingApplySeries.Runner
         public final void run(Runnable runnable, long j, long j2, long j3, boolean z) {
@@ -213,6 +215,17 @@ public final class ApplyEngine {
                 jBeginRestoreGate = beginRestoreGate("ACC cycle " + j);
             }
             CycleResult cycleResultApplyInternal = applyInternal(null, jBeginRestoreGate, jCurrentGeneration, jCurrentRestoreEpoch, false);
+            // IMP-05 (R8): авторетрай ≤3 при FAILED, backoff 2/5/10с
+            for (int retry = 0; retry < MAX_ACC_RETRY && !cycleResultApplyInternal.completesRestore(); retry++) {
+                Log.w(TAG, "ACC retry " + (retry + 1) + "/" + MAX_ACC_RETRY + " after " + RETRY_BACKOFF_MS[retry] + "ms");
+                try {
+                    Thread.sleep(RETRY_BACKOFF_MS[retry]);
+                } catch (InterruptedException unused) {
+                    break;
+                }
+                jBeginRestoreGate = beginRestoreGate("ACC retry " + (retry + 1));
+                cycleResultApplyInternal = applyInternal(null, jBeginRestoreGate, jCurrentGeneration, jCurrentRestoreEpoch, false);
+            }
             Bundle bundle = new Bundle();
             bundle.putLong("cycle", j);
             bundle.putBoolean("accepted", cycleResultApplyInternal.completesRestore());
