@@ -204,6 +204,8 @@ fn classic_steps(action: Action, migration_needed: bool) -> Vec<(&'static str, &
             ("reboot", "Перезагрузка автомобиля"),
             ("migrate-verify", "Проверка владельца разрешений"),
         ]);
+        // L143: residue-чеклист после установки (выполняет engine, не блокирует)
+        s.push(("residue", "Проверка остаточных файлов оригинала"));
     } else {
         s.extend([
             ("backup", "Сохранение файлов перед заменой"),
@@ -222,6 +224,8 @@ fn classic_steps(action: Action, migration_needed: bool) -> Vec<(&'static str, &
             ("reboot", "Перезагрузка автомобиля"),
             ("verify", "Проверка запуска Native"),
         ]);
+        // L143: residue-чеклист после установки (выполняет engine, не блокирует)
+        s.push(("residue", "Проверка остаточных файлов оригинала"));
     }
     s
 }
