@@ -500,10 +500,10 @@ final class CanBusEventHub {
                 this.router.invalidateThrough(j);
                 long j2 = this.nextEpoch + 1;
                 this.nextEpoch = j2;
-                CanBusEventRouter canBusEventRouter = this.router;
+                CanBusEventRouter router = this.router;
                 long j3 = 1 + this.nextSequence;
                 this.nextSequence = j3;
-                canBusEventRouter.dispatch(CanBusEvent.connectionLost(j2, j3, SystemClock.elapsedRealtime(), j));
+                router.dispatch(CanBusEvent.connectionLost(j2, j3, SystemClock.elapsedRealtime(), j));
             }
             this.pendingConnectionEvent = null;
             this.preReadyEvents.clear();

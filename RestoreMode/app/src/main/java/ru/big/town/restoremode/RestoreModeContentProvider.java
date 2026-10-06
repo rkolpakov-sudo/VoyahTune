@@ -69,7 +69,7 @@ public class RestoreModeContentProvider extends ContentProvider {
     public boolean onCreate() {
         SharedPreferences sharedPreferences = getContext().getSharedPreferences("DrivePreferences", 0);
         this.sharedPreferences = sharedPreferences;
-        if (!sharedPreferences.contains("apolloStockUiEnabled") || this.sharedPreferences.edit().remove("apolloStockUiEnabled").commit()) {
+        if (!sharedPreferences.contains(ApolloSettings.STOCK_UI) || this.sharedPreferences.edit().remove(ApolloSettings.STOCK_UI).commit()) {
             return true;
         }
         Log.e("ApolloSettings", "Unable to clear retired stock UI target");
@@ -187,15 +187,23 @@ public class RestoreModeContentProvider extends ContentProvider {
         this.apolloTrafficLightsEnabled = this.sharedPreferences.getBoolean("apolloTrafficLightsEnabled", false);
         this.apolloGreenSoundEnabled = this.sharedPreferences.getBoolean("apolloGreenSoundEnabled", false);
         this.apolloTrafficSignsEnabled = this.sharedPreferences.getBoolean("apolloTrafficSignsEnabled", false);
-        MatrixCursor matrixCursor = new MatrixCursor(new String[]{"driveMode", "energy", "recycle", "customCommand", "customCommandCount", "autoLight", "driveEnabled", "recycleEnabled", "energyEnabled", "lightSensorThreshold", "lightSensorThresholdOff", "disablePedestrianSound", "debugMode", "wiperColdMode", "customCommandStarButton1", "customCommandStarButton2", "autoLaunchOnWake", "batteryHeatAuto", "pauseMediaOnDoor", "forcedEv", "fragranceEnabled", "fragranceTaste", "fragranceDuration", "fragranceIntensity", "apolloTlcEnabled", "apolloTrafficLightsEnabled", "apolloGreenSoundEnabled", "apolloTrafficSignsEnabled", "apolloStockUiEnabled", "driveRememberLast", "energyRememberLast", "recycleRememberLast", "suspensionMaintenance", DriveSelectionPolicy.OVERRIDE, DriveSelectionPolicy.MEDIUM, DriveSelectionPolicy.CONFIGURED, DriveSelectionPolicy.CURRENT});
-        matrixCursor.addRow(new Object[]{driveSelectionPolicy.effective(), this.energy, this.recycle, this.customCommand, Integer.valueOf(this.customCommandCount), Integer.valueOf(this.autoLight ? 1 : 0), Integer.valueOf(this.driveEnabled ? 1 : 0), Integer.valueOf(this.recycleEnabled ? 1 : 0), Integer.valueOf(this.energyEnabled ? 1 : 0), Integer.valueOf(this.lightSensorThreshold), Integer.valueOf(this.lightSensorThresholdOff), Integer.valueOf(this.disablePedestrianSound ? 1 : 0), 0, Integer.valueOf(this.wiperColdMode ? 1 : 0), this.customCommandStarButton1, this.customCommandStarButton2, Integer.valueOf(this.autoLaunchOnWake ? 1 : 0), Integer.valueOf(this.batteryHeatAuto ? 1 : 0), Integer.valueOf(this.pauseMediaOnDoor ? 1 : 0), Integer.valueOf(this.forcedEv ? 1 : 0), Integer.valueOf(this.fragranceEnabled ? 1 : 0), Integer.valueOf(this.fragranceTaste), Integer.valueOf(this.fragranceDuration), Integer.valueOf(this.fragranceIntensity), Integer.valueOf(this.apolloTlcEnabled ? 1 : 0), Integer.valueOf(this.apolloTrafficLightsEnabled ? 1 : 0), Integer.valueOf(this.apolloGreenSoundEnabled ? 1 : 0), Integer.valueOf(this.apolloTrafficSignsEnabled ? 1 : 0), 0, Integer.valueOf(this.driveRememberLast ? 1 : 0), Integer.valueOf(this.energyRememberLast ? 1 : 0), Integer.valueOf(this.recycleRememberLast ? 1 : 0), Integer.valueOf(this.suspensionMaintenance ? 1 : 0), driveSelectionPolicy.override, driveSelectionPolicy.medium, driveSelectionPolicy.configured, driveSelectionPolicy.current});
+        MatrixCursor matrixCursor = new MatrixCursor(new String[]{"driveMode", "energy", "recycle", "customCommand", "customCommandCount", "autoLight", "driveEnabled", "recycleEnabled", "energyEnabled", "lightSensorThreshold", "lightSensorThresholdOff", "disablePedestrianSound", "debugMode", "wiperColdMode", "customCommandStarButton1", "customCommandStarButton2", "autoLaunchOnWake", "batteryHeatAuto", "pauseMediaOnDoor", "forcedEv", "fragranceEnabled", "fragranceTaste", "fragranceDuration", "fragranceIntensity",
+                ApolloSettings.TLC,          // 24
+                ApolloSettings.TRAFFIC_LIGHTS, // 25
+                ApolloSettings.GREEN_SOUND, // 26
+                ApolloSettings.TRAFFIC_SIGNS,// 27
+                ApolloSettings.STOCK_UI,      // 28
+                "driveRememberLast", "energyRememberLast", "recycleRememberLast", "suspensionMaintenance", DriveSelectionPolicy.OVERRIDE, DriveSelectionPolicy.MEDIUM, DriveSelectionPolicy.CONFIGURED, DriveSelectionPolicy.CURRENT});
+        matrixCursor.addRow(new Object[]{driveSelectionPolicy.effective(), this.energy, this.recycle, this.customCommand, Integer.valueOf(this.customCommandCount), Integer.valueOf(this.autoLight ? 1 : 0), Integer.valueOf(this.driveEnabled ? 1 : 0), Integer.valueOf(this.recycleEnabled ? 1 : 0), Integer.valueOf(this.energyEnabled ? 1 : 0), Integer.valueOf(this.lightSensorThreshold), Integer.valueOf(this.lightSensorThresholdOff), Integer.valueOf(this.disablePedestrianSound ? 1 : 0), 0, Integer.valueOf(this.wiperColdMode ? 1 : 0), this.customCommandStarButton1, this.customCommandStarButton2, Integer.valueOf(this.autoLaunchOnWake ? 1 : 0), Integer.valueOf(this.batteryHeatAuto ? 1 : 0), Integer.valueOf(this.pauseMediaOnDoor ? 1 : 0), Integer.valueOf(this.forcedEv ? 1 : 0), Integer.valueOf(this.fragranceEnabled ? 1 : 0), Integer.valueOf(this.fragranceTaste), Integer.valueOf(this.fragranceDuration), Integer.valueOf(this.fragranceIntensity), Integer.valueOf(this.apolloTlcEnabled ? 1 : 0), Integer.valueOf(this.apolloTrafficLightsEnabled ? 1 : 0), Integer.valueOf(this.apolloGreenSoundEnabled ? 1 : 0), Integer.valueOf(this.apolloTrafficSignsEnabled ? 1 : 0),
+                0, // 28: retired stock UI target
+                Integer.valueOf(this.driveRememberLast ? 1 : 0), Integer.valueOf(this.energyRememberLast ? 1 : 0), Integer.valueOf(this.recycleRememberLast ? 1 : 0), Integer.valueOf(this.suspensionMaintenance ? 1 : 0), driveSelectionPolicy.override, driveSelectionPolicy.medium, driveSelectionPolicy.configured, driveSelectionPolicy.current});
         return matrixCursor;
     }
 
     @Override // android.content.ContentProvider
     public int update(Uri uri, ContentValues contentValues, String str, String[] strArr) {
         Boolean asBoolean;
-        String str2;
+        String rememberKey;
         String asString;
         int i = 0;
         if (contentValues == null || this.sharedPreferences == null) {
@@ -221,14 +229,13 @@ public class RestoreModeContentProvider extends ContentProvider {
         while (i3 < i2) {
             String str3 = strArr2[i3];
             if ("driveMode".equals(str3)) {
-                str2 = "driveRememberLast";
+                rememberKey = "driveRememberLast";
             } else {
-                str2 = "energy".equals(str3) ? "energyRememberLast" : "recycleRememberLast";
+                rememberKey = "energy".equals(str3) ? "energyRememberLast" : "recycleRememberLast";
             }
             int i5 = i;
-            String str4 = str2;
             int i6 = i2;
-            if (contentValues.containsKey(str3) && this.sharedPreferences.getBoolean(str4, true) && (asString = contentValues.getAsString(str3)) != null && !asString.isEmpty()) {
+            if (contentValues.containsKey(str3) && this.sharedPreferences.getBoolean(rememberKey, true) && (asString = contentValues.getAsString(str3)) != null && !asString.isEmpty()) {
                 editorEdit.putString(str3, asString);
                 i4++;
                 Log.i("$$$", "provider UPDATE " + str3 + "=" + asString);

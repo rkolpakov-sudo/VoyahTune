@@ -2,6 +2,8 @@
 artifacts/
 reference-3.14/
 tools/
+# Локальные распаковки вендорных APK (фиксстуры тестов) — в git не входят
+tmp/
 # Бинарии блобов НЕ в git; пиннинг sha256 для CI — в BLOBS-SHA256.txt (L101 Шаг 1.3)
 blobs/*
 !blobs/BLOBS-SHA256.txt

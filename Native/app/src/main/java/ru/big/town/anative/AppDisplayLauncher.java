@@ -172,17 +172,15 @@ final class AppDisplayLauncher {
         }
     }
 
-    static /* synthetic */ void lambda$awaitRemoval$2(String str, long j, BooleanSupplier booleanSupplier, int i, boolean z, Context context, Intent intent, Runnable runnable) {
+    static /* synthetic */ void lambda$awaitRemoval$2(String str, long j, BooleanSupplier booleanSupplier, int i, boolean fullscreen, Context app, Intent intent, Runnable runnable) {
         if (current(str, j) && booleanSupplier.getAsBoolean()) {
             try {
                 ActivityOptions activityOptionsMakeBasic = ActivityOptions.makeBasic();
                 activityOptionsMakeBasic.setLaunchDisplayId(i);
                 Bundle bundle = activityOptionsMakeBasic.toBundle();
-                if (z) {
-                    bundle.putInt("android.activity.windowingMode", 1);
-                }
-                DockLaunchGuard.arm(context, i, str);
-                context.startActivity(intent, bundle);
+                if (fullscreen) bundle.putInt("android.activity.windowingMode", 1);
+                DockLaunchGuard.arm(app, i, str);
+                app.startActivity(intent, bundle);
                 Log.i(TAG, "launched pkg=" + str + " display=" + i);
             } catch (Exception e) {
                 failed(str, j, booleanSupplier, runnable, e);

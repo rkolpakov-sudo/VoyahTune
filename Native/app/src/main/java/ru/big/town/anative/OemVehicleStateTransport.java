@@ -44,7 +44,7 @@ final class OemVehicleStateTransport {
     private long bindingStartedElapsed;
     private IBinder canBusBinder;
     private boolean connectionRegistered;
-    private Class<? extends Enum> vehicleStateClass;
+    private Class vehicleStateClass;
     private Method vehicleStateGetValue;
     private final Object connectionLock = new Object();
     private final Object schemaLock = new Object();
@@ -62,9 +62,9 @@ final class OemVehicleStateTransport {
             return null;
         }
 
-        Integer readVehicleState(StateKey stateKey);
+        Integer readVehicleState(StateKey key);
 
-        Result sendBundle(Map<StateKey, Integer> map, String str);
+        Result sendBundle(Map<StateKey, Integer> values, String label);
 
         Result sendVehicleState(StateValue stateValue, String str);
     }
@@ -313,7 +313,7 @@ final class OemVehicleStateTransport {
         if (iBinderAcquireBinder == null) {
             return Result.TRANSIENT_FAILURE;
         }
-        synchronized (this.transactionLock) {
+        synchronized (transactionLock) {
             resultTransactSingle = transactSingle(iBinderAcquireBinder, stateValue, str);
         }
         return resultTransactSingle;
@@ -325,7 +325,7 @@ final class OemVehicleStateTransport {
         if (contextApplicationContext == null || !resolveStates(contextApplicationContext, collection) || (iBinderAcquireBinder = acquireBinder(contextApplicationContext)) == null) {
             return null;
         }
-        synchronized (this.transactionLock) {
+        synchronized (transactionLock) {
             if (isCurrentBinder(iBinderAcquireBinder)) {
                 return sessionOperation.run(new BoundSession(iBinderAcquireBinder));
             }
@@ -402,7 +402,7 @@ final class OemVehicleStateTransport {
         if (iBinderAcquireBinder == null) {
             return Result.TRANSIENT_FAILURE;
         }
-        synchronized (this.transactionLock) {
+        synchronized (transactionLock) {
             resultTransactBundle = transactBundle(iBinderAcquireBinder, linkedHashMap, str);
         }
         return resultTransactBundle;
@@ -433,7 +433,7 @@ final class OemVehicleStateTransport {
         if (iBinderAcquireBinder == null) {
             return Result.TRANSIENT_FAILURE;
         }
-        synchronized (this.transactionLock) {
+        synchronized (transactionLock) {
             resultTransactRestoreSequence = transactRestoreSequence(iBinderAcquireBinder, stateValue, linkedHashMap, linkedHashMap2, str);
         }
         return resultTransactRestoreSequence;
@@ -487,15 +487,15 @@ final class OemVehicleStateTransport {
                             this.vehicleStateClass = cls;
                             this.vehicleStateGetValue = cls.getMethod("getValue", new Class[0]);
                         }
-                        for (StateKey stateKey : collection) {
-                            if (!this.resolvedOrdinals.containsKey(stateKey)) {
-                                Enum enumValueOf = Enum.valueOf((Class) this.vehicleStateClass, stateKey.name);
+                        for (StateKey key : collection) {
+                            if (!this.resolvedOrdinals.containsKey(key)) {
+                                Enum enumValueOf = Enum.valueOf(vehicleStateClass, key.name);
                                 Object objInvoke = this.vehicleStateGetValue.invoke(enumValueOf, new Object[0]);
-                                if (!(objInvoke instanceof Integer) || ((Integer) objInvoke).intValue() != stateKey.stableId) {
-                                    Log.e(TAG, "VehicleState id mismatch for " + stateKey + ", installed=" + objInvoke);
+                                if (!(objInvoke instanceof Integer) || ((Integer) objInvoke).intValue() != key.stableId) {
+                                    Log.e(TAG, "VehicleState id mismatch for " + key + ", installed=" + objInvoke);
                                     return false;
                                 }
-                                this.resolvedOrdinals.put(stateKey, Integer.valueOf(enumValueOf.ordinal()));
+                                this.resolvedOrdinals.put(key, Integer.valueOf(enumValueOf.ordinal()));
                             }
                         }
                         return true;
@@ -666,36 +666,36 @@ final class OemVehicleStateTransport {
         }
     }
 
-    /* JADX INFO: Access modifiers changed from: private */
-    public GearStatus transactGearStatus(IBinder iBinder) {
-        if (!isCurrentBinder(iBinder)) {
+    private GearStatus transactGearStatus(IBinder binder) {
+        if (!isCurrentBinder(binder)) {
             return null;
         }
-        Parcel parcelObtain = Parcel.obtain();
-        Parcel parcelObtain2 = Parcel.obtain();
+        Parcel data = Parcel.obtain();
+        Parcel reply = Parcel.obtain();
         try {
             try {
-                parcelObtain.writeInterfaceToken(CANBUS_DESCRIPTOR);
-                if (iBinder.transact(6, parcelObtain, parcelObtain2, 0)) {
-                    parcelObtain2.readException();
-                    if (parcelObtain2.readInt() != 0) {
-                        int i = parcelObtain2.readInt();
-                        int i2 = parcelObtain2.readInt();
-                        Log.i(TAG, "TX6 getGearStatus ordinal=" + i + " value=" + i2);
-                        return new GearStatus(i, i2);
+                data.writeInterfaceToken(CANBUS_DESCRIPTOR);
+                if (binder.transact(TX_GEAR_STATUS, data, reply, 0)) {
+                    reply.readException();
+                    if (reply.readInt() == 0) {
+                        Log.e(TAG, "TX6 getGearStatus returned null");
+                    } else {
+                        int ordinal = reply.readInt();
+                        int value = reply.readInt();
+                        Log.i(TAG, "TX6 getGearStatus ordinal=" + ordinal + " value=" + value);
+                        return new GearStatus(ordinal, value);
                     }
-                    Log.e(TAG, "TX6 getGearStatus returned null");
                 } else {
                     Log.e(TAG, "TX6 getGearStatus rejected");
                 }
             } catch (RemoteException | RuntimeException e) {
-                Log.e(TAG, "TX6 getGearStatus failed", e);
-                dropBinding(null, iBinder);
+                Log.w(TAG, "TX6 getGearStatus failed", e);
+                dropBinding(null, binder);
             }
             return null;
         } finally {
-            parcelObtain2.recycle();
-            parcelObtain.recycle();
+            reply.recycle();
+            data.recycle();
         }
     }
 
@@ -727,39 +727,39 @@ final class OemVehicleStateTransport {
         }
     }
 
-    /* JADX INFO: Access modifiers changed from: private */
-    public Integer transactVehicleState(IBinder iBinder, StateKey stateKey) {
+    private Integer transactVehicleState(IBinder binder, StateKey key) {
         Integer num;
         synchronized (this.schemaLock) {
-            num = this.resolvedOrdinals.get(stateKey);
+            num = this.resolvedOrdinals.get(key);
         }
-        if (num == null || !isCurrentBinder(iBinder)) {
+        if (num == null || !isCurrentBinder(binder)) {
             return null;
         }
-        Parcel parcelObtain = Parcel.obtain();
-        Parcel parcelObtain2 = Parcel.obtain();
+        Parcel data = Parcel.obtain();
+        Parcel reply = Parcel.obtain();
         try {
             try {
-                parcelObtain.writeInterfaceToken(CANBUS_DESCRIPTOR);
-                parcelObtain.writeInt(1);
-                parcelObtain.writeInt(num.intValue());
-                parcelObtain.writeInt(stateKey.stableId);
-                if (!iBinder.transact(57, parcelObtain, parcelObtain2, 0)) {
-                    Log.e(TAG, "TX57 getVehicleState rejected " + stateKey);
+                data.writeInterfaceToken(CANBUS_DESCRIPTOR);
+                data.writeInt(1); // VehicleState object is present.
+                int ordinal = num.intValue();
+                data.writeInt(ordinal);
+                data.writeInt(key.stableId);
+                if (!binder.transact(TX_GET_VEHICLE_STATE, data, reply, 0)) {
+                    Log.e(TAG, "TX57 getVehicleState rejected " + key);
                     return null;
                 }
-                parcelObtain2.readException();
-                int i = parcelObtain2.readInt();
-                Log.i(TAG, "TX57 getVehicleState " + stateKey + "=" + i);
-                return Integer.valueOf(i);
+                reply.readException();
+                int value = reply.readInt();
+                Log.i(TAG, "TX57 getVehicleState " + key + "=" + value);
+                return Integer.valueOf(value);
             } catch (RemoteException | RuntimeException e) {
-                Log.e(TAG, "TX57 getVehicleState failed " + stateKey, e);
-                dropBinding(null, iBinder);
+                Log.e(TAG, "TX57 getVehicleState failed " + key, e);
+                dropBinding(null, binder);
             }
             return null;
         } finally {
-            parcelObtain2.recycle();
-            parcelObtain.recycle();
+            reply.recycle();
+            data.recycle();
         }
     }
 

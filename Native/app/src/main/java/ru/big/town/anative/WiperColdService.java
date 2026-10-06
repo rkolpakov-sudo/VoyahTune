@@ -500,19 +500,9 @@ public class WiperColdService extends Service {
         this.mediaThread = handlerThread;
         handlerThread.start();
         this.mediaHandler = new Handler(this.mediaThread.getLooper());
-        VehicleStateControllers vehicleStateControllers = VehicleStateControllers.get(this);
-        this.gearStateSubscription = vehicleStateControllers.gear().subscribe(this.timerHandler, new GearStateController.Listener() { // from class: ru.big.town.anative.WiperColdService$$ExternalSyntheticLambda4
-            @Override // ru.big.town.anative.GearStateController.Listener
-            public final void onGearChanged(int i) {
-                WiperColdService.this.onGearState(i);
-            }
-        });
-        this.driverDoorSubscription = vehicleStateControllers.driverDoor().subscribe(this.timerHandler, new DriverDoorStateController.Listener() { // from class: ru.big.town.anative.WiperColdService$$ExternalSyntheticLambda5
-            @Override // ru.big.town.anative.DriverDoorStateController.Listener
-            public final void onDriverDoorChanged(DriverDoorStateController.State state) {
-                WiperColdService.this.onDriverDoorState(state);
-            }
-        });
+        VehicleStateControllers vehicleState = VehicleStateControllers.get(this);
+        this.gearStateSubscription = vehicleState.gear().subscribe(timerHandler, this::onGearState);
+        this.driverDoorSubscription = vehicleState.driverDoor().subscribe(timerHandler, this::onDriverDoorState);
     }
 
     @Override // android.app.Service

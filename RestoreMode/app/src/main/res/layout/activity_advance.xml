@@ -330,7 +330,7 @@
                                 <TextView android:textSize="27.0px" android:textColor="#ffffff" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="TLC — помощь при перестроении" />
                                 <TextView android:textSize="20.0px" android:textColor="#aaaaaa" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4.0dp" android:text="Сохранённое целевое значение VoyahTune. Проверка Parking не выполняется." />
                             </LinearLayout>
-                            <Switch android:enabled="true" android:id="@id/switchApolloTlc" android:layout_width="wrap_content" android:layout_height="wrap_content" android:thumb="@drawable/switch_thumb" android:track="@drawable/switch_track" android:layout_marginStart="16.0dp" />
+                            <Switch android:enabled="true" android:id="@+id/switchApolloTlc" android:layout_width="wrap_content" android:layout_height="wrap_content" android:thumb="@drawable/switch_thumb" android:track="@drawable/switch_track" android:layout_marginStart="16.0dp" />
                         </LinearLayout>
                         <LinearLayout android:orientation="vertical" android:background="@drawable/layout_category_bg" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12.0dp" android:paddingHorizontal="16.0dp" android:paddingVertical="12.0dp">
                             <LinearLayout android:gravity="center_vertical" android:orientation="horizontal" android:layout_width="match_parent" android:layout_height="wrap_content">
@@ -338,7 +338,7 @@
                                     <TextView android:textSize="27.0px" android:textColor="#ffffff" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Распознавание светофоров" />
                                     <TextView android:textSize="20.0px" android:textColor="#aaaaaa" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4.0dp" android:text="Распознаёт сигналы светофоров и показывает подсказки водителю." />
                                 </LinearLayout>
-                                <Switch android:enabled="true" android:id="@id/switchApolloTrafficLights" android:layout_width="wrap_content" android:layout_height="wrap_content" android:thumb="@drawable/switch_thumb" android:track="@drawable/switch_track" android:layout_marginStart="16.0dp" />
+                                <Switch android:enabled="true" android:id="@+id/switchApolloTrafficLights" android:layout_width="wrap_content" android:layout_height="wrap_content" android:thumb="@drawable/switch_thumb" android:track="@drawable/switch_track" android:layout_marginStart="16.0dp" />
                             </LinearLayout>
                             <LinearLayout android:orientation="vertical" android:id="@id/apolloGreenSoundContainer" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="18.0dp">
                                 <TextView android:textSize="22.0px" android:textColor="#ffffff" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Звуковой сигнал зеленого сигнала светофора" />
@@ -353,7 +353,7 @@
                                 <TextView android:textSize="27.0px" android:textColor="#ffffff" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Распознавание дорожных знаков" />
                                 <TextView android:textSize="20.0px" android:textColor="#aaaaaa" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4.0dp" android:text="Распознаёт и отображает дорожные знаки." />
                             </LinearLayout>
-                            <Switch android:enabled="true" android:id="@id/switchApolloTrafficSigns" android:layout_width="wrap_content" android:layout_height="wrap_content" android:thumb="@drawable/switch_thumb" android:track="@drawable/switch_track" android:layout_marginStart="16.0dp" />
+                            <Switch android:enabled="true" android:id="@+id/switchApolloTrafficSigns" android:layout_width="wrap_content" android:layout_height="wrap_content" android:thumb="@drawable/switch_thumb" android:track="@drawable/switch_track" android:layout_marginStart="16.0dp" />
                         </LinearLayout>
                     </LinearLayout>
                     <TextView android:textSize="26.0px" android:textColor="#ffffff" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="24.0dp" android:text="Статус" />
@@ -370,12 +370,12 @@
                     <LinearLayout android:orientation="horizontal" android:background="@drawable/layout_category_bg" android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingHorizontal="16.0dp" android:paddingVertical="12.0dp">
                         <LinearLayout android:orientation="vertical" android:layout_width="0.0dp" android:layout_height="wrap_content" android:layout_weight="1.0">
                             <TextView android:textSize="26.0px" android:textColor="#ffffff" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Оперативная память" />
-                            <TextView android:textSize="21.0px" android:textColor="#aaaaaa" android:id="@id/textRamStatus" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4.0dp" android:text="Используется: —\nДоступно: —" />
+                            <TextView android:textSize="21.0px" android:textColor="#aaaaaa" android:id="@+id/textRamStatus" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4.0dp" android:text="Используется: —\nДоступно: —" />
                         </LinearLayout>
                         <View android:background="#59616c" android:layout_width="1.0dp" android:layout_height="match_parent" android:layout_marginHorizontal="20.0dp" />
                         <LinearLayout android:orientation="vertical" android:layout_width="0.0dp" android:layout_height="wrap_content" android:layout_weight="1.0">
                             <TextView android:textSize="26.0px" android:textColor="#ffffff" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Загрузка CPU" />
-                            <TextView android:textSize="30.0px" android:textColor="#aaaaaa" android:id="@id/textCpuStatus" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4.0dp" android:text="—" />
+                            <TextView android:textSize="30.0px" android:textColor="#aaaaaa" android:id="@+id/textCpuStatus" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4.0dp" android:text="—" />
                         </LinearLayout>
                     </LinearLayout>
                     <LinearLayout android:orientation="vertical" android:background="@drawable/layout_category_bg" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12.0dp" android:paddingHorizontal="16.0dp" android:paddingVertical="12.0dp">

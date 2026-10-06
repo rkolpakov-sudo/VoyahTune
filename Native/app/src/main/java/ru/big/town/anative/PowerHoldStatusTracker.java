@@ -10,7 +10,7 @@ import java.util.Objects;
 
 /* JADX INFO: loaded from: classes2.dex */
 final class PowerHoldStatusTracker implements AutoCloseable {
-    static final long ACTIVATION_TIMEOUT_MS = 10000;
+    static final long ACTIVATION_TIMEOUT_MS = 10_000L;
     private static final String TAG = "PowerHoldStatus";
     private Runnable activationTimeout;
     private long activeEpoch;
@@ -58,7 +58,7 @@ final class PowerHoldStatusTracker implements AutoCloseable {
     }
 
     static PowerHoldStatusTracker create(Context context, StatusListener statusListener) {
-        Context applicationContext = context.getApplicationContext();
+        Context app = context.getApplicationContext();
         final HandlerThread handlerThread = new HandlerThread(TAG);
         final HandlerThread handlerThread2 = new HandlerThread("PowerHoldSeed");
         handlerThread.start();
@@ -79,14 +79,14 @@ final class PowerHoldStatusTracker implements AutoCloseable {
             public void removeCallbacks(Runnable runnable) {
                 handler.removeCallbacks(runnable);
             }
-        }, new AnonymousClass2(new Handler(handlerThread2.getLooper()), applicationContext), statusListener, new CloseAction() { // from class: ru.big.town.anative.PowerHoldStatusTracker$$ExternalSyntheticLambda5
+        }, new AnonymousClass2(new Handler(handlerThread2.getLooper()), app), statusListener, new CloseAction() { // from class: ru.big.town.anative.PowerHoldStatusTracker$$ExternalSyntheticLambda5
             @Override // ru.big.town.anative.PowerHoldStatusTracker.CloseAction
             public final void close() {
                 PowerHoldStatusTracker.lambda$create$0(handler, handlerThread, handlerThread2);
             }
         });
         Objects.requireNonNull(powerHoldStatusTracker);
-        powerHoldStatusTracker.subscription = CanBusEventHub.get(applicationContext).subscribe(17, new int[]{1161, 1163}, handler, new CanBusEventHub.Listener() { // from class: ru.big.town.anative.PowerHoldStatusTracker$$ExternalSyntheticLambda6
+        powerHoldStatusTracker.subscription = CanBusEventHub.get(app).subscribe(CanBusEventRouter.INTEREST_CONNECTION | CanBusEventRouter.INTEREST_VEHICLE_STATE, new int[]{PowerHoldPolicy.POWER_HOLD_MODE_SWITCH_ID, PowerHoldPolicy.POWER_HOLD_MODE_WARNING_ID}, handler, new CanBusEventHub.Listener() { // from class: ru.big.town.anative.PowerHoldStatusTracker$$ExternalSyntheticLambda6
             @Override // ru.big.town.anative.CanBusEventHub.Listener
             public final void onCanBusEvent(CanBusEvent canBusEvent) {
                 powerHoldStatusTracker.m2019lambda$acceptEvent$1$rubigtownanativePowerHoldStatusTracker(canBusEvent);
@@ -164,67 +164,48 @@ final class PowerHoldStatusTracker implements AutoCloseable {
         });
     }
 
-    /* JADX INFO: renamed from: ru.big.town.anative.PowerHoldStatusTracker$3, reason: invalid class name */
-    static /* synthetic */ class AnonymousClass3 {
-        static final /* synthetic */ int[] $SwitchMap$ru$big$town$anative$CanBusEvent$Kind;
-
-        static {
-            int[] iArr = new int[CanBusEvent.Kind.values().length];
-            $SwitchMap$ru$big$town$anative$CanBusEvent$Kind = iArr;
-            try {
-                iArr[CanBusEvent.Kind.CONNECTION.ordinal()] = 1;
-            } catch (NoSuchFieldError unused) {
-            }
-            try {
-                $SwitchMap$ru$big$town$anative$CanBusEvent$Kind[CanBusEvent.Kind.CONNECTION_LOST.ordinal()] = 2;
-            } catch (NoSuchFieldError unused2) {
-            }
-            try {
-                $SwitchMap$ru$big$town$anative$CanBusEvent$Kind[CanBusEvent.Kind.VEHICLE_STATE.ordinal()] = 3;
-            } catch (NoSuchFieldError unused3) {
-            }
-        }
-    }
-
     /* JADX INFO: Access modifiers changed from: private */
     /* JADX INFO: renamed from: acceptEventOnSerial, reason: merged with bridge method [inline-methods] */
     public void m2019lambda$acceptEvent$1$rubigtownanativePowerHoldStatusTracker(CanBusEvent canBusEvent) {
         if (this.closed) {
             return;
         }
-        int i = AnonymousClass3.$SwitchMap$ru$big$town$anative$CanBusEvent$Kind[canBusEvent.kind.ordinal()];
-        if (i == 1) {
-            onConnection(canBusEvent.connectionEpoch);
-            return;
-        }
-        if (i == 2) {
-            onConnectionLost();
-            return;
-        }
-        if (i == 3 && canBusEvent.connectionEpoch == this.activeEpoch) {
-            this.liveRevision++;
-            if (canBusEvent.first == 1161) {
-                publishIfChanged(this.machine.onSwitch(this.activeEpoch, canBusEvent.second), null, false);
-                cancelTimeoutUnlessActivating();
-            } else if (canBusEvent.first == 1163) {
-                publishIfChanged(this.machine.onWarning(this.activeEpoch, canBusEvent.second), null, false);
-            }
+        switch (canBusEvent.kind) {
+            case CONNECTION:
+                onConnection(canBusEvent.connectionEpoch);
+                return;
+            case CONNECTION_LOST:
+                onConnectionLost();
+                return;
+            case VEHICLE_STATE:
+                if (canBusEvent.connectionEpoch == this.activeEpoch) {
+                    this.liveRevision++;
+                    if (canBusEvent.first == PowerHoldPolicy.POWER_HOLD_MODE_SWITCH_ID) {
+                        publishIfChanged(this.machine.onSwitch(this.activeEpoch, canBusEvent.second), null, false);
+                        cancelTimeoutUnlessActivating();
+                    } else if (canBusEvent.first == PowerHoldPolicy.POWER_HOLD_MODE_WARNING_ID) {
+                        publishIfChanged(this.machine.onWarning(this.activeEpoch, canBusEvent.second), null, false);
+                    }
+                }
+                return;
+            default:
+                return;
         }
     }
 
-    private void onConnection(long j) {
-        if (j <= 0 || j == this.activeEpoch) {
+    private void onConnection(long epoch) {
+        if (epoch <= 0 || epoch == this.activeEpoch) {
             return;
         }
-        this.activeEpoch = j;
+        this.activeEpoch = epoch;
         this.liveRevision = 0L;
         cancelActivationTimeout();
-        publishIfChanged(this.machine.onConnection(j), null, false);
-        final long j2 = this.liveRevision;
-        this.seedLoader.load(j, new SeedCallback() { // from class: ru.big.town.anative.PowerHoldStatusTracker$$ExternalSyntheticLambda3
+        publishIfChanged(this.machine.onConnection(epoch), null, false);
+        final long seedRevision = this.liveRevision;
+        this.seedLoader.load(epoch, new SeedCallback() { // from class: ru.big.town.anative.PowerHoldStatusTracker$$ExternalSyntheticLambda3
             @Override // ru.big.town.anative.PowerHoldStatusTracker.SeedCallback
             public final void onResult(long j3, Integer num, Integer num2) {
-                PowerHoldStatusTracker.this.m2023lambda$onConnection$3$rubigtownanativePowerHoldStatusTracker(j2, j3, num, num2);
+                PowerHoldStatusTracker.this.m2023lambda$onConnection$3$rubigtownanativePowerHoldStatusTracker(seedRevision, j3, num, num2);
             }
         });
     }
@@ -241,14 +222,15 @@ final class PowerHoldStatusTracker implements AutoCloseable {
 
     /* JADX INFO: Access modifiers changed from: private */
     /* JADX INFO: renamed from: finishSeed, reason: merged with bridge method [inline-methods] */
-    public void m2022lambda$onConnection$2$rubigtownanativePowerHoldStatusTracker(long j, long j2, Integer num, Integer num2) {
-        if (!this.closed && j == this.activeEpoch && j2 == this.liveRevision) {
-            if (num2 != null) {
-                this.machine.onWarning(j, num2.intValue());
-            }
-            if (num != null) {
-                publishIfChanged(this.machine.onSwitch(j, num.intValue()), null, false);
-            }
+    public void m2022lambda$onConnection$2$rubigtownanativePowerHoldStatusTracker(long epoch, long seedRevision, Integer num, Integer num2) {
+        if (this.closed || epoch != this.activeEpoch || seedRevision != liveRevision) {
+            return;
+        }
+        if (num2 != null) {
+            this.machine.onWarning(epoch, num2.intValue());
+        }
+        if (num != null) {
+            publishIfChanged(this.machine.onSwitch(epoch, num.intValue()), null, false);
         }
     }
 
@@ -329,14 +311,14 @@ final class PowerHoldStatusTracker implements AutoCloseable {
 
     private void scheduleActivationTimeout(final long j) {
         cancelActivationTimeout();
-        Runnable runnable = new Runnable() { // from class: ru.big.town.anative.PowerHoldStatusTracker$$ExternalSyntheticLambda0
+        Runnable timeout = new Runnable() { // from class: ru.big.town.anative.PowerHoldStatusTracker$$ExternalSyntheticLambda0
             @Override // java.lang.Runnable
             public final void run() {
                 PowerHoldStatusTracker.this.m2025x7d4c8195(j);
             }
         };
-        this.activationTimeout = runnable;
-        if (this.scheduler.postDelayed(runnable, ACTIVATION_TIMEOUT_MS)) {
+        this.activationTimeout = timeout;
+        if (this.scheduler.postDelayed(timeout, ACTIVATION_TIMEOUT_MS)) {
             return;
         }
         this.activationTimeout = null;

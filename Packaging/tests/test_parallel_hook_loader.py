@@ -62,6 +62,11 @@ case "$script" in
     *) gate=none ;;
 esac
 while [ "$gate" != none ] && [ ! -f "$root/release_$gate" ]; do sleep 0.05; done
+if [ "$script" = vd_bypass.js ]; then
+    # Emulate the eternalized agent publishing its ready record, like vd_bypass.js does on device.
+    mkdir -p "$root/runtime/vd_hooks"
+    printf 'v2:test:%s:%s|3.22.0-v1|active|geometry\n' "$pid" "$(cat "$root/generation.$pid" 2>/dev/null || echo 1)" > "$root/runtime/vd_hooks/status.v1"
+fi
 printf 'end %s %s\n' "$script" "$pid" >> "$root/events"
 """.replace("ROOT_PLACEHOLDER", shlex.quote(str(self.root))))
         self.injector.chmod(0o755)

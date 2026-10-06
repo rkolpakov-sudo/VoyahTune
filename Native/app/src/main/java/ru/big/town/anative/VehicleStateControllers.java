@@ -36,16 +36,17 @@ final class VehicleStateControllers {
 
     private VehicleStateControllers(Context context) {
         ModeFeedbackController modeFeedbackControllerCreate;
-        this.appContext = context;
+        Context appContext = context.getApplicationContext();
+        this.appContext = appContext;
         HandlerThread handlerThread = new HandlerThread(TAG);
         this.stateThread = handlerThread;
         handlerThread.start();
-        Handler handler = new Handler(handlerThread.getLooper());
-        this.stateHandler = handler;
-        this.gearStateController = new GearStateController(handler);
-        this.driverDoorStateController = new DriverDoorStateController(handler);
+        Handler stateHandler = new Handler(handlerThread.getLooper());
+        this.stateHandler = stateHandler;
+        this.gearStateController = new GearStateController(stateHandler);
+        this.driverDoorStateController = new DriverDoorStateController(stateHandler);
         try {
-            modeFeedbackControllerCreate = ModeFeedbackController.create(context, handler);
+            modeFeedbackControllerCreate = ModeFeedbackController.create(appContext, stateHandler);
         } catch (RuntimeException e) {
             Log.w(TAG, "start mode feedback: " + e.getMessage());
             modeFeedbackControllerCreate = null;
@@ -53,8 +54,10 @@ final class VehicleStateControllers {
         this.modeFeedbackController = modeFeedbackControllerCreate;
         CanBusEventHub canBusEventHub = CanBusEventHub.get(this.appContext);
         this.canBusEventHub = canBusEventHub;
+        int interestMask = CanBusEventRouter.INTEREST_CONNECTION | CanBusEventRouter.INTEREST_DOOR
+            | CanBusEventRouter.INTEREST_GEAR | CanBusEventRouter.INTEREST_VEHICLE_STATE;
         try {
-            this.canBusSubscription = canBusEventHub.subscribe(23, new int[]{545, 957, 619, VehicleRestorePolicy.PEDESTRIAN_SOUND_ID}, this.stateHandler, new CanBusEventHub.Listener() { // from class: ru.big.town.anative.VehicleStateControllers$$ExternalSyntheticLambda0
+            this.canBusSubscription = canBusEventHub.subscribe(interestMask, new int[]{545, 957, 619, VehicleRestorePolicy.PEDESTRIAN_SOUND_ID}, this.stateHandler, new CanBusEventHub.Listener() { // from class: ru.big.town.anative.VehicleStateControllers$$ExternalSyntheticLambda0
                 @Override // ru.big.town.anative.CanBusEventHub.Listener
                 public final void onCanBusEvent(CanBusEvent canBusEvent) {
                     VehicleStateControllers.this.onCanBusEvent(canBusEvent);
@@ -109,10 +112,10 @@ final class VehicleStateControllers {
     }
 
     /* JADX INFO: Access modifiers changed from: private */
-    public void onCanBusEvent(CanBusEvent canBusEvent) {
+    public void onCanBusEvent(CanBusEvent event) {
         DriverDoorStateController.Source source;
         ModeFeedbackController modeFeedbackController;
-        int i = AnonymousClass1.$SwitchMap$ru$big$town$anative$CanBusEvent$Kind[canBusEvent.kind.ordinal()];
+        int i = AnonymousClass1.$SwitchMap$ru$big$town$anative$CanBusEvent$Kind[event.kind.ordinal()];
         if (i == 1) {
             this.gearStateController.reset();
             this.driverDoorStateController.reset();
@@ -131,8 +134,8 @@ final class VehicleStateControllers {
         }
         if (i == 3) {
             DriverDoorStateController driverDoorStateController = this.driverDoorStateController;
-            int i2 = canBusEvent.first;
-            if (canBusEvent.origin == CanBusEvent.Origin.LIVE) {
+            int i2 = event.first;
+            if (event.origin == CanBusEvent.Origin.LIVE) {
                 source = DriverDoorStateController.Source.LIVE;
             } else {
                 source = DriverDoorStateController.Source.SNAPSHOT;
@@ -141,9 +144,9 @@ final class VehicleStateControllers {
             return;
         }
         if (i == 4) {
-            this.gearStateController.accept(canBusEvent.first);
+            this.gearStateController.accept(event.first);
         } else if (i == 5 && (modeFeedbackController = this.modeFeedbackController) != null) {
-            modeFeedbackController.onVehicleState(canBusEvent.first, canBusEvent.second);
+            modeFeedbackController.onVehicleState(event.first, event.second);
         }
     }
 }

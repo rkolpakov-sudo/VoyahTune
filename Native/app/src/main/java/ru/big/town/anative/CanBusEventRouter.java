@@ -216,40 +216,39 @@ final class CanBusEventRouter {
         }
 
         /* JADX WARN: Code duplicated, block: B:40:0x00af  */
-        void offer(CanBusEvent canBusEvent) {
-            if (accepts(canBusEvent)) {
+        void offer(CanBusEvent event) {
+            if (accepts(event)) {
                 synchronized (this) {
                     if (this.closed) {
                         return;
                     }
-                    if (canBusEvent.connectionEpoch <= this.invalidatedThroughEpoch) {
+                    if (event.connectionEpoch <= this.invalidatedThroughEpoch) {
                         return;
                     }
-                    if (canBusEvent.connectionEpoch < this.acceptedEpoch) {
+                    if (event.connectionEpoch < this.acceptedEpoch) {
                         return;
                     }
-                    if (canBusEvent.connectionEpoch > this.acceptedEpoch) {
+                    if (event.connectionEpoch > this.acceptedEpoch) {
                         for (int lane = 0; lane < LANE_COUNT; lane++) {
                             this.queues[lane].clear();
                         }
                         this.lastAccepted.clear();
-                        this.acceptedEpoch = canBusEvent.connectionEpoch;
+                        this.acceptedEpoch = event.connectionEpoch;
                     }
-                    int lane = CanBusEventRouter.tier(canBusEvent);
+                    int lane = CanBusEventRouter.tier(event);
                     ArrayDeque<CanBusEvent> queue = this.queues[lane];
-                    int iSignalKey = canBusEvent.signalKey();
+                    int key = event.signalKey();
+                    CanBusEvent previous = this.lastAccepted.get(Integer.valueOf(key));
                     boolean z = true;
-                    if (canBusEvent.samePayload(this.lastAccepted.get(Integer.valueOf(iSignalKey)))) {
+                    if (event.samePayload(previous)) {
                         if (this.drainScheduled || queue.isEmpty()) {
                             z = false;
                         } else {
                             this.drainScheduled = true;
                         }
                     } else {
-                        this.lastAccepted.put(Integer.valueOf(iSignalKey), canBusEvent);
-                        if (!canBusEvent.isOrderedTransition()) {
-                            removeQueuedLevel(lane, iSignalKey);
-                        }
+                        this.lastAccepted.put(Integer.valueOf(key), event);
+                        if (!event.isOrderedTransition()) removeQueuedLevel(key);
                         int capacity = this.capacityPerLane[lane];
                         if (queue.size() == capacity) {
                             // IMP-09: per-lane capacity
@@ -259,7 +258,7 @@ final class CanBusEventRouter {
                             // Паритет с вендором: общая ёмкость mailbox = capacity подписки
                             recordDrop(dropGlobalCapacity());
                         }
-                        queue.addLast(canBusEvent);
+                        queue.addLast(event);
                         this.acceptedPerLane[lane]++;
                         if (queue.size() > this.peakQueueDepth[lane]) {
                             this.peakQueueDepth[lane] = queue.size();
@@ -298,19 +297,21 @@ final class CanBusEventRouter {
             }
         }
 
-        private void removeQueuedLevel(int lane, int i) {
-            ArrayDeque<CanBusEvent> queue = this.queues[lane];
-            if (queue.isEmpty()) {
-                return;
-            }
-            ArrayList arrayList = new ArrayList(queue.size());
-            while (!queue.isEmpty()) {
-                CanBusEvent event = queue.removeFirst();
-                if (event.signalKey() != i) {
-                    arrayList.add(event);
+        private void removeQueuedLevel(int key) {
+            for (int lane = 0; lane < LANE_COUNT; lane++) {
+                ArrayDeque<CanBusEvent> queue = this.queues[lane];
+                if (queue.isEmpty()) {
+                    continue;
                 }
+                ArrayList arrayList = new ArrayList(queue.size());
+                while (!queue.isEmpty()) {
+                    CanBusEvent event = queue.removeFirst();
+                    if (event.signalKey() != key) {
+                        arrayList.add(event);
+                    }
+                }
+                queue.addAll(arrayList);
             }
-            queue.addAll(arrayList);
         }
 
         private CanBusEvent dropForCapacity(int lane) {

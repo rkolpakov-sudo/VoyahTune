@@ -4,7 +4,7 @@ package ru.big.town.anative;
 final class ModeFeedbackDecoder {
     static final int DRIVE_MODE_VSTATE_ID = 545;
     static final int ENERGY_MODE_VSTATE_ID = 957;
-    static final int RECYCLE_MODE_VSTATE_ID = 619;
+    static final int RECYCLE_MODE_VSTATE_ID = VehicleRestorePolicy.REGEN_LEVEL_ID;
 
     static final class Feedback {
         final String mode;

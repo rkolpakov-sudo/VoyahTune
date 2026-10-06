@@ -26,7 +26,7 @@ public class TripStatsService extends Service {
     public static final String ACTION_TRIP_HISTORY = "ru.big.town.anative.TRIP_HISTORY";
     public static final String ACTION_TRIP_RESET = "ru.big.town.anative.TRIP_RESET";
     public static final String ACTION_TRIP_UPDATE = "ru.big.town.anative.TRIP_UPDATE";
-    private static final long CAN_STATE_PUBLISH_COALESCE_MS = 250;
+    private static final long CAN_STATE_PUBLISH_COALESCE_MS = 250L;
     private static final String CHANNEL_ID = "trip_stats_channel";
     private static final int DOOR_OPEN = 1;
     public static final String EXTRA_ACCUM_MS = "accumMs";
@@ -71,13 +71,12 @@ public class TripStatsService extends Service {
         persistAndBroadcast();
     }
 
-    /* JADX INFO: Access modifiers changed from: private */
-    public void onGear(int i) {
-        if (i < 0 || i == this.lastGear) {
+    private void onGear(int gearVal) {
+        if (gearVal < 0 || gearVal == this.lastGear) {
             return;
         }
-        this.lastGear = i;
-        boolean z = i == 3;
+        this.lastGear = gearVal;
+        boolean z = gearVal == 3;
         if (z && !this.inDrive) {
             if (!this.tripActive) {
                 this.tripActive = true;
@@ -91,7 +90,7 @@ public class TripStatsService extends Service {
         } else if (!z && this.inDrive) {
             this.accumMs += SystemClock.elapsedRealtime() - this.driveStartElapsed;
             this.inDrive = false;
-            Log.i(TAG, "gear=" + i + " → пауза, накоплено=" + fmt(this.accumMs));
+            Log.i(TAG, "gear=" + gearVal + " → пауза, накоплено=" + fmt(this.accumMs));
         }
         scheduleCanStatePublish();
     }
@@ -206,7 +205,7 @@ public class TripStatsService extends Service {
     private void scheduleCanStatePublish() {
         this.canStatePublishPending = true;
         this.timerHandler.removeCallbacks(this.canStatePublishRunnable);
-        this.timerHandler.postDelayed(this.canStatePublishRunnable, CAN_STATE_PUBLISH_COALESCE_MS);
+        timerHandler.postDelayed(canStatePublishRunnable, CAN_STATE_PUBLISH_COALESCE_MS);
     }
 
     private void persistAndBroadcast() {
@@ -312,26 +311,13 @@ public class TripStatsService extends Service {
         intentFilter.addAction(ACTION_TRIP_DELETE);
         intentFilter.addAction(ACTION_TRIP_HISTORY);
         ContextCompat.registerReceiver(this, this.requestReceiver, intentFilter, 2);
-        VehicleStateControllers vehicleStateControllers = VehicleStateControllers.get(this);
-        this.gearStateSubscription = vehicleStateControllers.gear().subscribe(this.timerHandler, new GearStateController.Listener() { // from class: ru.big.town.anative.TripStatsService$$ExternalSyntheticLambda2
-            @Override // ru.big.town.anative.GearStateController.Listener
-            public final void onGearChanged(int i) {
-                TripStatsService.this.onGear(i);
+        VehicleStateControllers vehicleState = VehicleStateControllers.get(this);
+        this.gearStateSubscription = vehicleState.gear().subscribe(timerHandler, this::onGear);
+        this.driverDoorSubscription = vehicleState.driverDoor().subscribe(timerHandler, state -> {
+            if (state.isLive()) {
+                onDoor(state.frontLeft);
             }
         });
-        this.driverDoorSubscription = vehicleStateControllers.driverDoor().subscribe(this.timerHandler, new DriverDoorStateController.Listener() { // from class: ru.big.town.anative.TripStatsService$$ExternalSyntheticLambda3
-            @Override // ru.big.town.anative.DriverDoorStateController.Listener
-            public final void onDriverDoorChanged(DriverDoorStateController.State state) {
-                TripStatsService.this.m2147lambda$onCreate$1$rubigtownanativeTripStatsService(state);
-            }
-        });
-    }
-
-    /* JADX INFO: renamed from: lambda$onCreate$1$ru-big-town-anative-TripStatsService, reason: not valid java name */
-    /* synthetic */ void m2147lambda$onCreate$1$rubigtownanativeTripStatsService(DriverDoorStateController.State state) {
-        if (state.isLive()) {
-            onDoor(state.frontLeft);
-        }
     }
 
     @Override // android.app.Service
@@ -353,7 +339,7 @@ public class TripStatsService extends Service {
     @Override // android.app.Service
     public void onDestroy() {
         Log.i(TAG, "onDestroy()");
-        if (this.canStatePublishPending) {
+        if (canStatePublishPending) {
             this.timerHandler.removeCallbacks(this.canStatePublishRunnable);
             this.canStatePublishPending = false;
             persistState();

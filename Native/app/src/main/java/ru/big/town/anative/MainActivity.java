@@ -313,8 +313,8 @@ public class MainActivity extends AppCompatActivity {
         return context.getSharedPreferences("NativePrefs", 0);
     }
 
-    private static boolean cursorBooleanDefaultTrue(Cursor cursor, int i) {
-        return cursor.getColumnCount() <= i || cursor.isNull(i) || cursor.getInt(i) != 0;
+    private static boolean cursorBooleanDefaultTrue(Cursor cursor, int column) {
+        return cursor.getColumnCount() <= column || cursor.isNull(column) || cursor.getInt(column) != 0;
     }
 
     private static void saveModesCache(Context context, boolean z, boolean z2) {
@@ -322,36 +322,36 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private static boolean loadModesFromCache(Context context) {
-        SharedPreferences sharedPreferencesNativePrefs = nativePrefs(context);
-        if (!sharedPreferencesNativePrefs.getBoolean("cacheValid", false)) {
+        SharedPreferences p = nativePrefs(context);
+        if (!p.getBoolean("cacheValid", false)) {
             Log.w(MODES_LOG, "No cached modes available");
             return false;
         }
-        driveMode = sharedPreferencesNativePrefs.getString("cacheDriveMode", driveMode);
-        energy = sharedPreferencesNativePrefs.getString("cacheEnergy", energy);
-        recycle = sharedPreferencesNativePrefs.getString("cacheRecycle", recycle);
-        customCommand = sharedPreferencesNativePrefs.getString("cacheCustomCommand", customCommand);
-        customCommandCount = sharedPreferencesNativePrefs.getInt("cacheCustomCommandCount", customCommandCount);
-        driveEnabled = sharedPreferencesNativePrefs.getBoolean("cacheDriveEnabled", false);
-        recycleEnabled = sharedPreferencesNativePrefs.getBoolean("cacheRecycleEnabled", false);
-        energyEnabled = sharedPreferencesNativePrefs.getBoolean("cacheEnergyEnabled", false);
-        driveRememberLast = sharedPreferencesNativePrefs.getBoolean("cacheDriveRememberLast", true);
-        energyRememberLast = sharedPreferencesNativePrefs.getBoolean("cacheEnergyRememberLast", true);
-        recycleRememberLast = sharedPreferencesNativePrefs.getBoolean("cacheRecycleRememberLast", true);
-        disablePedestrianSound = sharedPreferencesNativePrefs.getBoolean("cacheDisablePedestrianSound", false);
-        forcedEv = sharedPreferencesNativePrefs.getBoolean("cacheForcedEv", false);
-        suspensionMaintenance = sharedPreferencesNativePrefs.getBoolean("cacheSuspensionMaintenance", false);
-        fragranceEnabled = sharedPreferencesNativePrefs.getBoolean("cacheFragranceEnabled", false);
-        FragranceRestorePolicy.Settings settingsNormalize = FragranceRestorePolicy.normalize(sharedPreferencesNativePrefs.getInt("cacheFragranceTaste", 1), sharedPreferencesNativePrefs.getInt("cacheFragranceDuration", 0), sharedPreferencesNativePrefs.getInt("cacheFragranceIntensity", 2));
+        driveMode = p.getString("cacheDriveMode", driveMode);
+        energy = p.getString("cacheEnergy", energy);
+        recycle = p.getString("cacheRecycle", recycle);
+        customCommand = p.getString("cacheCustomCommand", customCommand);
+        customCommandCount = p.getInt("cacheCustomCommandCount", customCommandCount);
+        driveEnabled = p.getBoolean("cacheDriveEnabled", false);
+        recycleEnabled = p.getBoolean("cacheRecycleEnabled", false);
+        energyEnabled = p.getBoolean("cacheEnergyEnabled", false);
+        driveRememberLast = p.getBoolean("cacheDriveRememberLast", true);
+        energyRememberLast = p.getBoolean("cacheEnergyRememberLast", true);
+        recycleRememberLast = p.getBoolean("cacheRecycleRememberLast", true);
+        disablePedestrianSound = p.getBoolean("cacheDisablePedestrianSound", false);
+        forcedEv = p.getBoolean("cacheForcedEv", false);
+        suspensionMaintenance = p.getBoolean("cacheSuspensionMaintenance", false);
+        fragranceEnabled = p.getBoolean("cacheFragranceEnabled", false);
+        FragranceRestorePolicy.Settings settingsNormalize = FragranceRestorePolicy.normalize(p.getInt("cacheFragranceTaste", 1), p.getInt("cacheFragranceDuration", 0), p.getInt("cacheFragranceIntensity", 2));
         fragranceTaste = settingsNormalize.taste;
         fragranceDuration = settingsNormalize.duration;
         fragranceIntensity = settingsNormalize.intensity;
-        apolloTlcEnabled = sharedPreferencesNativePrefs.getBoolean("cacheApolloTlcEnabled", false);
-        apolloTrafficLightsEnabled = sharedPreferencesNativePrefs.getBoolean("cacheApolloTrafficLightsEnabled", false);
-        apolloGreenSoundEnabled = sharedPreferencesNativePrefs.getBoolean("cacheApolloGreenSoundEnabled", false);
-        apolloTrafficSignsEnabled = sharedPreferencesNativePrefs.getBoolean("cacheApolloTrafficSignsEnabled", false);
-        boolean z = sharedPreferencesNativePrefs.getBoolean("cacheWiperColdMode", false);
-        boolean z2 = sharedPreferencesNativePrefs.getBoolean("cachePauseMediaOnDoor", false);
+        apolloTlcEnabled = p.getBoolean("cacheApolloTlcEnabled", false);
+        apolloTrafficLightsEnabled = p.getBoolean("cacheApolloTrafficLightsEnabled", false);
+        apolloGreenSoundEnabled = p.getBoolean("cacheApolloGreenSoundEnabled", false);
+        apolloTrafficSignsEnabled = p.getBoolean("cacheApolloTrafficSignsEnabled", false);
+        boolean z = p.getBoolean("cacheWiperColdMode", false);
+        boolean z2 = p.getBoolean("cachePauseMediaOnDoor", false);
         applyModeSideEffects(context, z, z2);
         ApplyEngine.noteLoadedModes(driveMode, energy, recycle, driveEnabled, energyEnabled, recycleEnabled, driveRememberLast, energyRememberLast, recycleRememberLast);
         Log.i(MODES_LOG, "CACHE: driveEnabled=" + driveEnabled + " recycleEnabled=" + recycleEnabled + " energyEnabled=" + energyEnabled + " rememberLast=" + driveRememberLast + "/" + energyRememberLast + "/" + recycleRememberLast + " disablePedestrianSound=" + disablePedestrianSound + " fragranceEnabled=" + fragranceEnabled + " fragrance=" + fragranceTaste + "/" + fragranceDuration + "/" + fragranceIntensity + " apollo=" + apolloTlcEnabled + "/" + apolloTrafficLightsEnabled + "/" + apolloGreenSoundEnabled + "/" + apolloTrafficSignsEnabled + " wiperColdMode=" + z + " pauseMediaOnDoor=" + z2);
@@ -398,48 +398,50 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /* JADX WARN: Code duplicated, block: B:37:0x0168  */
-    static CanRestorePlan createCanRestorePlan(boolean z) {
+    static CanRestorePlan createCanRestorePlan(boolean includeModes) {
         final OemVehicleStateTransport.StateValue stateValue;
         String str;
         final String str2;
         Log.i("$$$ MainActivity runCmds $$$", "driveMode: " + driveMode + " energy: " + energy + " recycle: " + recycle + " | driveEnabled=" + driveEnabled + " energyEnabled=" + energyEnabled + " recycleEnabled=" + recycleEnabled + " disablePedestrianSound=" + disablePedestrianSound + " fragranceEnabled=" + fragranceEnabled + " apollo=" + apolloTlcEnabled + "/" + apolloTrafficLightsEnabled + "/" + apolloGreenSoundEnabled + "/" + apolloTrafficSignsEnabled);
-        CanRestorePlan.Builder builder = new CanRestorePlan.Builder();
+        CanRestorePlan.Builder plan = new CanRestorePlan.Builder();
         final Context context = GlobalVars.SAVE_CONTEXT;
-        builder.addOnce("auto light saved service switch", new CanRestorePlan.Operation() { // from class: ru.big.town.anative.MainActivity$$ExternalSyntheticLambda0
+        plan.addOnce("auto light saved service switch", new CanRestorePlan.Operation() { // from class: ru.big.town.anative.MainActivity$$ExternalSyntheticLambda0
             @Override // ru.big.town.anative.CanRestorePlan.Operation
             public final CanRestorePlan.OperationResult send() {
                 return MainActivity.lambda$createCanRestorePlan$0(context);
             }
         });
-        final LinkedHashMap linkedHashMap = new LinkedHashMap();
-        final LinkedHashMap linkedHashMap2 = new LinkedHashMap();
+        final LinkedHashMap primaryValues = new LinkedHashMap();
+        final LinkedHashMap trailingValues = new LinkedHashMap();
         final LinkedHashMap linkedHashMap3 = new LinkedHashMap();
-        builder.addOnce("Apollo stock subscription/exam UI", new CanRestorePlan.Operation() { // from class: ru.big.town.anative.MainActivity$$ExternalSyntheticLambda1
+        plan.addOnce("Apollo stock subscription/exam UI", new CanRestorePlan.Operation() { // from class: ru.big.town.anative.MainActivity$$ExternalSyntheticLambda1
             @Override // ru.big.town.anative.CanRestorePlan.Operation
             public final CanRestorePlan.OperationResult send() {
                 return MainActivity.lambda$createCanRestorePlan$1(context);
             }
         });
-        if (z && driveEnabled && !DriveModeCanTransport.appendStates(context, driveMode, linkedHashMap, linkedHashMap3)) {
-            throw new IllegalArgumentException("Unsupported drive mode: " + driveMode);
+        if (includeModes && driveEnabled) {
+            if (!DriveModeCanTransport.appendStates(context, driveMode, primaryValues, linkedHashMap3)) {
+                throw new IllegalArgumentException("Unsupported drive mode: " + driveMode);
+            }
         }
-        VehicleRestorePolicy.appendPrimaryTo(linkedHashMap, z && energyEnabled, energy, z && forcedEv);
-        VehicleRestorePolicy.appendRecuperationTo(linkedHashMap2, recycleEnabled, recycle, driveMode);
+        VehicleRestorePolicy.appendPrimaryTo(primaryValues, includeModes && energyEnabled, energy, includeModes && forcedEv);
+        VehicleRestorePolicy.appendRecuperationTo(trailingValues, recycleEnabled, recycle, driveMode);
         linkedHashMap3.putAll(VehicleRestorePolicy.stableIds());
-        ApolloRestorePolicy.appendTo(linkedHashMap, linkedHashMap2, apolloTlcEnabled, apolloTrafficLightsEnabled, apolloGreenSoundEnabled, apolloTrafficSignsEnabled);
+        ApolloRestorePolicy.appendTo(primaryValues, trailingValues, apolloTlcEnabled, apolloTrafficLightsEnabled, apolloGreenSoundEnabled, apolloTrafficSignsEnabled);
         linkedHashMap3.putAll(ApolloRestorePolicy.stableIds());
         String str3 = null;
         if (fragranceEnabled) {
             FragranceRestorePolicy.Settings settingsNormalize = FragranceRestorePolicy.normalize(fragranceTaste, fragranceDuration, fragranceIntensity);
-            linkedHashMap.putAll(FragranceRestorePolicy.fragranceBundle(settingsNormalize));
+            primaryValues.putAll(FragranceRestorePolicy.fragranceBundle(settingsNormalize));
             linkedHashMap3.putAll(FragranceRestorePolicy.stableIds());
             stateValue = new OemVehicleStateTransport.StateValue(new OemVehicleStateTransport.StateKey("FCM_DURATION_CONTROL", 1067), settingsNormalize.duration);
         } else {
             stateValue = null;
         }
-        if (!linkedHashMap.isEmpty() || !linkedHashMap2.isEmpty()) {
-            final String str4 = (z && driveEnabled) ? driveMode : null;
-            if (z) {
+        if (!primaryValues.isEmpty() || !trailingValues.isEmpty()) {
+            final String str4 = (includeModes && driveEnabled) ? driveMode : null;
+            if (includeModes) {
                 if (forcedEv) {
                     str = "FORCE_EV";
                 } else if (energyEnabled) {
@@ -455,16 +457,16 @@ public class MainActivity extends AppCompatActivity {
                 str3 = recycle;
             }
             final String str5 = str3;
-            builder.addOnce("OEM vehicle restore snapshot", new CanRestorePlan.Operation() { // from class: ru.big.town.anative.MainActivity$$ExternalSyntheticLambda2
+            plan.addOnce("OEM vehicle restore snapshot", new CanRestorePlan.Operation() { // from class: ru.big.town.anative.MainActivity$$ExternalSyntheticLambda2
                 @Override // ru.big.town.anative.CanRestorePlan.Operation
                 public final CanRestorePlan.OperationResult send() {
-                    return MainActivity.lambda$createCanRestorePlan$2(context, stateValue, linkedHashMap, linkedHashMap2, linkedHashMap3, str4, str2, str5);
+                    return MainActivity.lambda$createCanRestorePlan$2(context, stateValue, primaryValues, trailingValues, linkedHashMap3, str4, str2, str5);
                 }
             });
         }
         final boolean z2 = disablePedestrianSound;
         String str6 = DebugKt.DEBUG_PROPERTY_VALUE_OFF;
-        builder.addOnce("pedestrian sound mode ".concat(z2 ? DebugKt.DEBUG_PROPERTY_VALUE_OFF : DebugKt.DEBUG_PROPERTY_VALUE_ON), new CanRestorePlan.Operation() { // from class: ru.big.town.anative.MainActivity$$ExternalSyntheticLambda3
+        plan.addOnce("pedestrian sound mode ".concat(z2 ? DebugKt.DEBUG_PROPERTY_VALUE_OFF : DebugKt.DEBUG_PROPERTY_VALUE_ON), new CanRestorePlan.Operation() { // from class: ru.big.town.anative.MainActivity$$ExternalSyntheticLambda3
             @Override // ru.big.town.anative.CanRestorePlan.Operation
             public final CanRestorePlan.OperationResult send() {
                 return MainActivity.lambda$createCanRestorePlan$3(context, z2);
@@ -474,13 +476,13 @@ public class MainActivity extends AppCompatActivity {
         if (z3) {
             str6 = DebugKt.DEBUG_PROPERTY_VALUE_ON;
         }
-        builder.addOnce("suspension maintenance ".concat(str6), new CanRestorePlan.Operation() { // from class: ru.big.town.anative.MainActivity$$ExternalSyntheticLambda4
+        plan.addOnce("suspension maintenance ".concat(str6), new CanRestorePlan.Operation() { // from class: ru.big.town.anative.MainActivity$$ExternalSyntheticLambda4
             @Override // ru.big.town.anative.CanRestorePlan.Operation
             public final CanRestorePlan.OperationResult send() {
                 return MainActivity.lambda$createCanRestorePlan$4(context, z3);
             }
         });
-        return builder.build();
+        return plan.build();
     }
 
     static /* synthetic */ CanRestorePlan.OperationResult lambda$createCanRestorePlan$0(Context context) {
@@ -691,24 +693,23 @@ public class MainActivity extends AppCompatActivity {
         persistSavedMode(context, str, str2, true);
     }
 
-    private static void persistSavedMode(Context context, String str, String str2, boolean z) {
+    private static void persistSavedMode(Context context, String modeKey, String next, boolean explicit) {
         boolean z2;
-        if (context == null || str2 == null || str2.isEmpty()) {
+        if (context == null || next == null || next.isEmpty()) {
             return;
         }
-        if ("driveMode".equals(str)) {
-            DriveSelectionStore.record(context, str2, DriveSelectionPolicy.EXPLICIT);
+        if ("driveMode".equals(modeKey)) {
+            DriveSelectionStore.record(context, next, DriveSelectionPolicy.EXPLICIT);
             return;
         }
-        if ("energy".equals(str)) {
+        if ("energy".equals(modeKey)) {
             try {
                 ContentValues contentValues = new ContentValues();
-                contentValues.put("energySelection", str2);
+                contentValues.put("energySelection", next);
                 if (context.getContentResolver().update(MODES_PROVIDER_URI, contentValues, null, null) > 0) {
-                    energy = str2;
-                    ApplyEngine.noteSavedMode("energy", str2);
+                    energy = next;
+                    ApplyEngine.noteSavedMode("energy", next);
                     ApplyEngine.driveSelectionSaved();
-                    return;
                 }
                 return;
             } catch (RuntimeException e) {
@@ -716,44 +717,47 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
         }
-        if (modeColumn(str) >= 0 && remembersMode(context, str) && ApplyEngine.canRememberModeSelection(z)) {
-            try {
-                ContentValues contentValues2 = new ContentValues();
-                contentValues2.put(str, str2);
-                z2 = context.getContentResolver().update(MODES_PROVIDER_URI, contentValues2, null, null) > 0;
-                if (!z2) {
-                    return;
-                }
-            } catch (Exception e2) {
-                Log.w(MODES_LOG, "persistSavedMode provider: " + e2.getMessage());
-                z2 = false;
-            }
-            if ("energy".equals(str)) {
-                energy = str2;
-            } else if ("recycle".equals(str)) {
-                recycle = str2;
-            } else {
-                driveMode = str2;
-            }
-            ApplyEngine.noteSavedMode(str, str2);
-            try {
-                Intent intent = new Intent("ru.big.town.anative.MODE_SYNCED");
-                intent.setPackage("ru.big.town.restoremode");
-                intent.putExtra("isEnergy", "energy".equals(str));
-                intent.putExtra("modeKey", str);
-                intent.putExtra("mode", str2);
-                context.sendBroadcast(intent);
-            } catch (Exception unused) {
-            }
+        if (modeColumn(modeKey) < 0) {
+            return;
+        }
+        if (!ApplyEngine.canRememberModeSelection(explicit)) return;
+        if (!remembersMode(context, modeKey)) return;
+        try {
+            ContentValues contentValues2 = new ContentValues();
+            contentValues2.put(modeKey, next);
+            z2 = context.getContentResolver().update(MODES_PROVIDER_URI, contentValues2, null, null) > 0;
             if (!z2) {
-                Log.w(MODES_LOG, "persistSavedMode " + str + "=" + str2 + " — провайдер НЕ записан, режим не переживёт пробуждение");
-            } else {
-                try {
-                    context.getSharedPreferences("NativePrefs", 0).edit().putString(modeCacheKey(str), str2).apply();
-                } catch (Exception unused2) {
-                }
-                Log.i(MODES_LOG, "persistSavedMode " + str + "=" + str2 + " (provider ok)");
+                return;
             }
+        } catch (Exception e2) {
+            Log.w(MODES_LOG, "persistSavedMode provider: " + e2.getMessage());
+            z2 = false;
+        }
+        if ("energy".equals(modeKey)) {
+            energy = next;
+        } else if ("recycle".equals(modeKey)) {
+            recycle = next;
+        } else {
+            driveMode = next;
+        }
+        ApplyEngine.noteSavedMode(modeKey, next);
+        try {
+            Intent intent = new Intent("ru.big.town.anative.MODE_SYNCED");
+            intent.setPackage("ru.big.town.restoremode");
+            intent.putExtra("isEnergy", "energy".equals(modeKey));
+            intent.putExtra("modeKey", modeKey);
+            intent.putExtra("mode", next);
+            context.sendBroadcast(intent);
+        } catch (Exception unused) {
+        }
+        if (!z2) {
+            Log.w(MODES_LOG, "persistSavedMode " + modeKey + "=" + next + " — провайдер НЕ записан, режим не переживёт пробуждение");
+        } else {
+            try {
+                context.getSharedPreferences("NativePrefs", 0).edit().putString(modeCacheKey(modeKey), next).apply();
+            } catch (Exception unused2) {
+            }
+            Log.i(MODES_LOG, "persistSavedMode " + modeKey + "=" + next + " (provider ok)");
         }
     }
 

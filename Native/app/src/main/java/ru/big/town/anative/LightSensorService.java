@@ -56,7 +56,7 @@ public class LightSensorService extends Service {
     private static final long HEADLIGHT_GUARD_MS = 2500;
     private static final int MAX_OUTSTANDING_CALLBACKS = 2;
     private static final int RSM_LIGHT_SW_REASON = 1072;
-    private static final long SAFETY_POLL_MS = 30000;
+    private static final long SAFETY_POLL_MS = 30_000L;
     private static final long SENSOR_DEBOUNCE_MS = 3000;
     private static final String TAG = "$$$ LightSensorService $$$";
     private static final int TX_getLightSensorLevel = 36;
@@ -176,20 +176,20 @@ public class LightSensorService extends Service {
         @Override // java.lang.Runnable
         public void run() {
             LightSensorService.this.requestCarSignalMaintenance();
-            long j = LightSensorService.this.readyCarSignalEpoch;
+            long epoch = LightSensorService.this.readyCarSignalEpoch;
             LightSensorService lightSensorService = LightSensorService.this;
-            Boolean boolReasonToDesired = lightSensorService.reasonToDesired(lightSensorService.lastReason);
-            if (!LightSensorService.this.everSent && boolReasonToDesired != null) {
+            Boolean outdoor = lightSensorService.reasonToDesired(lightSensorService.lastReason);
+            if (!everSent && outdoor != null) {
                 LightSensorService.this.applyTargetWithSensorLevel("poll-retry", -1);
             }
-            if (j != 0 && j == LightSensorService.this.activeCarSignalEpoch) {
-                if (!LightSensorService.this.everSent && boolReasonToDesired == null) {
-                    LightSensorService.this.requestSensorLevelForApply(j, SensorApplyMode.IF_UNSENT, "poll-retry");
+            if (epoch != 0 && epoch == LightSensorService.this.activeCarSignalEpoch) {
+                if (!everSent && outdoor == null) {
+                    LightSensorService.this.requestSensorLevelForApply(epoch, SensorApplyMode.IF_UNSENT, "poll-retry");
                 } else {
-                    LightSensorService.this.requestSensorLevel(j);
+                    LightSensorService.this.requestSensorLevel(epoch);
                 }
             }
-            LightSensorService.this.timerHandler.postDelayed(this, LightSensorService.SAFETY_POLL_MS);
+            timerHandler.postDelayed(this, SAFETY_POLL_MS);
         }
     };
     private final Runnable driveFallbackRunnable = new Runnable() { // from class: ru.big.town.anative.LightSensorService.4
@@ -320,15 +320,15 @@ public class LightSensorService extends Service {
     }
 
     /* JADX INFO: Access modifiers changed from: private */
-    public void onCanBusEvent(CanBusEvent canBusEvent) {
+    private void onCanBusEvent(CanBusEvent event) {
         if (this.destroyed) {
             return;
         }
-        int i = AnonymousClass7.$SwitchMap$ru$big$town$anative$CanBusEvent$Kind[canBusEvent.kind.ordinal()];
+        int i = AnonymousClass7.$SwitchMap$ru$big$town$anative$CanBusEvent$Kind[event.kind.ordinal()];
         if (i == 1) {
-            onLightStatusChanged(canBusEvent.first, canBusEvent.second, canBusEvent.third);
-        } else if (i == 2 && canBusEvent.first == RSM_LIGHT_SW_REASON) {
-            onLightSwReason(canBusEvent.second);
+            onLightStatusChanged(event.first, event.second, event.third);
+        } else if (i == 2 && event.first == RSM_LIGHT_SW_REASON) {
+            onLightSwReason(event.second);
         }
     }
 
@@ -1303,7 +1303,7 @@ public class LightSensorService extends Service {
                 LightSensorService.this.onGear(i);
             }
         });
-        this.timerHandler.postDelayed(this.safetyRunnable, 2000L);
+        timerHandler.postDelayed(safetyRunnable, 2_000L);
     }
 
     /* JADX INFO: renamed from: lambda$onCreate$19$ru-big-town-anative-LightSensorService, reason: not valid java name */
@@ -1351,7 +1351,7 @@ public class LightSensorService extends Service {
             unregisterReceiver(this.requestReceiver);
         } catch (Exception unused) {
         }
-        this.timerHandler.removeCallbacks(this.safetyRunnable);
+        timerHandler.removeCallbacks(safetyRunnable);
         this.timerHandler.removeCallbacks(this.forceInitRunnable);
         this.timerHandler.removeCallbacks(this.sensorDebounceRunnable);
         this.timerHandler.removeCallbacks(this.canbusReassertRunnable);
@@ -1523,11 +1523,11 @@ public class LightSensorService extends Service {
         Log.w(TAG, "auto-light commit was cancelled/failed; safety poll will retry");
     }
 
-    private void onLightSwReason(int i) {
+    private void onLightSwReason(int reason) {
         String str;
-        this.lastReason = i;
-        Boolean boolReasonToDesired = reasonToDesired(i);
-        StringBuilder sbAppend = new StringBuilder("RSM lightSWReason=").append(i).append(" → ");
+        this.lastReason = reason;
+        Boolean boolReasonToDesired = reasonToDesired(reason);
+        StringBuilder sbAppend = new StringBuilder("RSM lightSWReason=").append(reason).append(" → ");
         if (boolReasonToDesired == null) {
             str = "без изменений";
         } else {
@@ -1537,14 +1537,15 @@ public class LightSensorService extends Service {
         if (boolReasonToDesired == null) {
             return;
         }
-        if (this.everSent && boolReasonToDesired.booleanValue() == this.headlightsOn) {
+        boolean desired = boolReasonToDesired.booleanValue();
+        if (this.everSent && desired == this.headlightsOn) {
             CommandStatusHub.get().ack(ReadBackTable.FEATURE_LIGHT, ReadBackTable.SOURCE_LIGHT_SW_REASON);
             return;
         }
         if (this.everSent) {
             CommandStatusHub.get().mismatch(ReadBackTable.FEATURE_LIGHT, ReadBackTable.SOURCE_LIGHT_SW_REASON);
         }
-        commit(boolReasonToDesired.booleanValue(), "ext-sensor reason=" + i);
+        if (!everSent || desired != headlightsOn) commit(desired, "ext-sensor reason=" + reason);
     }
 
     /* JADX INFO: Access modifiers changed from: private */
@@ -1568,30 +1569,30 @@ public class LightSensorService extends Service {
         if (z) {
             Log.i(TAG, "gear=Drive → через 5000мс выставим таргет (анти-Auto)");
             this.timerHandler.removeCallbacks(this.driveFallbackRunnable);
-            this.timerHandler.postDelayed(this.driveFallbackRunnable, 5000L);
+            timerHandler.postDelayed(driveFallbackRunnable, DRIVE_FALLBACK_MS);
         }
     }
 
-    private void onLightStatusChanged(int i, int i2, int i3) {
-        if (i == this.lastAutoLamp && i2 == this.lastDippedBeam && i3 == this.lastHeadLight) {
+    private void onLightStatusChanged(int autoLamp, int dippedBeam, int headLight) {
+        if (autoLamp == lastAutoLamp && dippedBeam == lastDippedBeam && headLight == lastHeadLight) {
             return;
         }
-        this.lastAutoLamp = i;
-        this.lastDippedBeam = i2;
-        this.lastHeadLight = i3;
-        long jElapsedRealtime = SystemClock.elapsedRealtime() - this.lastCommitElapsed;
-        Log.i(TAG, "lightstatus: autoLamp=" + i + " dippedBeam=" + i2 + " headLight=" + i3 + " ourTarget=" + (this.headlightsOn ? "ближний" : "выкл") + " sinceCommit=" + jElapsedRealtime + "ms");
+        this.lastAutoLamp = autoLamp;
+        this.lastDippedBeam = dippedBeam;
+        this.lastHeadLight = headLight;
+        long since = SystemClock.elapsedRealtime() - this.lastCommitElapsed;
+        Log.i(TAG, "lightstatus: autoLamp=" + autoLamp + " dippedBeam=" + dippedBeam + " headLight=" + headLight + " ourTarget=" + (this.headlightsOn ? "ближний" : "выкл") + " sinceCommit=" + since + "ms");
         this.timerHandler.removeCallbacks(this.canbusReassertRunnable);
         if (MANUAL_AUTO_GATE.blocksAntiAuto()) {
             Log.i(TAG, "lightstatus: OEM Auto выбран с руля — anti-Auto подавлен");
             return;
         }
         if (this.everSent && this.headlightsOn) {
-            if (jElapsedRealtime < HEADLIGHT_GUARD_MS) {
-                Log.i(TAG, "lightstatus: игнор — эхо нашей команды (" + jElapsedRealtime + "ms назад)");
-            } else if (i == 1) {
+            if (since < HEADLIGHT_GUARD_MS) {
+                Log.i(TAG, "lightstatus: игнор — эхо нашей команды (" + since + "ms назад)");
+            } else if (autoLamp == 1) {
                 Log.i(TAG, "lightstatus: поймал АВТО при таргете ближний → выдержка 5000ms");
-                this.timerHandler.postDelayed(this.canbusReassertRunnable, 5000L);
+                timerHandler.postDelayed(canbusReassertRunnable, CANBUS_REASSERT_DELAY_MS);
             }
         }
     }

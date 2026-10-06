@@ -42,13 +42,13 @@ public class BatteryHeatService extends Service {
     static final int ACTIVATION_ACTIVE = 3;
     static final int ACTIVATION_AWAITING_CONFIRMATION = 2;
     static final int ACTIVATION_BLOCKED = 4;
-    private static final long ACTIVATION_CONFIRM_QUERY_MS = 3000;
+    private static final long ACTIVATION_CONFIRM_QUERY_MS = 3_000L;
     private static final long ACTIVATION_CONFIRM_TIMEOUT_MS = 3000;
     static final int ACTIVATION_ENABLED = 5;
     static final int ACTIVATION_IDLE = 0;
     static final int ACTIVATION_SENDING = 1;
     private static final int AUTO_TEMP_THRESHOLD_C = 10;
-    private static final long BATTERY_SAFETY_WATCHDOG_MS = 30000;
+    private static final long BATTERY_SAFETY_WATCHDOG_MS = 30_000L;
     private static final String BIND_PERMISSION = "ru.big.town.anative.permission.BIND_SET_MODES_SERVICE";
     private static final LatestValueDelivery<BroadcastWrite> BROADCASTS;
     private static final long BROADCAST_COALESCE_MS = 250;
@@ -78,7 +78,7 @@ public class BatteryHeatService extends Service {
     private static final int ID_TEP_CONTROL_FAIL = 1296;
     private static final int ID_TEP_CONTROL_STATUS = 1295;
     private static final int ID_TEP_CONTROL_SWITCH = 1294;
-    private static final long INCOMPLETE_SNAPSHOT_RETRY_MS = 300000;
+    private static final long INCOMPLETE_SNAPSHOT_RETRY_MS = 5 * 60_000L;
     private static final String TAG = "$$$ BatteryHeatService $$$";
     private static final int TEMP_INVALID = -9999;
     private static final int UNKNOWN = Integer.MIN_VALUE;
@@ -146,15 +146,15 @@ public class BatteryHeatService extends Service {
     private final BroadcastReceiver uiReceiver = new BroadcastReceiver() { // from class: ru.big.town.anative.BatteryHeatService.1
         @Override // android.content.BroadcastReceiver
         public void onReceive(Context context, Intent intent) {
-            String action = intent.getAction();
-            if (BatteryHeatService.ACTION_BATTERY_HEAT_ACTIVATE.equals(action)) {
+            String a = intent.getAction();
+            if (BatteryHeatService.ACTION_BATTERY_HEAT_ACTIVATE.equals(a)) {
                 BatteryHeatService batteryHeatService = BatteryHeatService.this;
                 batteryHeatService.activate("manual (виджет)", true, 0L, Long.MIN_VALUE, batteryHeatService.currentPlatform());
-            } else if (BatteryHeatService.ACTION_BATTERY_HEAT_AUTO_CHANGED.equals(action)) {
+            } else if (BatteryHeatService.ACTION_BATTERY_HEAT_AUTO_CHANGED.equals(a)) {
                 if (intent.hasExtra(BatteryHeatService.EXTRA_BATTERY_HEAT_AUTO_ENABLED)) {
                     BatteryHeatService.this.applyAutoSettingChange(intent.getBooleanExtra(BatteryHeatService.EXTRA_BATTERY_HEAT_AUTO_ENABLED, false));
                 }
-            } else if (BatteryHeatService.ACTION_REQUEST_BATTERY_HEAT.equals(action)) {
+            } else if (BatteryHeatService.ACTION_REQUEST_BATTERY_HEAT.equals(a)) {
                 BatteryHeatService.this.requestBroadcastUpdate();
             }
         }
@@ -167,13 +167,13 @@ public class BatteryHeatService extends Service {
             }
             try {
                 long jElapsedRealtime = SystemClock.elapsedRealtime();
-                if (BatteryHeatService.this.isVehicleSnapshotIncomplete() && jElapsedRealtime - BatteryHeatService.this.lastVehicleSnapshotRequestElapsed >= 300000) {
+                if (BatteryHeatService.this.isVehicleSnapshotIncomplete() && jElapsedRealtime - BatteryHeatService.this.lastVehicleSnapshotRequestElapsed >= INCOMPLETE_SNAPSHOT_RETRY_MS) {
                     BatteryHeatService.this.requestVehicleStateSnapshot();
                 }
                 BatteryHeatService.this.maybeAutoActivate("safety-watchdog");
             } finally {
                 if (!BatteryHeatService.this.destroyed) {
-                    BatteryHeatService.this.handler.postDelayed(this, 30000L);
+                    handler.postDelayed(this, BATTERY_SAFETY_WATCHDOG_MS);
                 }
             }
         }
@@ -251,49 +251,27 @@ public class BatteryHeatService extends Service {
         }
     }
 
-    /* JADX INFO: renamed from: ru.big.town.anative.BatteryHeatService$3, reason: invalid class name */
-    static /* synthetic */ class AnonymousClass3 {
-        static final /* synthetic */ int[] $SwitchMap$ru$big$town$anative$CanBusEvent$Kind;
-
-        static {
-            int[] iArr = new int[CanBusEvent.Kind.values().length];
-            $SwitchMap$ru$big$town$anative$CanBusEvent$Kind = iArr;
-            try {
-                iArr[CanBusEvent.Kind.CONNECTION.ordinal()] = 1;
-            } catch (NoSuchFieldError unused) {
-            }
-            try {
-                $SwitchMap$ru$big$town$anative$CanBusEvent$Kind[CanBusEvent.Kind.VEHICLE_STATE.ordinal()] = 2;
-            } catch (NoSuchFieldError unused2) {
-            }
-            try {
-                $SwitchMap$ru$big$town$anative$CanBusEvent$Kind[CanBusEvent.Kind.AMBIENT_TEMPERATURE.ordinal()] = 3;
-            } catch (NoSuchFieldError unused3) {
-            }
-        }
-    }
-
     /* JADX INFO: Access modifiers changed from: private */
-    public void onCanBusEvent(CanBusEvent canBusEvent) {
+    private void onCanBusEvent(CanBusEvent event) {
         if (this.destroyed) {
             return;
         }
-        int i = AnonymousClass3.$SwitchMap$ru$big$town$anative$CanBusEvent$Kind[canBusEvent.kind.ordinal()];
-        if (i == 1) {
-            this.activeCanBusEpoch = canBusEvent.connectionEpoch;
-            advanceAutoDecision();
-            resetVehicleSnapshotTracking();
-            this.handler.removeCallbacks(this.forceQueryRunnable);
-            this.handler.postDelayed(this.forceQueryRunnable, FORCE_QUERY_MS);
-            return;
-        }
-        if (i == 2) {
-            onVehicleState(canBusEvent.first, canBusEvent.second);
-        } else {
-            if (i != 3) {
+        switch (event.kind) {
+            case CONNECTION:
+                this.activeCanBusEpoch = event.connectionEpoch;
+                advanceAutoDecision();
+                resetVehicleSnapshotTracking();
+                handler.removeCallbacks(forceQueryRunnable);
+                handler.postDelayed(forceQueryRunnable, FORCE_QUERY_MS);
                 return;
-            }
-            onAmbientTemp(canBusEvent.first, canBusEvent.connectionEpoch);
+            case VEHICLE_STATE:
+                onVehicleState(event.first, event.second);
+                return;
+            case AMBIENT_TEMPERATURE:
+                onAmbientTemp(event.first, event.connectionEpoch);
+                return;
+            default:
+                return;
         }
     }
 
@@ -302,54 +280,51 @@ public class BatteryHeatService extends Service {
         requestVehicleStateSnapshot(false, "incomplete-snapshot");
     }
 
-    private void requestVehicleStateSnapshot(boolean z, String str) {
-        if (this.destroyed || this.canBusEventHub == null) {
-            return;
-        }
-        if (z || isVehicleSnapshotIncomplete()) {
-            this.lastVehicleSnapshotRequestElapsed = SystemClock.elapsedRealtime();
-            this.canBusEventHub.requestVehicleStateSnapshot();
-            Log.i(TAG, "queryVehicleState requested (" + str + "), profile=" + platformName(currentPlatform()) + " fields=" + Integer.bitCount(this.vehicleFieldsSeenMask));
-        }
+    private void requestVehicleStateSnapshot(boolean force, String str) {
+        if (this.destroyed || this.canBusEventHub == null
+                || (!force && !isVehicleSnapshotIncomplete())) return;
+        this.lastVehicleSnapshotRequestElapsed = SystemClock.elapsedRealtime();
+        this.canBusEventHub.requestVehicleStateSnapshot();
+        Log.i(TAG, "queryVehicleState requested (" + str + "), profile=" + platformName(currentPlatform()) + " fields=" + Integer.bitCount(this.vehicleFieldsSeenMask));
     }
 
-    private void onVehicleState(int i, int i2) {
+    private void onVehicleState(int i, int state) {
         int i3;
         boolean zControlBusy = controlBusy();
         int iCurrentPlatform = currentPlatform();
         boolean zActivationConfirmed = activationConfirmed(iCurrentPlatform);
         int i4 = this.failReason;
         if (i == ID_BMS_STATE) {
-            this.bmsState = i2;
+            this.bmsState = state;
             i3 = 5;
         } else if (i == ID_DRIVER_PREHEAT_SET) {
-            this.preheatSet = i2;
+            this.preheatSet = state;
             i3 = 3;
         } else if (i == ID_PREHEAT_FAIL_STATE) {
-            this.h97xFailReason = i2;
+            this.h97xFailReason = state;
             i3 = 4;
         } else if (i == ID_AUTO_CTRL) {
-            this.autoCtrl = i2;
+            this.autoCtrl = state;
             i3 = 6;
         } else if (i != ID_AUTO_CTRL_INFO) {
             switch (i) {
                 case ID_TEP_CONTROL_SWITCH /* 1294 */:
-                    this.switchState = i2;
+                    this.switchState = state;
                     i3 = 0;
                     break;
                 case ID_TEP_CONTROL_STATUS /* 1295 */:
-                    this.controlStatus = i2;
+                    this.controlStatus = state;
                     i3 = 1;
                     break;
                 case ID_TEP_CONTROL_FAIL /* 1296 */:
-                    this.h97cFailReason = i2;
+                    this.h97cFailReason = state;
                     i3 = 2;
                     break;
                 default:
                     return;
             }
         } else {
-            this.autoCtrlInfo = i2;
+            this.autoCtrlInfo = state;
             i3 = 7;
         }
         this.vehicleFieldsSeenMask = (1 << i3) | this.vehicleFieldsSeenMask;
@@ -368,7 +343,7 @@ public class BatteryHeatService extends Service {
         } else if (BatteryHeatAutoPolicy.blockingFailure(this.failReason) && this.confirmationPending) {
             clearActivationConfirmation();
         }
-        Log.i(TAG, "vehicleState id=" + i + " state=" + i2);
+        Log.i(TAG, "vehicleState id=" + i + " state=" + state);
         requestBroadcastUpdate();
         if (z) {
             maybeAutoActivate("vehicle-state");
@@ -384,7 +359,7 @@ public class BatteryHeatService extends Service {
         advanceAutoDecision();
         Log.i(TAG, "ambientTemp=" + i + "°C");
         requestBroadcastUpdate();
-        if (BatteryHeatAutoPolicy.settingRefreshNeededForTemperature(this.autoSettingKnown)) {
+        if (BatteryHeatAutoPolicy.settingRefreshNeededForTemperature(autoSettingKnown)) {
             requestSettingsRefresh("temp-change", true);
         } else {
             maybeAutoActivate("temp-change");
@@ -396,7 +371,7 @@ public class BatteryHeatService extends Service {
         long j = this.activeCanBusEpoch;
         long j2 = this.autoDecisionGeneration;
         int iCurrentPlatform = currentPlatform();
-        if (m1834lambda$activate$9$rubigtownanativeBatteryHeatService(this.instanceGeneration, j, j2, iCurrentPlatform)) {
+        if (automaticActivationCurrent(this.instanceGeneration, j, j2, iCurrentPlatform)) {
             long jElapsedRealtime = SystemClock.elapsedRealtime();
             if (jElapsedRealtime - this.lastActivateElapsed >= 300000 && jElapsedRealtime - this.lastActivateAttemptElapsed >= 30000 && !this.activationPending) {
                 Log.i(TAG, "AUTO прогрев: " + str + " ambient=" + this.ambientTemp + "°C < 10");
@@ -406,7 +381,7 @@ public class BatteryHeatService extends Service {
     }
 
     /* JADX INFO: Access modifiers changed from: private */
-    public void activate(String str, boolean z, final long j, final long j2, int i) {
+    public void activate(String reason, boolean z, final long j, final long j2, int i) {
         if (this.destroyed) {
             return;
         }
@@ -428,46 +403,46 @@ public class BatteryHeatService extends Service {
             return;
         }
         if (this.activationPending) {
-            Log.i(TAG, "activate battery heat coalesced — " + str);
+            Log.i(TAG, "activate battery heat coalesced — " + reason);
             return;
         }
         this.activationPending = true;
         requestBroadcastUpdate();
-        Log.i(TAG, "★ activate battery heat — " + str);
+        Log.i(TAG, "★ activate battery heat — " + reason);
         if (z) {
-            final AtomicLong atomicLong = new AtomicLong();
+            final AtomicLong attemptedAt = new AtomicLong();
             final AtomicBoolean atomicBoolean = new AtomicBoolean();
-            ApplyEngine.postIndependentUserCommand("battery heat " + str, new Runnable() { // from class: ru.big.town.anative.BatteryHeatService$$ExternalSyntheticLambda5
+            ApplyEngine.postIndependentUserCommand("battery heat " + reason, new Runnable() { // from class: ru.big.town.anative.BatteryHeatService$$ExternalSyntheticLambda5
                 @Override // java.lang.Runnable
                 public final void run() {
-                    BatteryHeatService.this.m1831lambda$activate$6$rubigtownanativeBatteryHeatService(atomicBoolean, iCurrentPlatform, atomicLong);
+                    BatteryHeatService.this.m1831lambda$activate$6$rubigtownanativeBatteryHeatService(atomicBoolean, iCurrentPlatform, attemptedAt);
                 }
             }, new Runnable() { // from class: ru.big.town.anative.BatteryHeatService$$ExternalSyntheticLambda6
                 @Override // java.lang.Runnable
                 public final void run() {
-                    BatteryHeatService.this.m1833lambda$activate$8$rubigtownanativeBatteryHeatService(atomicBoolean, atomicLong, iCurrentPlatform);
+                    BatteryHeatService.this.m1833lambda$activate$8$rubigtownanativeBatteryHeatService(atomicBoolean, attemptedAt, iCurrentPlatform);
                 }
             });
         } else {
             final long j3 = this.instanceGeneration;
-            final AtomicLong atomicLong2 = new AtomicLong();
+            final AtomicLong attemptedAt = new AtomicLong();
             final int i2 = iCurrentPlatform;
-            ApplyEngine.postWakeAction("battery heat " + str, new BooleanSupplier() { // from class: ru.big.town.anative.BatteryHeatService$$ExternalSyntheticLambda7
+            ApplyEngine.postWakeAction("battery heat " + reason, new BooleanSupplier() { // from class: ru.big.town.anative.BatteryHeatService$$ExternalSyntheticLambda7
                 @Override // java.util.function.BooleanSupplier
                 public final boolean getAsBoolean() {
-                    return BatteryHeatService.this.m1826lambda$activate$12$rubigtownanativeBatteryHeatService(j3, j, j2, iCurrentPlatform, atomicLong2);
+                    return BatteryHeatService.this.m1826lambda$activate$12$rubigtownanativeBatteryHeatService(j3, j, j2, iCurrentPlatform, attemptedAt);
                 }
             }, (Consumer<ApplyEngine.WakeActionResult>) new Consumer() { // from class: ru.big.town.anative.BatteryHeatService$$ExternalSyntheticLambda8
                 @Override // java.util.function.Consumer
                 public final void accept(Object obj) {
-                    BatteryHeatService.this.m1828lambda$activate$14$rubigtownanativeBatteryHeatService(atomicLong2, j2, i2, (ApplyEngine.WakeActionResult) obj);
+                    BatteryHeatService.this.m1828lambda$activate$14$rubigtownanativeBatteryHeatService(attemptedAt, j2, i2, (ApplyEngine.WakeActionResult) obj);
                 }
             });
         }
     }
 
     /* JADX INFO: renamed from: lambda$activate$6$ru-big-town-anative-BatteryHeatService, reason: not valid java name */
-    /* synthetic */ void m1831lambda$activate$6$rubigtownanativeBatteryHeatService(AtomicBoolean atomicBoolean, final int i, final AtomicLong atomicLong) {
+    /* synthetic */ void m1831lambda$activate$6$rubigtownanativeBatteryHeatService(AtomicBoolean atomicBoolean, final int i, final AtomicLong attemptedAt) {
         atomicBoolean.set(CanSender.runGuardedSend(new BooleanSupplier() { // from class: ru.big.town.anative.BatteryHeatService$$ExternalSyntheticLambda17
             @Override // java.util.function.BooleanSupplier
             public final boolean getAsBoolean() {
@@ -476,7 +451,7 @@ public class BatteryHeatService extends Service {
         }, new Runnable() { // from class: ru.big.town.anative.BatteryHeatService$$ExternalSyntheticLambda18
             @Override // java.lang.Runnable
             public final void run() {
-                atomicLong.compareAndSet(0L, SystemClock.elapsedRealtime());
+                attemptedAt.compareAndSet(0L, SystemClock.elapsedRealtime());
             }
         }, new BooleanSupplier() { // from class: ru.big.town.anative.BatteryHeatService$$ExternalSyntheticLambda19
             @Override // java.util.function.BooleanSupplier
@@ -492,7 +467,7 @@ public class BatteryHeatService extends Service {
     }
 
     /* JADX INFO: renamed from: lambda$activate$8$ru-big-town-anative-BatteryHeatService, reason: not valid java name */
-    /* synthetic */ void m1833lambda$activate$8$rubigtownanativeBatteryHeatService(AtomicBoolean atomicBoolean, final AtomicLong atomicLong, final int i) {
+    /* synthetic */ void m1833lambda$activate$8$rubigtownanativeBatteryHeatService(AtomicBoolean atomicBoolean, final AtomicLong attemptedAt, final int i) {
         final ApplyEngine.WakeActionResult wakeActionResult;
         if (atomicBoolean.get()) {
             wakeActionResult = ApplyEngine.WakeActionResult.SUCCESS;
@@ -506,27 +481,27 @@ public class BatteryHeatService extends Service {
         handler.post(new Runnable() { // from class: ru.big.town.anative.BatteryHeatService$$ExternalSyntheticLambda14
             @Override // java.lang.Runnable
             public final void run() {
-                BatteryHeatService.this.m1832lambda$activate$7$rubigtownanativeBatteryHeatService(wakeActionResult, atomicLong, i);
+                BatteryHeatService.this.m1832lambda$activate$7$rubigtownanativeBatteryHeatService(wakeActionResult, attemptedAt, i);
             }
         });
     }
 
     /* JADX INFO: renamed from: lambda$activate$7$ru-big-town-anative-BatteryHeatService, reason: not valid java name */
-    /* synthetic */ void m1832lambda$activate$7$rubigtownanativeBatteryHeatService(ApplyEngine.WakeActionResult wakeActionResult, AtomicLong atomicLong, int i) {
-        m1827lambda$activate$13$rubigtownanativeBatteryHeatService(wakeActionResult, atomicLong.get(), Long.MIN_VALUE, i);
+    /* synthetic */ void m1832lambda$activate$7$rubigtownanativeBatteryHeatService(ApplyEngine.WakeActionResult wakeActionResult, AtomicLong attemptedAt, int i) {
+        m1827lambda$activate$13$rubigtownanativeBatteryHeatService(wakeActionResult, attemptedAt.get(), Long.MIN_VALUE, i);
     }
 
     /* JADX INFO: renamed from: lambda$activate$12$ru-big-town-anative-BatteryHeatService, reason: not valid java name */
-    /* synthetic */ boolean m1826lambda$activate$12$rubigtownanativeBatteryHeatService(final long j, final long j2, final long j3, final int i, final AtomicLong atomicLong) {
+    /* synthetic */ boolean m1826lambda$activate$12$rubigtownanativeBatteryHeatService(final long j, final long j2, final long j3, final int i, final AtomicLong attemptedAt) {
         return CanSender.runGuardedSend(new BooleanSupplier() { // from class: ru.big.town.anative.BatteryHeatService$$ExternalSyntheticLambda20
             @Override // java.util.function.BooleanSupplier
             public final boolean getAsBoolean() {
-                return BatteryHeatService.this.m1834lambda$activate$9$rubigtownanativeBatteryHeatService(j, j2, j3, i);
+                return BatteryHeatService.this.automaticActivationCurrent(j, j2, j3, i);
             }
         }, new Runnable() { // from class: ru.big.town.anative.BatteryHeatService$$ExternalSyntheticLambda21
             @Override // java.lang.Runnable
             public final void run() {
-                atomicLong.compareAndSet(0L, SystemClock.elapsedRealtime());
+                attemptedAt.compareAndSet(0L, SystemClock.elapsedRealtime());
             }
         }, new BooleanSupplier() { // from class: ru.big.town.anative.BatteryHeatService$$ExternalSyntheticLambda22
             @Override // java.util.function.BooleanSupplier
@@ -537,8 +512,8 @@ public class BatteryHeatService extends Service {
     }
 
     /* JADX INFO: renamed from: lambda$activate$14$ru-big-town-anative-BatteryHeatService, reason: not valid java name */
-    /* synthetic */ void m1828lambda$activate$14$rubigtownanativeBatteryHeatService(AtomicLong atomicLong, final long j, final int i, final ApplyEngine.WakeActionResult wakeActionResult) {
-        final long j2 = atomicLong.get();
+    /* synthetic */ void m1828lambda$activate$14$rubigtownanativeBatteryHeatService(AtomicLong attemptedAt, final long j, final int i, final ApplyEngine.WakeActionResult wakeActionResult) {
+        final long j2 = attemptedAt.get();
         Handler handler = this.handler;
         if (this.destroyed || handler == null) {
             return;
@@ -553,7 +528,7 @@ public class BatteryHeatService extends Service {
 
     /* JADX INFO: Access modifiers changed from: private */
     /* JADX INFO: renamed from: finishActivation, reason: merged with bridge method [inline-methods] */
-    public void m1827lambda$activate$13$rubigtownanativeBatteryHeatService(ApplyEngine.WakeActionResult wakeActionResult, long j, long j2, int i) {
+    public void m1827lambda$activate$13$rubigtownanativeBatteryHeatService(ApplyEngine.WakeActionResult wakeActionResult, long attemptedAt, long j2, int i) {
         if (this.destroyed) {
             return;
         }
@@ -563,8 +538,8 @@ public class BatteryHeatService extends Service {
         if (j2 != Long.MIN_VALUE && j2 != this.autoDecisionGeneration) {
             z = true;
         }
-        if (j > 0) {
-            this.lastActivateAttemptElapsed = j;
+        if (attemptedAt > 0L) {
+            this.lastActivateAttemptElapsed = attemptedAt;
             if (!z && wakeActionResult == ApplyEngine.WakeActionResult.SUCCESS) {
                 if (activationConfirmed(i)) {
                     this.lastActivateElapsed = SystemClock.elapsedRealtime();
@@ -671,9 +646,7 @@ public class BatteryHeatService extends Service {
         this.autoDecisionGeneration++;
     }
 
-    /* JADX INFO: Access modifiers changed from: private */
-    /* JADX INFO: renamed from: automaticActivationCurrent, reason: merged with bridge method [inline-methods] */
-    public boolean m1834lambda$activate$9$rubigtownanativeBatteryHeatService(long j, long j2, long j3, int i) {
+    private boolean automaticActivationCurrent(long j, long j2, long j3, int i) {
         return BatteryHeatAutoPolicy.canSend(!this.destroyed && ACTIVE_INSTANCE.get() == j && i != 0 && i == currentPlatform(), j2, this.activeCanBusEpoch, this.ambientTempEpoch, j3, this.autoDecisionGeneration, this.cachedAutoEnabled, this.ambientTemp != TEMP_INVALID, this.ambientTemp < 10, controlBusy(), BatteryHeatAutoPolicy.blockingFailure(this.failReason));
     }
 
@@ -685,50 +658,49 @@ public class BatteryHeatService extends Service {
         submitSettingsRefresh(requestOffer);
     }
 
-    private void submitSettingsRefresh(BatteryHeatRefreshGate.Request request) {
-        final BatteryHeatRefreshGate.Request request2 = request;
+    private void submitSettingsRefresh(final BatteryHeatRefreshGate.Request request) {
         if (this.destroyed || request == null) {
             return;
         }
         final ContentResolver contentResolver = getApplicationContext().getContentResolver();
         final WeakReference weakReference = new WeakReference(this);
-        final long j = this.autoSettingRevision;
+        final long submittedSettingRevision = autoSettingRevision;
         try {
             try {
                 SETTINGS_EXECUTOR.execute(new Runnable() { // from class: ru.big.town.anative.BatteryHeatService$$ExternalSyntheticLambda16
                     @Override // java.lang.Runnable
                     public final void run() {
-                        BatteryHeatService.lambda$submitSettingsRefresh$17(weakReference, j, request2, contentResolver);
+                        BatteryHeatService.lambda$submitSettingsRefresh$17(weakReference, submittedSettingRevision, request, contentResolver);
                     }
                 });
             } catch (RejectedExecutionException unused) {
-                this.refreshGate.reject(request2);
+                this.refreshGate.reject(request);
                 Log.w(TAG, "settings refresh queue full; waiting for next real event");
             }
         } catch (RejectedExecutionException unused2) {
         }
     }
 
-    static /* synthetic */ void lambda$submitSettingsRefresh$17(WeakReference weakReference, final long j, final BatteryHeatRefreshGate.Request request, ContentResolver contentResolver) {
+    static /* synthetic */ void lambda$submitSettingsRefresh$17(WeakReference weakReference, final long submittedSettingRevision, final BatteryHeatRefreshGate.Request request, ContentResolver resolver) {
         Handler handler;
-        final BatteryHeatService batteryHeatService = (BatteryHeatService) weakReference.get();
-        if (batteryHeatService == null || batteryHeatService.destroyed) {
+        final BatteryHeatService beforeQuery = (BatteryHeatService) weakReference.get();
+        if (beforeQuery == null || beforeQuery.destroyed) {
             return;
         }
-        if (!BatteryHeatAutoPolicy.revisionCurrent(j, batteryHeatService.autoSettingRevision)) {
-            Handler handler2 = batteryHeatService.handler;
+        if (!BatteryHeatAutoPolicy.revisionCurrent(submittedSettingRevision, beforeQuery.autoSettingRevision)) {
+            Handler handler2 = beforeQuery.handler;
             if (handler2 != null) {
                 handler2.post(new Runnable() { // from class: ru.big.town.anative.BatteryHeatService$$ExternalSyntheticLambda0
                     @Override // java.lang.Runnable
                     public final void run() {
-                        batteryHeatService.finishSettingsRefresh(request, null, j);
+                        beforeQuery.finishSettingsRefresh(request, null, submittedSettingRevision);
                     }
                 });
                 return;
             }
             return;
         }
-        final Boolean boolQueryAutoEnabled = queryAutoEnabled(contentResolver);
+        final Boolean enabled = queryAutoEnabled(resolver);
         final BatteryHeatService batteryHeatService2 = (BatteryHeatService) weakReference.get();
         if (batteryHeatService2 == null || batteryHeatService2.destroyed || (handler = batteryHeatService2.handler) == null) {
             return;
@@ -736,21 +708,21 @@ public class BatteryHeatService extends Service {
         handler.post(new Runnable() { // from class: ru.big.town.anative.BatteryHeatService$$ExternalSyntheticLambda11
             @Override // java.lang.Runnable
             public final void run() {
-                batteryHeatService2.finishSettingsRefresh(request, boolQueryAutoEnabled, j);
+                batteryHeatService2.finishSettingsRefresh(request, enabled, submittedSettingRevision);
             }
         });
     }
 
     /* JADX INFO: Access modifiers changed from: private */
-    public void finishSettingsRefresh(BatteryHeatRefreshGate.Request request, Boolean bool, long j) {
+    public void finishSettingsRefresh(BatteryHeatRefreshGate.Request request, Boolean enabled, long submittedSettingRevision) {
         if (this.destroyed) {
             return;
         }
-        BatteryHeatRefreshGate.Completion completionFinish = this.refreshGate.finish(request);
-        if (completionFinish.publish && BatteryHeatAutoPolicy.revisionCurrent(j, this.autoSettingRevision) && bool != null) {
-            if (!this.autoSettingKnown || this.cachedAutoEnabled != bool.booleanValue()) {
-                this.autoSettingKnown = true;
-                this.cachedAutoEnabled = bool.booleanValue();
+        BatteryHeatRefreshGate.Completion completion = refreshGate.finish(request);
+        if (completion.publish && BatteryHeatAutoPolicy.revisionCurrent(submittedSettingRevision, autoSettingRevision) && enabled != null) {
+            if (!autoSettingKnown || cachedAutoEnabled != enabled) {
+                autoSettingKnown = true;
+                cachedAutoEnabled = enabled;
                 advanceAutoDecision();
             }
             requestBroadcastUpdate();
@@ -758,14 +730,14 @@ public class BatteryHeatService extends Service {
                 maybeAutoActivate(request.reason);
             }
         }
-        if (completionFinish.next != null) {
-            submitSettingsRefresh(completionFinish.next);
+        if (completion.next != null) {
+            submitSettingsRefresh(completion.next);
         }
     }
 
-    private static Boolean queryAutoEnabled(ContentResolver contentResolver) {
+    private static Boolean queryAutoEnabled(ContentResolver resolver) {
         try {
-            Cursor cursorQuery = contentResolver.query(CONTENT_PROVIDER_URI, null, null, null, null);
+            Cursor cursorQuery = resolver.query(CONTENT_PROVIDER_URI, null, null, null, null);
             if (cursorQuery == null) {
                 return null;
             }
@@ -968,37 +940,31 @@ public class BatteryHeatService extends Service {
 
     /* JADX INFO: Access modifiers changed from: private */
     public void initializeMonitoring() {
-        final BatteryHeatService batteryHeatService = this;
         if (this.destroyed) {
             return;
         }
-        IntentFilter intentFilter = new IntentFilter(ACTION_REQUEST_BATTERY_HEAT);
-        intentFilter.addAction(ACTION_BATTERY_HEAT_ACTIVATE);
-        intentFilter.addAction(ACTION_BATTERY_HEAT_AUTO_CHANGED);
+        IntentFilter filter = new IntentFilter(ACTION_REQUEST_BATTERY_HEAT);
+        filter.addAction(ACTION_BATTERY_HEAT_ACTIVATE);
+        filter.addAction(ACTION_BATTERY_HEAT_AUTO_CHANGED);
         try {
-            try {
-                ContextCompat.registerReceiver(batteryHeatService, this.uiReceiver, intentFilter, BIND_PERMISSION, this.handler, 2);
-                batteryHeatService.receiverRegistered = true;
-            } catch (Exception e) {
-                e = e;
-                Log.w(TAG, "registerReceiver: " + e.getMessage());
-            }
-        } catch (Exception e2) {
-            Exception e = e2;
+            ContextCompat.registerReceiver(this, uiReceiver, filter, BIND_PERMISSION, handler, ContextCompat.RECEIVER_EXPORTED);
+            this.receiverRegistered = true;
+        } catch (Exception e) {
+            Log.w(TAG, "registerReceiver: " + e.getMessage());
         }
-        if (batteryHeatService.destroyed) {
+        if (this.destroyed) {
             return;
         }
-        CanBusEventHub canBusEventHub = CanBusEventHub.get(batteryHeatService);
-        batteryHeatService.canBusEventHub = canBusEventHub;
-        batteryHeatService.canBusSubscription = canBusEventHub.subscribe(49, new int[]{ID_TEP_CONTROL_SWITCH, ID_TEP_CONTROL_STATUS, ID_TEP_CONTROL_FAIL, ID_AUTO_CTRL, ID_AUTO_CTRL_INFO, ID_DRIVER_PREHEAT_SET, ID_PREHEAT_FAIL_STATE, ID_BMS_STATE}, batteryHeatService.handler, new CanBusEventHub.Listener() { // from class: ru.big.town.anative.BatteryHeatService$$ExternalSyntheticLambda13
+        CanBusEventHub canBusEventHub = CanBusEventHub.get(this);
+        this.canBusEventHub = canBusEventHub;
+        this.canBusSubscription = canBusEventHub.subscribe(49, new int[]{ID_TEP_CONTROL_SWITCH, ID_TEP_CONTROL_STATUS, ID_TEP_CONTROL_FAIL, ID_AUTO_CTRL, ID_AUTO_CTRL_INFO, ID_DRIVER_PREHEAT_SET, ID_PREHEAT_FAIL_STATE, ID_BMS_STATE}, this.handler, new CanBusEventHub.Listener() { // from class: ru.big.town.anative.BatteryHeatService$$ExternalSyntheticLambda13
             @Override // ru.big.town.anative.CanBusEventHub.Listener
             public final void onCanBusEvent(CanBusEvent canBusEvent) {
                 BatteryHeatService.this.onCanBusEvent(canBusEvent);
             }
         });
-        batteryHeatService.requestBroadcastUpdate();
-        batteryHeatService.handler.postDelayed(batteryHeatService.batterySafetyWatchdog, 30000L);
+        this.requestBroadcastUpdate();
+        handler.postDelayed(batterySafetyWatchdog, BATTERY_SAFETY_WATCHDOG_MS);
     }
 
     private void resetVehicleSnapshotTracking() {
@@ -1018,7 +984,7 @@ public class BatteryHeatService extends Service {
 
     /* JADX INFO: Access modifiers changed from: private */
     public boolean isVehicleSnapshotIncomplete() {
-        return !BatteryHeatAutoPolicy.snapshotComplete(this.vehicleFieldsSeenMask, 56, 39);
+        return !BatteryHeatAutoPolicy.snapshotComplete(this.vehicleFieldsSeenMask, H97X_REQUIRED_MASK, H97C_REQUIRED_MASK);
     }
 
     private void createNotificationChannel() {

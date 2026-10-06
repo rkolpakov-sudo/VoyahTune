@@ -40,11 +40,11 @@ final class DriverDoorStateController {
         this.serialHandler = handler;
     }
 
-    Subscription subscribe(Handler handler, Listener listener) {
-        if (handler == null || listener == null) {
+    Subscription subscribe(Handler deliveryHandler, Listener listener) {
+        if (deliveryHandler == null || listener == null) {
             throw new IllegalArgumentException("deliveryHandler/listener required");
         }
-        final Registration registration = new Registration(handler, listener);
+        final Registration registration = new Registration(deliveryHandler, listener);
         this.serialHandler.post(new Runnable() { // from class: ru.big.town.anative.DriverDoorStateController$$ExternalSyntheticLambda1
             @Override // java.lang.Runnable
             public final void run() {

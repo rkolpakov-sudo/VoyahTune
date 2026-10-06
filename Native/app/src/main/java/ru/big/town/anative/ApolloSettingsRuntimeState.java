@@ -7,6 +7,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.OpenOption;
@@ -26,14 +27,14 @@ final class ApolloSettingsRuntimeState {
     private ApolloSettingsRuntimeState() {
     }
 
-    static TargetApplyResult applyTarget(Context context, boolean z) {
+    static TargetApplyResult applyTarget(Context context, boolean enabled) {
         if (context == null) {
             return TargetApplyResult.TRANSIENT_FAILURE;
         }
-        if (isEnabled(context) == z) {
+        if (isEnabled(context) == enabled) {
             return TargetApplyResult.CONFIRMED;
         }
-        if (!setEnabled(context, z)) {
+        if (!setEnabled(context, enabled)) {
             return TargetApplyResult.TRANSIENT_FAILURE;
         }
         if (forceStopVehicleSettings(context)) {
@@ -107,11 +108,12 @@ final class ApolloSettingsRuntimeState {
 
     private static boolean forceStopVehicleSettings(Context context) {
         try {
-            ActivityManager activityManager = (ActivityManager) context.getSystemService("activity");
-            if (activityManager == null) {
+            ActivityManager am = (ActivityManager) context.getSystemService("activity");
+            if (am == null) {
                 return false;
             }
-            ActivityManager.class.getMethod("forceStopPackage", String.class).invoke(activityManager, "com.qinggan.app.vehiclesetting");
+            Method forceStop = ActivityManager.class.getMethod("forceStopPackage", String.class);
+            forceStop.invoke(am, "com.qinggan.app.vehiclesetting");
             return true;
         } catch (Exception e) {
             boolean z = e instanceof InvocationTargetException;

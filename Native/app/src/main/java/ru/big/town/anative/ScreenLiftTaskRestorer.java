@@ -14,6 +14,7 @@ import android.provider.Settings;
 import android.util.Log;
 import androidx.core.content.ContextCompat;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -25,7 +26,7 @@ final class ScreenLiftTaskRestorer implements AutoCloseable {
     private static final String ACTION_CHANGED = "action.qg.layout.changed";
     private static final String ACTION_START = "action.qg.layout.start_change";
     private static final String LAUNCHER_PKG = "com.qinggan.app.launcher";
-    private static final long RESTORE_DELAY_MS = 2000;
+    private static final long RESTORE_DELAY_MS = 2_000L;
     private static final String SCREEN_LIFT_PROPERTY = "persist.qg.canbus.bcm_screenAutoLiftFdb";
     private static final String SCREEN_LIFT_SETTING = "voyahtune_screen_lift_type";
     private static final String[] STOCK_PREFIXES = {"com.android", "com.qinggan", "com.pateo", "com.baidu", "com.huawei", "com.iflytek", "com.iland", "com.mega", "com.qti", "com.qualcomm", "com.tencent", "com.nng.igo.primong", "com.bz.CA08"};
@@ -74,11 +75,11 @@ final class ScreenLiftTaskRestorer implements AutoCloseable {
         if (this.registered) {
             return;
         }
-        IntentFilter intentFilter = new IntentFilter();
-        intentFilter.addAction(ACTION_START);
-        intentFilter.addAction(ACTION_CHANGED);
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(ACTION_START);
+        filter.addAction(ACTION_CHANGED);
         try {
-            ContextCompat.registerReceiver(this.context, this.receiver, intentFilter, 2);
+            ContextCompat.registerReceiver(this.context, this.receiver, filter, 2);
             this.registered = true;
             Log.i(TAG, "registered");
         } catch (RuntimeException e) {
@@ -88,32 +89,33 @@ final class ScreenLiftTaskRestorer implements AutoCloseable {
 
     /* JADX INFO: Access modifiers changed from: private */
     public void capture() {
-        ComponentName componentName;
         this.generation++;
         this.handler.removeCallbacksAndMessages(null);
         this.savedByDisplay.clear();
         HashSet hashSet = new HashSet();
-        for (ActivityManager.RunningTaskInfo runningTaskInfo : runningTasks()) {
-            int iDisplayId = displayId(runningTaskInfo);
-            if (iDisplayId == 0 || iDisplayId == 1) {
-                if (hashSet.add(Integer.valueOf(iDisplayId)) && (componentName = runningTaskInfo.topActivity) != null && isRestorable(componentName.getPackageName())) {
-                    this.savedByDisplay.put(Integer.valueOf(iDisplayId), new SavedTask(runningTaskInfo.taskId, iDisplayId, componentName.getPackageName(), componentName));
-                    Log.i(TAG, "captured task=" + runningTaskInfo.taskId + " display=" + iDisplayId + " component=" + componentName.flattenToShortString());
-                }
+        for (ActivityManager.RunningTaskInfo task : runningTasks()) {
+            int displayId = displayId(task);
+            if ((displayId != 0 && displayId != 1) || !hashSet.add(Integer.valueOf(displayId))) {
+                continue;
+            }
+            ComponentName top = task.topActivity;
+            if (top != null && isRestorable(top.getPackageName())) {
+                this.savedByDisplay.put(Integer.valueOf(displayId), new SavedTask(task.taskId, displayId, top.getPackageName(), top));
+                Log.i(TAG, "captured task=" + task.taskId + " display=" + displayId + " component=" + top.flattenToShortString());
             }
         }
     }
 
     /* JADX INFO: Access modifiers changed from: private */
-    public void scheduleRestore(final int i) {
-        if (i == 1 || i == 2) {
-            int liftProperty = readLiftProperty(i);
-            if (liftProperty != i) {
-                Log.w(TAG, "changed broadcast ignored; type=" + i + " property=" + liftProperty);
+    public void scheduleRestore(final int type) {
+        if (type == 1 || type == 2) {
+            int actualType = readLiftProperty(type);
+            if (actualType != type) {
+                Log.w(TAG, "changed broadcast ignored; type=" + type + " property=" + actualType);
                 return;
             }
             try {
-                Settings.Global.putInt(this.context.getContentResolver(), SCREEN_LIFT_SETTING, i);
+                Settings.Global.putInt(this.context.getContentResolver(), SCREEN_LIFT_SETTING, type);
             } catch (RuntimeException e) {
                 Log.w(TAG, "persist lift type failed: " + e.getMessage());
             }
@@ -124,7 +126,7 @@ final class ScreenLiftTaskRestorer implements AutoCloseable {
             this.handler.postDelayed(new Runnable() { // from class: ru.big.town.anative.ScreenLiftTaskRestorer$$ExternalSyntheticLambda0
                 @Override // java.lang.Runnable
                 public final void run() {
-                    ScreenLiftTaskRestorer.this.m2030xc8ac7057(j, i);
+                    ScreenLiftTaskRestorer.this.m2030xc8ac7057(j, type);
                 }
             }, RESTORE_DELAY_MS);
         }
@@ -147,36 +149,36 @@ final class ScreenLiftTaskRestorer implements AutoCloseable {
         }
         Map<Integer, SavedTask> map = new HashMap<>(this.savedByDisplay);
         this.savedByDisplay.clear();
-        for (SavedTask savedTask : map.values()) {
-            ComponentName componentName = topComponent(savedTask.displayId);
-            if (componentName == null || !savedTask.packageName.equals(componentName.getPackageName())) {
-                if (componentName != null && !LAUNCHER_PKG.equals(componentName.getPackageName())) {
-                    Log.i(TAG, "restore skipped; another app is foreground display=" + savedTask.displayId + " component=" + componentName.flattenToShortString());
+        for (SavedTask saved : map.values()) {
+            ComponentName current = topComponent(saved.displayId);
+            if (current == null || !saved.packageName.equals(current.getPackageName())) {
+                if (current != null && !LAUNCHER_PKG.equals(current.getPackageName())) {
+                    Log.i(TAG, "restore skipped; another app is foreground display=" + saved.displayId + " component=" + current.flattenToShortString());
                 } else {
                     try {
-                        this.activityManager.moveTaskToFront(savedTask.taskId, 0);
-                        Log.i(TAG, "restored existing task=" + savedTask.taskId + " display=" + savedTask.displayId + " liftType=" + i);
+                        activityManager.moveTaskToFront(saved.taskId, 0);
+                        Log.i(TAG, "restored existing task=" + saved.taskId + " display=" + saved.displayId + " liftType=" + i);
                     } catch (RuntimeException e) {
-                        launchFallback(savedTask, e);
+                        launchFallback(saved, e);
                     }
                 }
             }
         }
     }
 
-    private void launchFallback(SavedTask savedTask, RuntimeException runtimeException) {
+    private void launchFallback(SavedTask saved, RuntimeException runtimeException) {
         try {
-            Intent launchIntentForPackage = this.context.getPackageManager().getLaunchIntentForPackage(savedTask.packageName);
+            Intent launchIntentForPackage = this.context.getPackageManager().getLaunchIntentForPackage(saved.packageName);
             if (launchIntentForPackage == null) {
                 throw runtimeException;
             }
             launchIntentForPackage.addFlags(VehicleAreaDoor.DOOR_HOOD);
-            ActivityOptions activityOptionsMakeBasic = ActivityOptions.makeBasic();
-            activityOptionsMakeBasic.setLaunchDisplayId(savedTask.displayId);
-            this.context.startActivity(launchIntentForPackage, activityOptionsMakeBasic.toBundle());
-            Log.i(TAG, "restored by launch fallback display=" + savedTask.displayId + " component=" + savedTask.component.flattenToShortString());
+            ActivityOptions options = ActivityOptions.makeBasic();
+            options.setLaunchDisplayId(saved.displayId);
+            this.context.startActivity(launchIntentForPackage, options.toBundle());
+            Log.i(TAG, "restored by launch fallback display=" + saved.displayId + " component=" + saved.component.flattenToShortString());
         } catch (RuntimeException e) {
-            Log.w(TAG, "restore failed task=" + savedTask.taskId + " display=" + savedTask.displayId + ": " + e.getMessage());
+            Log.w(TAG, "restore failed task=" + saved.taskId + " display=" + saved.displayId + ": " + e.getMessage());
         }
     }
 
@@ -193,9 +195,10 @@ final class ScreenLiftTaskRestorer implements AutoCloseable {
         return null;
     }
 
-    private ComponentName oemTopComponent(int i) {
+    private ComponentName oemTopComponent(int displayId) {
         try {
-            Object objInvoke = Class.forName("com.qinggan.os.ServiceManager").getMethod("getDpyTopAppInfo", Context.class, Integer.TYPE, Integer.TYPE).invoke(null, this.context, Integer.valueOf(i), 4);
+            Method getTop = Class.forName("com.qinggan.os.ServiceManager").getMethod("getDpyTopAppInfo", Context.class, int.class, int.class);
+            Object objInvoke = getTop.invoke(null, context, displayId, 4);
             if (!(objInvoke instanceof String)) {
                 return null;
             }
@@ -205,7 +208,7 @@ final class ScreenLiftTaskRestorer implements AutoCloseable {
             }
             return ComponentName.unflattenFromString(strTrim);
         } catch (ReflectiveOperationException | RuntimeException e) {
-            Log.w(TAG, "OEM top component unavailable display=" + i + ": " + e.getMessage());
+            Log.w(TAG, "OEM top component unavailable display=" + displayId + ": " + e.getMessage());
             return null;
         }
     }

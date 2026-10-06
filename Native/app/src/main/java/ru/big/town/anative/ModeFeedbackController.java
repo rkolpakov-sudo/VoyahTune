@@ -60,18 +60,18 @@ final class ModeFeedbackController implements AutoCloseable {
         ApplyEngine.activateWake("CanBus connected");
     }
 
-    void onVehicleState(int i, int i2) {
+    void onVehicleState(int id, int state) {
         if (this.closed) {
             return;
         }
-        if (i == VehicleRestorePolicy.PEDESTRIAN_SOUND_ID) {
-            AvasController.get().onVehicleStateEcho(i2);
+        if (id == VehicleRestorePolicy.PEDESTRIAN_SOUND_ID) {
+            AvasController.get().onVehicleStateEcho(state);
             return;
         }
-        ModeFeedbackDecoder.Feedback feedbackDecode = ModeFeedbackDecoder.decode(i, i2);
+        ModeFeedbackDecoder.Feedback feedbackDecode = ModeFeedbackDecoder.decode(id, state);
         if (feedbackDecode == null) {
             if (NativeLog.get().isRunning()) {
-                Log.i(TAG, "unknown mode state ignored id=" + i + " state=" + i2);
+                Log.i(TAG, "unknown mode state ignored id=" + id + " state=" + state);
             }
         } else {
             try {
@@ -81,7 +81,7 @@ final class ModeFeedbackController implements AutoCloseable {
             }
             CommandStatusHub.get().ack(feedbackDecode.modeKey, ReadBackTable.SOURCE_VCU_INDICATION);
             if (NativeLog.get().isRunning()) {
-                Log.i(TAG, "VSTATE mode id=" + i + " state=" + i2);
+                Log.i(TAG, "VSTATE mode id=" + id + " state=" + state);
             }
         }
     }

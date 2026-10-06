@@ -60,8 +60,8 @@ public class SplitHostActivity extends Activity {
     private static final int SCREEN_LIFT_UP = 2;
     private static final int SCREEN_UP_HEIGHT_PX = 720;
     private static final String TAG = "$$$ SplitHostActivity $$$";
-    private static final int VD_FLAGS_FALLBACK = 265;
-    private static final int VD_FLAGS_TRUSTED = 1289;
+    private static final int VD_FLAGS_FALLBACK = 1 | 8 | 256;
+    private static final int VD_FLAGS_TRUSTED  = 1 | 8 | 256 | 1024;
     private static final long WATCH_GRACE_MS = 8000;
     private static final int WATCH_MAX_RESTARTS = 3;
     private static final long WATCH_PERIOD_MS = 2500;
@@ -87,12 +87,7 @@ public class SplitHostActivity extends Activity {
                 return;
             }
             int intExtra = intent.getIntExtra("type", 2);
-            int screenLiftProperty = SplitHostActivity.this.readScreenLiftProperty(intExtra);
-            if (screenLiftProperty != intExtra) {
-                Log.w(SplitHostActivity.TAG, "screen lift broadcast ignored: type=" + intExtra + " property=" + screenLiftProperty);
-            } else {
-                SplitHostActivity.this.applyScreenLiftSize(intExtra);
-            }
+            SplitHostActivity.this.applyScreenLiftIfChanged(intExtra);
         }
     };
     private final Handler watchHandler = new Handler(Looper.getMainLooper());
@@ -191,7 +186,7 @@ public class SplitHostActivity extends Activity {
         } else {
             applyRatioWeights(intExtra);
         }
-        setupSurface(this.left);
+        setupSurface(left);
         applyRoundedCorners(this.left.container);
         if (!z) {
             setupSurface(this.right);
@@ -202,6 +197,16 @@ public class SplitHostActivity extends Activity {
     }
 
     /* JADX INFO: Access modifiers changed from: private */
+    /* JADX INFO: Access modifiers changed from: private */
+    void applyScreenLiftIfChanged(int type) {
+        int actualType = readScreenLiftProperty(type);
+        if (actualType != type) {
+            Log.w(TAG, "screen lift broadcast ignored: type=" + type + " property=" + actualType);
+            return;
+        }
+        applyScreenLiftSize(type);
+    }
+
     public void applyScreenLiftSize(int i) {
         this.screenLiftType = i != 1 ? 2 : 1;
         int iCurrentHostHeight = currentHostHeight();
@@ -330,6 +335,15 @@ public class SplitHostActivity extends Activity {
         return 0.5f;
     }
 
+    void resizePaneVd(Pane pane, int width, int height) {
+        try {
+            pane.vd.resize(width, height, effectiveDpi(pane));
+            pane.resizeVersion++;
+        } catch (Exception e) {
+            Log.w(TAG, "resize " + pane.side + " failed: " + e.getMessage());
+        }
+    }
+
     private void setupSurface(final Pane pane) {
         pane.view.getHolder().addCallback(new SurfaceHolder.Callback() { // from class: ru.big.town.anative.SplitHostActivity.3
             @Override // android.view.SurfaceHolder.Callback
@@ -337,20 +351,15 @@ public class SplitHostActivity extends Activity {
             }
 
             @Override // android.view.SurfaceHolder.Callback
-            public void surfaceChanged(SurfaceHolder surfaceHolder, int i, int i2, int i3) {
-                pane.w = i2;
-                pane.h = i3;
+            public void surfaceChanged(SurfaceHolder surfaceHolder, int i, int width, int height) {
+                pane.w = width;
+                pane.h = height;
                 if (pane.vd == null) {
                     SplitHostActivity.this.createVirtualDisplay(pane, surfaceHolder.getSurface());
                     SplitHostActivity.this.launchApp(pane);
                     return;
                 }
-                try {
-                    pane.vd.resize(i2, i3, SplitHostActivity.this.effectiveDpi(pane));
-                    pane.resizeVersion++;
-                } catch (Exception e) {
-                    Log.w(SplitHostActivity.TAG, "resize " + pane.side + " failed: " + e.getMessage());
-                }
+                SplitHostActivity.this.resizePaneVd(pane, width, height);
             }
 
             @Override // android.view.SurfaceHolder.Callback
@@ -1130,7 +1139,7 @@ public class SplitHostActivity extends Activity {
         releasePane(this.right);
         if (this.screenLiftReceiverRegistered) {
             try {
-                unregisterReceiver(this.screenLiftReceiver);
+                unregisterReceiver(screenLiftReceiver);
             } catch (IllegalArgumentException unused) {
             }
             this.screenLiftReceiverRegistered = false;

@@ -1227,9 +1227,11 @@ vd_cycle() {
         VD_STATE=failed
         VD_RECORD=$(cat "$VD_STATUS" 2>/dev/null) || VD_RECORD=
         VD_RESULT=$(cat "$VD_STATUS.inject-result" 2>/dev/null) || VD_RESULT=
+        # An agent record alone never reports active: the injector result must confirm
+        # this exact identity rc=0 (a dead worker leaves no result and cannot go active).
         VD_FAILED=0
-        case "$VD_RESULT" in "$SS_ID|"*)
-            [ "${VD_RESULT#*\|}" = 0 ] || VD_FAILED=1 ;;
+        case "$VD_RESULT" in "$SS_ID|0") ;;
+            *) VD_FAILED=1 ;;
         esac
         VD_PREFIX="$SS_ID|$VD_AGENT_VERSION|"
         case "$VD_RECORD" in "$VD_PREFIX"*)

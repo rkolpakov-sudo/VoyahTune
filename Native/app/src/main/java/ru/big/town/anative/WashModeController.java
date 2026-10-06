@@ -55,11 +55,11 @@ final class WashModeController {
         }
 
         /* JADX INFO: renamed from: lambda$runActivation$0$ru-big-town-anative-WashModeController$1, reason: not valid java name */
-        /* synthetic */ WashModePolicy.Outcome m2165lambda$runActivation$0$rubigtownanativeWashModeController$1(SessionAction sessionAction, final OemVehicleStateTransport.Session session) {
+        /* synthetic */ WashModePolicy.Outcome m2165lambda$runActivation$0$rubigtownanativeWashModeController$1(SessionAction sessionAction, final OemVehicleStateTransport.Session oemSession) {
             return sessionAction.run(new Session() { // from class: ru.big.town.anative.WashModeController.1.1
                 @Override // ru.big.town.anative.WashModeController.Session
                 public Gear readGear() {
-                    OemVehicleStateTransport.GearStatus gearStatus = session.readGearStatus();
+                    OemVehicleStateTransport.GearStatus gearStatus = oemSession.readGearStatus();
                     if (gearStatus == null) {
                         return null;
                     }
@@ -68,7 +68,7 @@ final class WashModeController {
 
                 @Override // ru.big.town.anative.WashModeController.Session
                 public boolean sendCleaning(int i, String str) {
-                    return session.sendVehicleState(new OemVehicleStateTransport.StateValue(WashModeController.CLEANING_MODE_KEY, i), str).accepted();
+                    return oemSession.sendVehicleState(new OemVehicleStateTransport.StateValue(WashModeController.CLEANING_MODE_KEY, i), str).accepted();
                 }
             });
         }
@@ -113,23 +113,23 @@ final class WashModeController {
         if (!WashModePolicy.isParking(gear.ordinal, gear.value)) {
             return WashModePolicy.Outcome.NOT_IN_PARK;
         }
-        long jArm = this.lease.arm();
-        if (jArm == 0) {
+        long generation = lease.arm();
+        if (generation == 0) {
             return WashModePolicy.Outcome.TRANSPORT_FAILURE;
         }
-        if (!session.sendCleaning(1, "wash mode activate")) {
-            this.lease.disarm(jArm);
+        if (!session.sendCleaning(WashModePolicy.CLEANING_ON, "wash mode activate")) {
+            lease.disarm(generation);
             return WashModePolicy.Outcome.TRANSPORT_FAILURE;
         }
         return WashModePolicy.Outcome.ACCEPTED;
     }
 
-    boolean cleanupRequestBit(String str) {
+    boolean cleanupRequestBit(String reason) {
         long jActiveGeneration = this.lease.activeGeneration();
         if (jActiveGeneration == 0) {
             return true;
         }
-        if (this.gateway.sendCleaning(0, "wash mode cleanup: " + str)) {
+        if (this.gateway.sendCleaning(WashModePolicy.CLEANING_OFF, "wash mode cleanup: " + reason)) {
             return this.lease.disarm(jActiveGeneration);
         }
         return false;

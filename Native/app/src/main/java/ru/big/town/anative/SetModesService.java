@@ -261,15 +261,12 @@ public class SetModesService extends Service {
             switch (i) {
                 case 20:
                     Log.i(SetModesService.TAG, "handleMessage() MSG_LEAVE_CAR");
-                    final PowerHoldStatusTracker powerHoldStatusTracker = SetModesService.this.powerHoldStatusTracker;
-                    if (powerHoldStatusTracker == null) {
+                    final PowerHoldStatusTracker tracker = SetModesService.this.powerHoldStatusTracker;
+                    if (tracker == null) {
                         Log.w(SetModesService.TAG, "Power Hold tracker is unavailable");
                     } else {
-                        powerHoldStatusTracker.beginActivation(new PowerHoldStatusTracker.ActivationReady() { // from class: ru.big.town.anative.SetModesService$IncomingHandler$$ExternalSyntheticLambda1
-                            @Override // ru.big.town.anative.PowerHoldStatusTracker.ActivationReady
-                            public final void onReady(long j) {
-                                SetModesService.IncomingHandler.this.m2074xb2f90d7b(powerHoldStatusTracker, j);
-                            }
+                        tracker.beginActivation(requestGeneration -> {
+                            SetModesService.IncomingHandler.this.m2074xb2f90d7b(tracker, requestGeneration);
                         });
                     }
                     break;
@@ -330,7 +327,7 @@ public class SetModesService extends Service {
                         case 34:
                             Bundle data = message.getData();
                             final String string2 = data != null ? data.getString("left") : null;
-                            String string3 = data != null ? data.getString("right") : null;
+                            String right = data != null ? data.getString("right") : null;
                             int i2 = data != null ? data.getInt(SplitHostActivity.EXTRA_LEFT_DPI, 0) : 0;
                             int i3 = data != null ? data.getInt(SplitHostActivity.EXTRA_RIGHT_DPI, 0) : 0;
                             boolean z2 = data != null && data.getBoolean("singleVd", false);
@@ -338,7 +335,7 @@ public class SetModesService extends Service {
                             float f = data != null ? data.getFloat(SplitHostActivity.EXTRA_SPLIT, 0.0f) : 0.0f;
                             int i4 = data != null ? data.getInt(SplitHostActivity.EXTRA_PRESET_IDX, -1) : -1;
                             String string4 = data != null ? data.getString(SplitHostActivity.EXTRA_PRESET_ID, "") : "";
-                            Log.i(SetModesService.TAG, "handleMessage() MSG_SPLIT_LAUNCH_VD left=" + string2 + " right=" + string3 + " ratio=" + message.arg1 + " lDpi=" + i2 + " rDpi=" + i3 + " singleVd=" + z2 + " resizable=" + z + " split=" + f + " preset=" + i4 + " presetId=" + string4);
+                            Log.i(SetModesService.TAG, "handleMessage() MSG_SPLIT_LAUNCH_VD left=" + string2 + " right=" + right + " ratio=" + message.arg1 + " lDpi=" + i2 + " rDpi=" + i3 + " singleVd=" + z2 + " resizable=" + z + " split=" + f + " preset=" + i4 + " presetId=" + string4);
                             if (data != null) {
                                 r12 = false;
                                 if (data.getBoolean("embeddedRelease", false)) {
@@ -353,21 +350,21 @@ public class SetModesService extends Service {
                                 SetModesService.this.injectEmbeddedTouch(data.getString("widgetId", ""), (MotionEvent) data.getParcelable(NotificationCompat.CATEGORY_EVENT));
                             } else if (z2) {
                                 SplitHostActivity.launchSingle(SetModesService.this, string2, i2, 0);
-                            } else if (string3 == null || string3.isEmpty()) {
+                            } else if (right == null || right.isEmpty()) {
                                 boolean zEnsureAppDpi = SetModesReceiverDynamic.ensureAppDpi(SetModesService.this, string2, i2);
-                                Runnable runnable = new Runnable() { // from class: ru.big.town.anative.SetModesService$IncomingHandler$$ExternalSyntheticLambda6
+                                Runnable launch = new Runnable() { // from class: ru.big.town.anative.SetModesService$IncomingHandler$$ExternalSyntheticLambda6
                                     @Override // java.lang.Runnable
                                     public final void run() {
                                         SetModesService.IncomingHandler.this.m2077x751e8500(string2);
                                     }
                                 };
                                 if (zEnsureAppDpi) {
-                                    SetModesService.this.mainHandler.postDelayed(runnable, 300L);
+                                    SetModesService.this.mainHandler.postDelayed(launch, 300L);
                                 } else {
-                                    runnable.run();
+                                    launch.run();
                                 }
                             } else {
-                                SetModesService.this.launchVirtualSplit(string2, string3, message.arg1, i2, i3, z, f, i4, string4);
+                                SetModesService.this.launchVirtualSplit(string2, right, message.arg1, i2, i3, z, f, i4, string4);
                             }
                             break;
                         case 35:
@@ -430,7 +427,7 @@ public class SetModesService extends Service {
         }
 
         /* JADX INFO: renamed from: lambda$handleMessage$3$ru-big-town-anative-SetModesService$IncomingHandler, reason: not valid java name */
-        /* synthetic */ void m2074xb2f90d7b(final PowerHoldStatusTracker powerHoldStatusTracker, final long j) {
+        /* synthetic */ void m2074xb2f90d7b(final PowerHoldStatusTracker tracker, final long requestGeneration) {
             final AtomicReference atomicReference = new AtomicReference(PowerHoldPolicy.Outcome.TRANSPORT_FAILURE);
             ApplyEngine.postUserCommand("power hold", new Runnable() { // from class: ru.big.town.anative.SetModesService$IncomingHandler$$ExternalSyntheticLambda7
                 @Override // java.lang.Runnable
@@ -440,7 +437,7 @@ public class SetModesService extends Service {
             }, new Runnable() { // from class: ru.big.town.anative.SetModesService$IncomingHandler$$ExternalSyntheticLambda8
                 @Override // java.lang.Runnable
                 public final void run() {
-                    powerHoldStatusTracker.finishActivation(j, (PowerHoldPolicy.Outcome) atomicReference.get());
+                    tracker.finishActivation(requestGeneration, (PowerHoldPolicy.Outcome) atomicReference.get());
                 }
             });
         }
@@ -457,11 +454,11 @@ public class SetModesService extends Service {
         /* JADX INFO: renamed from: lambda$handleMessage$4$ru-big-town-anative-SetModesService$IncomingHandler, reason: not valid java name */
         /* synthetic */ void m2075x4033befc() {
             WashModePolicy.Outcome outcomeActivate;
-            WashModeController washModeController = SetModesService.this.washModeController;
-            if (washModeController == null) {
+            WashModeController controller = SetModesService.this.washModeController;
+            if (controller == null) {
                 outcomeActivate = WashModePolicy.Outcome.TRANSPORT_FAILURE;
             } else {
-                outcomeActivate = washModeController.activate();
+                outcomeActivate = controller.activate();
             }
             Log.i(SetModesService.TAG, "wash mode activation outcome=" + outcomeActivate);
         }
@@ -485,21 +482,18 @@ public class SetModesService extends Service {
     }
 
     void activateVoicePowerHold(final BooleanSupplier booleanSupplier, final Consumer<PowerHoldPolicy.Outcome> consumer) {
-        final PowerHoldStatusTracker powerHoldStatusTracker = this.powerHoldStatusTracker;
-        if (powerHoldStatusTracker == null) {
+        final PowerHoldStatusTracker tracker = this.powerHoldStatusTracker;
+        if (tracker == null) {
             consumer.accept(PowerHoldPolicy.Outcome.TRANSPORT_FAILURE);
         } else {
-            powerHoldStatusTracker.beginActivation(new PowerHoldStatusTracker.ActivationReady() { // from class: ru.big.town.anative.SetModesService$$ExternalSyntheticLambda1
-                @Override // ru.big.town.anative.PowerHoldStatusTracker.ActivationReady
-                public final void onReady(long j) {
-                    SetModesService.this.m2059x1ad7957a(booleanSupplier, powerHoldStatusTracker, consumer, j);
-                }
+            tracker.beginActivation(requestGeneration -> {
+                SetModesService.this.m2059x1ad7957a(booleanSupplier, tracker, consumer, requestGeneration);
             });
         }
     }
 
     /* JADX INFO: renamed from: lambda$activateVoicePowerHold$2$ru-big-town-anative-SetModesService, reason: not valid java name */
-    /* synthetic */ void m2059x1ad7957a(final BooleanSupplier booleanSupplier, final PowerHoldStatusTracker powerHoldStatusTracker, final Consumer consumer, final long j) {
+    /* synthetic */ void m2059x1ad7957a(final BooleanSupplier booleanSupplier, final PowerHoldStatusTracker tracker, final Consumer consumer, final long requestGeneration) {
         final AtomicReference atomicReference = new AtomicReference(PowerHoldPolicy.Outcome.TRANSPORT_FAILURE);
         ApplyEngine.postUserCommand("voice power hold", new Runnable() { // from class: ru.big.town.anative.SetModesService$$ExternalSyntheticLambda24
             @Override // java.lang.Runnable
@@ -509,7 +503,7 @@ public class SetModesService extends Service {
         }, new Runnable() { // from class: ru.big.town.anative.SetModesService$$ExternalSyntheticLambda25
             @Override // java.lang.Runnable
             public final void run() {
-                SetModesService.lambda$activateVoicePowerHold$1(powerHoldStatusTracker, j, atomicReference, consumer);
+                SetModesService.lambda$activateVoicePowerHold$1(tracker, requestGeneration, atomicReference, consumer);
             }
         });
     }
@@ -523,8 +517,8 @@ public class SetModesService extends Service {
         atomicReference.set(powerHoldController.activate());
     }
 
-    static /* synthetic */ void lambda$activateVoicePowerHold$1(PowerHoldStatusTracker powerHoldStatusTracker, long j, AtomicReference atomicReference, Consumer consumer) {
-        powerHoldStatusTracker.finishActivation(j, (PowerHoldPolicy.Outcome) atomicReference.get());
+    static /* synthetic */ void lambda$activateVoicePowerHold$1(PowerHoldStatusTracker tracker, long j, AtomicReference atomicReference, Consumer consumer) {
+        tracker.finishActivation(j, (PowerHoldPolicy.Outcome) atomicReference.get());
         consumer.accept((PowerHoldPolicy.Outcome) atomicReference.get());
     }
 
@@ -1165,13 +1159,13 @@ public class SetModesService extends Service {
 
     /* JADX INFO: Access modifiers changed from: private */
     public void publishPowerHoldStatus(PowerHoldStatusPolicy.Snapshot snapshot, PowerHoldPolicy.Outcome outcome, boolean z) {
-        Intent intent = new Intent(ACTION_POWER_HOLD_STATUS_UPDATE);
-        intent.setPackage(RESTOREMODE_PKG);
-        intent.putExtra("status", snapshot.status.ipcCode);
-        intent.putExtra(EXTRA_POWER_HOLD_EXIT_REASON, snapshot.exitReason.ipcCode);
-        intent.putExtra(EXTRA_POWER_HOLD_REQUEST_OUTCOME, outcome == null ? 0 : outcome.ipcCode);
+        Intent update = new Intent(ACTION_POWER_HOLD_STATUS_UPDATE);
+        update.setPackage(RESTOREMODE_PKG);
+        update.putExtra("status", snapshot.status.ipcCode);
+        update.putExtra(EXTRA_POWER_HOLD_EXIT_REASON, snapshot.exitReason.ipcCode);
+        update.putExtra(EXTRA_POWER_HOLD_REQUEST_OUTCOME, outcome == null ? 0 : outcome.ipcCode);
         try {
-            sendBroadcast(intent, BIND_PERMISSION);
+            sendBroadcast(update, BIND_PERMISSION);
         } catch (RuntimeException e) {
             Log.w(TAG, "publishPowerHoldStatus failed: " + e.getMessage());
         }
@@ -1356,7 +1350,7 @@ public class SetModesService extends Service {
                 SetModesService.this.handleScreenOnFallback();
             }
         }, setModesService.sleepController);
-        ScreenLiftTaskRestorer screenLiftTaskRestorer = new ScreenLiftTaskRestorer(setModesService.getApplicationContext());
+        ScreenLiftTaskRestorer screenLiftTaskRestorer = new ScreenLiftTaskRestorer(getApplicationContext());
         setModesService.screenLiftTaskRestorer = screenLiftTaskRestorer;
         screenLiftTaskRestorer.register();
         try {
@@ -1371,21 +1365,21 @@ public class SetModesService extends Service {
         Log.i(TAG, "onCreated");
     }
 
-    private void handlePowerStateChanged(int i) {
+    private void handlePowerStateChanged(int state) {
         if (this.serviceDestroyed) {
             return;
         }
-        Log.i(TAG, "Power state changed: " + i + " (" + powerStateName(i) + ")");
-        if (isWakeState(i)) {
+        Log.i(TAG, "Power state changed: " + state + " (" + powerStateName(state) + ")");
+        if (isWakeState(state)) {
             this.sleepController.onWakeTrigger(SleepController.Event.POWER_WAKE);
-            requestWashModeCleanup("power state " + powerStateName(i));
-            ApplyEngine.activateWake("power state " + powerStateName(i));
-            if (isScreenInteractive() || i == 6 || i == 8) {
+            requestWashModeCleanup("power state " + powerStateName(state));
+            ApplyEngine.activateWake("power state " + powerStateName(state));
+            if (isScreenInteractive() || state == 6 || state == 8) {
                 this.screenOffObserved = false;
                 this.pendingPhysicalWake = false;
-                runWakeSideEffects(powerStateName(i));
+                runWakeSideEffects(powerStateName(state));
                 this.sleepController.onWakeComplete();
-                AvasController.get().onWakeEvent("power " + powerStateName(i));
+                AvasController.get().onWakeEvent("power " + powerStateName(state));
                 scheduleVoicePrewarm();
                 return;
             } else {
@@ -1395,19 +1389,19 @@ public class SetModesService extends Service {
                 return;
             }
         }
-        if (isSleepOrShutdownState(i)) {
+        if (isSleepOrShutdownState(state)) {
             this.screenOffObserved = true;
             this.pendingPhysicalWake = false;
             this.sleepController.onSleepTrigger(SleepController.Event.POWER_SLEEP);
             endWakeSession();
             cancelAncillaryWakeTasks();
-            requestWashModeCleanup("power state " + powerStateName(i));
-            ApplyEngine.resetRestoreGate("power state " + powerStateName(i));
+            requestWashModeCleanup("power state " + powerStateName(state));
+            ApplyEngine.resetRestoreGate("power state " + powerStateName(state));
             this.sleepController.onSleepComplete();
-            AvasController.get().onSleep("power " + powerStateName(i));
+            AvasController.get().onSleep("power " + powerStateName(state));
             cancelVoicePrewarm();
         }
-        Log.i(TAG, "onStateChanged() ignored state: " + i);
+        Log.i(TAG, "onStateChanged() ignored state: " + state);
     }
 
     private static String powerStateName(int i) {
@@ -1812,11 +1806,9 @@ public class SetModesService extends Service {
         endWakeSession();
         cancelAncillaryWakeTasks();
         this.mainHandler.removeCallbacksAndMessages(null);
-        ScreenLiftTaskRestorer screenLiftTaskRestorer = this.screenLiftTaskRestorer;
+        ScreenLiftTaskRestorer liftRestorer = this.screenLiftTaskRestorer;
         this.screenLiftTaskRestorer = null;
-        if (screenLiftTaskRestorer != null) {
-            screenLiftTaskRestorer.close();
-        }
+        if (liftRestorer != null) liftRestorer.close();
         if (this.receiverRegistered) {
             try {
                 getApplicationContext().unregisterReceiver(this.setModesReceiverDynamic);

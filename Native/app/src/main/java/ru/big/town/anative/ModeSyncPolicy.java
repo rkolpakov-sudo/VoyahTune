@@ -30,8 +30,8 @@ final class ModeSyncPolicy {
         return this.wakeActive && this.feedbackOpen;
     }
 
-    synchronized boolean canRememberSelection(boolean z) {
-        return z || canRememberSelection();
+    synchronized boolean canRememberSelection(boolean explicit) {
+        return explicit || canRememberSelection();
     }
 
     synchronized boolean reconcileCompletedAcc(int i, String str) {
@@ -136,10 +136,10 @@ final class ModeSyncPolicy {
         return this.currentModes.getOrDefault(str, str2);
     }
 
-    synchronized Decision evaluate(String str, String str2) {
-        if (knownModeKey(str) && valid(str2)) {
-            observe(str, str2);
-            return (canRememberSelection() && acceptsExternalFeedback(str)) ? Decision.ACCEPT : Decision.IGNORE;
+    synchronized Decision evaluate(String modeKey, String str2) {
+        if (knownModeKey(modeKey) && valid(str2)) {
+            observe(modeKey, str2);
+            return (canRememberSelection() && acceptsExternalFeedback(modeKey)) ? Decision.ACCEPT : Decision.IGNORE;
         }
         return Decision.IGNORE;
     }

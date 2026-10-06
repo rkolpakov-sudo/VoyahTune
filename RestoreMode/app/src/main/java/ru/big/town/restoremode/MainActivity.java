@@ -377,27 +377,33 @@ public class MainActivity extends AppCompatActivity {
         int intExtra = intent.getIntExtra(NotificationCompat.CATEGORY_STATUS, 0);
         int intExtra2 = intent.getIntExtra("exitReason", 0);
         int intExtra3 = intent.getIntExtra("requestOutcome", 0);
-        if (intExtra == 1) {
-            if (intExtra2 == 1) {
-                this.powerHoldBadge.setText(R.string.power_hold_status_exit_low_battery);
-            } else if (intExtra2 == 2) {
-                this.powerHoldBadge.setText(R.string.power_hold_status_exit_time_up);
-            } else {
-                this.powerHoldBadge.setText(R.string.power_hold_status_inactive);
-            }
-            this.powerHoldBadge.setBackgroundResource(R.drawable.pill_inactive);
-        } else if (intExtra == 2) {
-            this.powerHoldBadge.setText(R.string.power_hold_status_activating);
-            this.powerHoldBadge.setBackgroundResource(R.drawable.pill_pending);
-        } else if (intExtra == 3) {
-            this.powerHoldBadge.setText(R.string.power_hold_status_active);
-            this.powerHoldBadge.setBackgroundResource(R.drawable.pill_active);
-        } else if (intExtra == 4) {
-            this.powerHoldBadge.setText(R.string.power_hold_status_failed);
-            this.powerHoldBadge.setBackgroundResource(R.drawable.pill_error);
-        } else {
-            this.powerHoldBadge.setText(R.string.power_hold_status_unknown);
-            this.powerHoldBadge.setBackgroundResource(R.drawable.pill_inactive);
+        switch (intExtra) {
+            case 1:
+                if (intExtra2 == 1) {
+                    this.powerHoldBadge.setText(R.string.power_hold_status_exit_low_battery);
+                } else if (intExtra2 == 2) {
+                    this.powerHoldBadge.setText(R.string.power_hold_status_exit_time_up);
+                } else {
+                    this.powerHoldBadge.setText(R.string.power_hold_status_inactive);
+                }
+                this.powerHoldBadge.setBackgroundResource(R.drawable.pill_inactive);
+                break;
+            case 2:
+                this.powerHoldBadge.setText(R.string.power_hold_status_activating);
+                this.powerHoldBadge.setBackgroundResource(R.drawable.pill_pending);
+                break;
+            case POWER_HOLD_ACTIVE:
+                this.powerHoldBadge.setText(R.string.power_hold_status_active);
+                this.powerHoldBadge.setBackgroundResource(R.drawable.pill_active);
+                break;
+            case 4:
+                this.powerHoldBadge.setText(R.string.power_hold_status_failed);
+                this.powerHoldBadge.setBackgroundResource(R.drawable.pill_error);
+                break;
+            default:
+                this.powerHoldBadge.setText(R.string.power_hold_status_unknown);
+                this.powerHoldBadge.setBackgroundResource(R.drawable.pill_inactive);
+                break;
         }
         showPowerHoldRequestOutcome(intExtra3);
     }
@@ -979,11 +985,9 @@ public class MainActivity extends AppCompatActivity {
 
     /* JADX INFO: renamed from: lambda$onCardWashMode$5$ru-big-town-restoremode-MainActivity, reason: not valid java name */
     /* synthetic */ void m1894lambda$onCardWashMode$5$rubigtownrestoremodeMainActivity(DialogInterface dialogInterface, int i) {
-        boolean zSendMessageToService = sendMessageToService(23);
-        if (!zSendMessageToService) {
-            showSnack(getString(R.string.service_not_ready));
-        }
-        Log.i(TAG, "onCardWashMode sent=" + zSendMessageToService);
+        boolean ok = sendMessageToService(23);
+        if (!ok) showSnack(getString(R.string.service_not_ready));
+        Log.i(TAG, "onCardWashMode sent=" + ok);
     }
 
     private void showSnack(String str) {
@@ -1220,9 +1224,9 @@ public class MainActivity extends AppCompatActivity {
         registerReceiver(this.powerHoldStatusReceiver, new IntentFilter(ACTION_POWER_HOLD_STATUS_UPDATE), BIND_SET_MODES_PERMISSION, null, 2);
         registerReceiver(this.embeddedLeftReceiver, new IntentFilter(ACTION_EMBEDDED_TASK_LEFT), BIND_SET_MODES_PERMISSION, null, 2);
         registerReceiver(this.commandResultReceiver, new IntentFilter("ru.big.town.anative.ACTION_COMMAND_RESULT"), BIND_SET_MODES_PERMISSION, null, 2);
-        Intent intent2 = new Intent(ACTION_REQUEST_POWER_HOLD_STATUS);
-        intent2.setPackage("ru.big.town.anative");
-        sendBroadcast(intent2, BIND_SET_MODES_PERMISSION);
+        Intent powerHoldRequest = new Intent(ACTION_REQUEST_POWER_HOLD_STATUS);
+        powerHoldRequest.setPackage("ru.big.town.anative");
+        sendBroadcast(powerHoldRequest, BIND_SET_MODES_PERMISSION);
         Intent intent3 = new Intent(ACTION_REQUEST_BATTERY_HEAT);
         intent3.setPackage("ru.big.town.anative");
         sendBroadcast(intent3);
@@ -1796,11 +1800,11 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void onAppTileClick(String str) {
+    private void onAppTileClick(String pkg) {
         if (!GlobalVars.isBound || GlobalVars.serviceMessenger == null) {
             showSnack("Сервис не готов");
         } else {
-            sendAppWindow(str);
+            sendAppWindow(pkg);
         }
     }
 
@@ -2443,22 +2447,22 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void sendAppWindow(String str) {
-        if (str == null || str.isEmpty()) {
+    private void sendAppWindow(String pkg) {
+        if (pkg == null || pkg.isEmpty()) {
             return;
         }
-        int i = AppDpiStore.get(this.sharedPreferences, str);
+        int i = AppDpiStore.get(this.sharedPreferences, pkg);
         try {
             Message messageObtain = Message.obtain(null, 34, 1, 0);
             Bundle bundle = new Bundle();
-            bundle.putString("left", str);
+            bundle.putString("left", pkg);
             bundle.putString("right", "");
             bundle.putInt("leftDpi", i);
             bundle.putInt("rightDpi", 0);
             messageObtain.setData(bundle);
             messageObtain.replyTo = GlobalVars.clientMessenger;
             GlobalVars.serviceMessenger.send(messageObtain);
-            Log.i(TAG, "sendAppWindow " + str);
+            Log.i(TAG, "sendAppWindow " + pkg);
         } catch (RemoteException e) {
             e.printStackTrace();
         }

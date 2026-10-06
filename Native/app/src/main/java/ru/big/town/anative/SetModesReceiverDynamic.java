@@ -19,7 +19,6 @@ import androidx.recyclerview.widget.ItemTouchHelper;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.function.BooleanSupplier;
 import kotlinx.coroutines.DebugKt;
 import org.json.JSONObject;
 
@@ -32,10 +31,6 @@ public class SetModesReceiverDynamic extends BroadcastReceiver {
     private final Runnable sleepCallback;
     private final Runnable wakeCallback;
     private final SleepController sleepController;
-
-    static /* synthetic */ boolean lambda$openFreeformApp$3() {
-        return true;
-    }
 
     private static int sanitizeDpi(int i) {
         if (i < 100 || i > 640) {
@@ -58,10 +53,10 @@ public class SetModesReceiverDynamic extends BroadcastReceiver {
     public void onReceive(Context context, Intent intent) {
         int intExtra;
         Runnable runnable;
-        String action = intent.getAction();
+        String receivedIntent = intent.getAction();
         boolean z = intent.getComponent() != null;
-        Log.i(TAG, "onReceive DYN enter by intent" + action);
-        if ("android.intent.action.KEYCODE_SWC_USER_DEFINE".equals(action) && intent.getComponent() == null) {
+        Log.i(TAG, "onReceive DYN enter by intent" + receivedIntent);
+        if ("android.intent.action.KEYCODE_SWC_USER_DEFINE".equals(receivedIntent) && intent.getComponent() == null) {
             Log.i(TAG, "android.intent.action.KEYCODE_SWC_USER_DEFINE");
             Log.i(TAG, "GlobalVars.buttonDriveMode: " + GlobalVars.buttonDriveMode);
             int i = GlobalVars.buttonDriveMode;
@@ -73,7 +68,7 @@ public class SetModesReceiverDynamic extends BroadcastReceiver {
                 GlobalVars.buttonDriveMode = 1;
             }
         }
-        if ("ru.big.town.anative.OPEN_FREEFORM".equals(action)) {
+        if ("ru.big.town.anative.OPEN_FREEFORM".equals(receivedIntent)) {
             String pkg = intent.getStringExtra("pkg");
             int displayId = intent.getIntExtra("display", 0);
             if (displayId != 0 && displayId != 1) {
@@ -84,7 +79,7 @@ public class SetModesReceiverDynamic extends BroadcastReceiver {
                 Log.w(TAG, "OPEN_FREEFORM отклонён: пакет не назначен доку: " + pkg);
             }
         }
-        if ("ru.big.town.anative.OPEN_ON_DISPLAY".equals(action)) {
+        if ("ru.big.town.anative.OPEN_ON_DISPLAY".equals(receivedIntent)) {
             String stringExtra2 = intent.getStringExtra("pkg");
             int intExtra3 = intent.getIntExtra("display", 0);
             if (intExtra3 != 0 && intExtra3 != 1) {
@@ -95,18 +90,18 @@ public class SetModesReceiverDynamic extends BroadcastReceiver {
                 openFreeformApp(context, stringExtra2, intExtra3);
             }
         }
-        if ("ru.big.town.anative.OPEN_FULLSCREEN".equals(action)) {
-            String stringExtra3 = intent.getStringExtra("pkg");
+        if ("ru.big.town.anative.OPEN_FULLSCREEN".equals(receivedIntent)) {
+            String pkg = intent.getStringExtra("pkg");
             int intExtra4 = intent.getIntExtra("display", 0);
             if (intExtra4 != 0 && intExtra4 != 1) {
                 Log.w(TAG, "OPEN_FULLSCREEN отклонён: неверный physical display " + intExtra4);
-            } else if (isConfiguredFullscreenPackage(context, stringExtra3)) {
-                openFreeformApp(context, stringExtra3, intExtra4);
+            } else if (isConfiguredFullscreenPackage(context, pkg)) {
+                openFreeformApp(context, pkg, intExtra4);
             } else {
-                Log.w(TAG, "OPEN_FULLSCREEN отклонён: пакет не в fullscreen-списке: " + stringExtra3);
+                Log.w(TAG, "OPEN_FULLSCREEN отклонён: пакет не в fullscreen-списке: " + pkg);
             }
         }
-        if (("ru.big.town.anative.OPEN_DOCK_SPLIT".equals(action) || "ru.big.town.anative.OPEN_DOCK_LONG_PRESS".equals(action)) && ((intExtra = intent.getIntExtra("slot", 0)) == 1 || intExtra == 2)) {
+        if (("ru.big.town.anative.OPEN_DOCK_SPLIT".equals(receivedIntent) || "ru.big.town.anative.OPEN_DOCK_LONG_PRESS".equals(receivedIntent)) && ((intExtra = intent.getIntExtra("slot", 0)) == 1 || intExtra == 2)) {
             ContentResolver contentResolver = context.getContentResolver();
             String string = Settings.Global.getString(contentResolver, "voyahtune_dock" + intExtra + "LongAction");
             String string2 = Settings.Global.getString(contentResolver, "voyahtune_dock" + intExtra + "HasSplit");
@@ -130,7 +125,7 @@ public class SetModesReceiverDynamic extends BroadcastReceiver {
                 Log.i(TAG, "OPEN_DOCK_SPLIT slot=" + intExtra + " — сплит не назначен");
             }
         }
-        if ("ru.big.town.anative.STEER_ACTION".equals(action)) {
+        if ("ru.big.town.anative.STEER_ACTION".equals(receivedIntent)) {
             String stringExtra4 = intent.getStringExtra(CarUserManager.BUNDLE_PARAM_ACTION);
             if (isConfiguredSteerAction(context, stringExtra4)) {
                 handleSteerActions(context, stringExtra4);
@@ -138,7 +133,7 @@ public class SetModesReceiverDynamic extends BroadcastReceiver {
                 Log.w(TAG, "STEER_ACTION отклонён: действие не настроено: " + stringExtra4);
             }
         }
-        if ("android.intent.action.SCREEN_OFF".equals(action) && !z) {
+        if ("android.intent.action.SCREEN_OFF".equals(receivedIntent) && !z) {
             if (this.sleepController.onSleepTrigger(SleepController.Event.SCREEN_OFF)) {
                 ApplyEngine.resetRestoreGate("SCREEN_OFF");
                 Runnable runnable2 = this.sleepCallback;
@@ -150,20 +145,20 @@ public class SetModesReceiverDynamic extends BroadcastReceiver {
                 Log.i(TAG, "onReceive duplicate SCREEN_OFF ignored, session=" + this.sleepController.sessionId());
             }
         }
-        if (!z && ("android.intent.action.SCREEN_ON".equals(action) || "com.android.server.jobscheduler.GARAGE_MODE_OFF".equals(action))) {
-            SleepController.Event event = "android.intent.action.SCREEN_ON".equals(action) ? SleepController.Event.SCREEN_ON : SleepController.Event.GARAGE_WAKE;
+        if (!z && ("android.intent.action.SCREEN_ON".equals(receivedIntent) || "com.android.server.jobscheduler.GARAGE_MODE_OFF".equals(receivedIntent))) {
+            SleepController.Event event = "android.intent.action.SCREEN_ON".equals(receivedIntent) ? SleepController.Event.SCREEN_ON : SleepController.Event.GARAGE_WAKE;
             if (this.sleepController.onWakeTrigger(event)) {
                 Log.i(TAG, "onReceive ACTION_SCREEN_ON or GARAGE_MODE_OFF");
-                ApplyEngine.activateWake(action);
-                if ("android.intent.action.SCREEN_ON".equals(action) && (runnable = this.wakeCallback) != null) {
+                ApplyEngine.activateWake(receivedIntent);
+                if ("android.intent.action.SCREEN_ON".equals(receivedIntent) && (runnable = this.wakeCallback) != null) {
                     runnable.run();
                 }
             } else {
                 Log.i(TAG, "onReceive duplicate SCREEN_ON ignored, session=" + this.sleepController.sessionId());
             }
         }
-        if (z && ("android.intent.action.SCREEN_ON".equals(action) || "android.intent.action.SCREEN_OFF".equals(action) || "com.android.server.jobscheduler.GARAGE_MODE_OFF".equals(action))) {
-            Log.w(TAG, "ignored explicit power broadcast: " + action);
+        if (z && ("android.intent.action.SCREEN_ON".equals(receivedIntent) || "android.intent.action.SCREEN_OFF".equals(receivedIntent) || "com.android.server.jobscheduler.GARAGE_MODE_OFF".equals(receivedIntent))) {
+            Log.w(TAG, "ignored explicit power broadcast: " + receivedIntent);
         }
         if (isOrderedBroadcast()) {
             setResultCode(-1);
@@ -585,24 +580,19 @@ public class SetModesReceiverDynamic extends BroadcastReceiver {
         }
     }
 
-    static void openFreeformApp(Context context, String str) {
-        openFreeformApp(context, str, 0);
+    static void openFreeformApp(Context app, String pkg) {
+        openFreeformApp(app, pkg, 0);
     }
 
-    static void openFreeformApp(Context context, String str, int i) {
-        if (str == null || str.isEmpty()) {
+    static void openFreeformApp(Context app, String pkg, int i) {
+        if (pkg == null || pkg.isEmpty()) {
             return;
         }
         if (i == 0 || i == 1) {
-            final Context applicationContext = context.getApplicationContext();
-            ClusterMediaHostActivity.closeForPackage(str);
+            final Context applicationContext = app.getApplicationContext();
+            ClusterMediaHostActivity.closeForPackage(pkg);
             SplitHostActivity.closeActiveHost();
-            AppDisplayLauncher.launch(applicationContext, str, i, isConfiguredFullscreenPackage(applicationContext, str), new BooleanSupplier() { // from class: ru.big.town.anative.SetModesReceiverDynamic$$ExternalSyntheticLambda6
-                @Override // java.util.function.BooleanSupplier
-                public final boolean getAsBoolean() {
-                    return SetModesReceiverDynamic.lambda$openFreeformApp$3();
-                }
-            }, new Runnable() { // from class: ru.big.town.anative.SetModesReceiverDynamic$$ExternalSyntheticLambda7
+            AppDisplayLauncher.launch(applicationContext, pkg, i, isConfiguredFullscreenPackage(app, pkg), () -> true, new Runnable() { // from class: ru.big.town.anative.SetModesReceiverDynamic$$ExternalSyntheticLambda7
                 @Override // java.lang.Runnable
                 public final void run() {
                     Toast.makeText(applicationContext, "Не удалось открыть приложение", 1).show();
@@ -621,27 +611,27 @@ public class SetModesReceiverDynamic extends BroadcastReceiver {
         }, runnable);
     }
 
-    static /* synthetic */ void lambda$cycleMode$5(Context context, String str, String str2) {
+    static /* synthetic */ void lambda$cycleMode$5(Context app, String modeKey, String str2) {
         boolean zSendRecuperationModeCommand;
-        String strCurrentVehicleMode = MainActivity.currentVehicleMode(context, str);
-        String strNextMode = SteeringActionPolicy.nextMode(str2, strCurrentVehicleMode);
-        if (strNextMode == null) {
+        String strCurrentVehicleMode = MainActivity.currentVehicleMode(app, modeKey);
+        String next = SteeringActionPolicy.nextMode(str2, strCurrentVehicleMode);
+        if (next == null) {
             return;
         }
-        if ("driveMode".equals(str)) {
-            zSendRecuperationModeCommand = MainActivity.sendDriveModeCommand(context, strNextMode);
-        } else if ("energy".equals(str)) {
-            zSendRecuperationModeCommand = MainActivity.sendEnergyModeCommand(context, strNextMode);
+        if ("driveMode".equals(modeKey)) {
+            zSendRecuperationModeCommand = MainActivity.sendDriveModeCommand(app, next);
+        } else if ("energy".equals(modeKey)) {
+            zSendRecuperationModeCommand = MainActivity.sendEnergyModeCommand(app, next);
         } else {
-            zSendRecuperationModeCommand = MainActivity.sendRecuperationModeCommand(context, strNextMode);
+            zSendRecuperationModeCommand = MainActivity.sendRecuperationModeCommand(app, next);
         }
         if (!zSendRecuperationModeCommand) {
-            Log.w(TAG, "STEER_ACTION " + str + ": CAN failed, selection not persisted");
+            Log.w(TAG, "STEER_ACTION " + modeKey + ": CAN failed, selection not persisted");
             return;
         }
-        ApplyEngine.noteVehicleMode(str, strNextMode);
-        MainActivity.persistExplicitMode(context, str, strNextMode);
-        Log.i(TAG, "STEER_ACTION " + str + ": набор=" + str2 + " тек=" + strCurrentVehicleMode + " → " + strNextMode);
+        ApplyEngine.noteVehicleMode(modeKey, next);
+        MainActivity.persistExplicitMode(app, modeKey, next);
+        Log.i(TAG, "STEER_ACTION " + modeKey + ": набор=" + str2 + " тек=" + strCurrentVehicleMode + " → " + next);
     }
 
     private static void toggleSetting(Context context, final String str, Runnable runnable) {

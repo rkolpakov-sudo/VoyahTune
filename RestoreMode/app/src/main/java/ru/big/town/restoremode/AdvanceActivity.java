@@ -280,7 +280,6 @@ public class AdvanceActivity extends AppCompatActivity {
     private final BroadcastReceiver modeSyncReceiver = new BroadcastReceiver() { // from class: ru.big.town.restoremode.AdvanceActivity.6
         @Override // android.content.BroadcastReceiver
         public void onReceive(Context context, Intent intent) {
-            String str;
             int i;
             String stringExtra = intent.getStringExtra("mode");
             if (stringExtra == null || stringExtra.isEmpty()) {
@@ -290,25 +289,26 @@ public class AdvanceActivity extends AppCompatActivity {
             if (stringExtra2 == null) {
                 stringExtra2 = intent.getBooleanExtra("isEnergy", false) ? "energy" : "driveMode";
             }
+            String rememberKey;
             if ("energy".equals(stringExtra2)) {
-                str = "energyRememberLast";
+                rememberKey = "energyRememberLast";
             } else {
-                str = "recycle".equals(stringExtra2) ? "recycleRememberLast" : "driveRememberLast";
+                rememberKey = "recycle".equals(stringExtra2) ? "recycleRememberLast" : "driveRememberLast";
             }
-            if (AdvanceActivity.this.prefs.getBoolean(str, true)) {
-                if ("energy".equals(stringExtra2)) {
-                    i = R.id.energy_modes_group;
-                } else {
-                    i = "recycle".equals(stringExtra2) ? R.id.recycle_modes_group : R.id.drive_modes_group;
-                }
-                RadioGroup radioGroup = (RadioGroup) AdvanceActivity.this.findViewById(i);
-                AdvanceActivity.this.syncingModeUi = true;
-                if (radioGroup != null) {
-                    try {
-                        AdvanceActivity.this.checkRadioByTag(radioGroup, stringExtra);
-                    } finally {
-                        AdvanceActivity.this.syncingModeUi = false;
-                    }
+            SharedPreferences prefs = AdvanceActivity.this.prefs;
+            if (!prefs.getBoolean(rememberKey, true)) return;
+            if ("energy".equals(stringExtra2)) {
+                i = R.id.energy_modes_group;
+            } else {
+                i = "recycle".equals(stringExtra2) ? R.id.recycle_modes_group : R.id.drive_modes_group;
+            }
+            RadioGroup radioGroup = (RadioGroup) AdvanceActivity.this.findViewById(i);
+            AdvanceActivity.this.syncingModeUi = true;
+            if (radioGroup != null) {
+                try {
+                    AdvanceActivity.this.checkRadioByTag(radioGroup, stringExtra);
+                } finally {
+                    AdvanceActivity.this.syncingModeUi = false;
                 }
             }
         }
@@ -903,9 +903,10 @@ public class AdvanceActivity extends AppCompatActivity {
     }
 
     /* JADX INFO: renamed from: lambda$onCreate$13$ru-big-town-restoremode-AdvanceActivity, reason: not valid java name */
-    /* synthetic */ void m1786lambda$onCreate$13$rubigtownrestoremodeAdvanceActivity(CompoundButton compoundButton, boolean z) {
-        this.prefs.edit().putBoolean("batteryHeatAuto", z).apply();
-        sendBroadcast(new Intent(ACTION_BATTERY_HEAT_AUTO_CHANGED).setPackage(NATIVE_PACKAGE).putExtra(EXTRA_BATTERY_HEAT_AUTO_ENABLED, z));
+    /* synthetic */ void m1786lambda$onCreate$13$rubigtownrestoremodeAdvanceActivity(CompoundButton compoundButton, boolean checked) {
+        prefs.edit().putBoolean("batteryHeatAuto", checked).apply();
+        Intent changed = new Intent(ACTION_BATTERY_HEAT_AUTO_CHANGED).setPackage(NATIVE_PACKAGE).putExtra(EXTRA_BATTERY_HEAT_AUTO_ENABLED, checked);
+        sendBroadcast(changed);
     }
 
     /* JADX INFO: renamed from: lambda$onCreate$14$ru-big-town-restoremode-AdvanceActivity, reason: not valid java name */
@@ -2415,7 +2416,7 @@ public class AdvanceActivity extends AppCompatActivity {
         }
         this.systemMetricsActive = z;
         this.systemMetricsGeneration++;
-        this.uiHandler.removeCallbacks(this.systemMetricsTick);
+        uiHandler.removeCallbacks(systemMetricsTick);
         synchronized (this.cpuSampleLock) {
             this.cpuBaselineGeneration = -1L;
             this.previousCpuTotal = -1L;
@@ -2496,12 +2497,12 @@ public class AdvanceActivity extends AppCompatActivity {
         long jMax;
         long j2;
         try {
-            ActivityManager activityManager = (ActivityManager) getSystemService("activity");
-            ActivityManager.MemoryInfo memoryInfo = new ActivityManager.MemoryInfo();
-            if (activityManager != null) {
-                activityManager.getMemoryInfo(memoryInfo);
-                jMax = Math.max(0L, memoryInfo.totalMem);
-                j2 = Math.max(0L, Math.min(jMax, memoryInfo.availMem));
+            ActivityManager manager = (ActivityManager) getSystemService("activity");
+            ActivityManager.MemoryInfo info = new ActivityManager.MemoryInfo();
+            if (manager != null) {
+                manager.getMemoryInfo(info);
+                jMax = Math.max(0L, info.totalMem);
+                j2 = Math.max(0L, Math.min(jMax, info.availMem));
             } else {
                 jMax = 0;
                 j2 = 0;
@@ -2551,7 +2552,7 @@ public class AdvanceActivity extends AppCompatActivity {
 
     private static CpuTimes readCpuTimes() {
         try {
-            BufferedReader bufferedReader = new BufferedReader(new FileReader("/proc/stat"));
+            BufferedReader bufferedReader = new BufferedReader(new java.io.FileReader("/proc/stat"));
             try {
                 String line = bufferedReader.readLine();
                 if (line != null && line.startsWith("cpu ")) {
@@ -2621,10 +2622,10 @@ public class AdvanceActivity extends AppCompatActivity {
         this.apolloGreenSoundGroup = (RadioGroup) findViewById(R.id.apolloGreenSoundGroup);
         this.apolloGreenSoundContainer = findViewById(R.id.apolloGreenSoundContainer);
         this.textApolloStatus = (TextView) findViewById(R.id.textApolloStatus);
-        bindApolloSwitch(this.switchApolloTlc, "apolloTlcEnabled");
-        bindApolloSwitch(this.switchApolloTrafficSigns, "apolloTrafficSignsEnabled");
-        bindApolloSwitch(this.switchApolloTrafficLights, "apolloTrafficLightsEnabled");
-        boolean z = this.prefs.getBoolean("apolloGreenSoundEnabled", false);
+        bindApolloSwitch(switchApolloTlc, ApolloSettings.TLC);
+        bindApolloSwitch(switchApolloTrafficSigns, ApolloSettings.TRAFFIC_SIGNS);
+        bindApolloSwitch(switchApolloTrafficLights, ApolloSettings.TRAFFIC_LIGHTS);
+        boolean z = this.prefs.getBoolean(ApolloSettings.GREEN_SOUND, false);
         RadioGroup radioGroup = this.apolloGreenSoundGroup;
         if (radioGroup != null) {
             radioGroup.check(z ? R.id.apolloGreenSoundOn : R.id.apolloGreenSoundOff);
@@ -2641,7 +2642,7 @@ public class AdvanceActivity extends AppCompatActivity {
     /* JADX INFO: renamed from: lambda$initApolloTech$62$ru-big-town-restoremode-AdvanceActivity, reason: not valid java name */
     /* synthetic */ void m1764lambda$initApolloTech$62$rubigtownrestoremodeAdvanceActivity(RadioGroup radioGroup, int i) {
         if (i == R.id.apolloGreenSoundOn || i == R.id.apolloGreenSoundOff) {
-            this.prefs.edit().putBoolean("apolloGreenSoundEnabled", i == R.id.apolloGreenSoundOn).apply();
+            this.prefs.edit().putBoolean(ApolloSettings.GREEN_SOUND, i == R.id.apolloGreenSoundOn).apply();
         }
     }
 
@@ -2662,7 +2663,7 @@ public class AdvanceActivity extends AppCompatActivity {
     /* JADX INFO: renamed from: lambda$bindApolloSwitch$63$ru-big-town-restoremode-AdvanceActivity, reason: not valid java name */
     /* synthetic */ void m1758xb40f07d1(String str, CompoundButton compoundButton, boolean z) {
         this.prefs.edit().putBoolean(str, z).apply();
-        if ("apolloTrafficLightsEnabled".equals(str)) {
+        if (ApolloSettings.TRAFFIC_LIGHTS.equals(str)) {
             updateApolloUi();
         }
     }

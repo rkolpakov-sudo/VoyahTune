@@ -139,7 +139,7 @@ public final class ApplyEngine {
                     return;
                 }
                 synchronized (obj) {
-                    if (modeSyncPolicy.canPersist(jCurrentGeneration, str)) {
+                    if (MODE_SYNC_POLICY.canPersist(jCurrentGeneration, str)) {
                         MainActivity.persistSavedMode(context, str, str2);
                     }
                 }
@@ -528,7 +528,7 @@ public final class ApplyEngine {
         }
     }
 
-    private static CycleResult runCycle(final long j, final long j2, boolean z) {
+    private static CycleResult runCycle(final long j, final long j2, boolean manual) {
         byte[][] bArrValidCanFrames;
         BooleanSupplier booleanSupplier = new BooleanSupplier() { // from class: ru.big.town.anative.ApplyEngine$$ExternalSyntheticLambda7
             @Override // java.util.function.BooleanSupplier
@@ -543,7 +543,7 @@ public final class ApplyEngine {
         if (context == null) {
             return CycleResult.FAILED;
         }
-        if (z) {
+        if (manual) {
             DriveSelectionStore.applyConfigured(context);
             if (!booleanSupplier.getAsBoolean()) {
                 return CycleResult.CANCELLED;
@@ -557,7 +557,7 @@ public final class ApplyEngine {
             Log.w(TAG, "no saved settings; skipping this restore event");
             return CycleResult.FAILED;
         }
-        final CanRestorePlan canRestorePlanCreateCanRestorePlan = MainActivity.createCanRestorePlan(z);
+        final CanRestorePlan canRestorePlanCreateCanRestorePlan = MainActivity.createCanRestorePlan(manual);
         final CanRestorePlan.AttemptResult[] attemptResultArr = {CanRestorePlan.AttemptResult.TRANSIENT_FAILURE};
         boolean zRunGuardedSend = CanSender.runGuardedSend(booleanSupplier, new BooleanSupplier() { // from class: ru.big.town.anative.ApplyEngine$$ExternalSyntheticLambda8
             @Override // java.util.function.BooleanSupplier

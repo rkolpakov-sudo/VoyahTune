@@ -10,8 +10,8 @@ final class BatteryHeatAutoPolicy {
         return i >= 1 && i <= 4;
     }
 
-    static boolean canSend(boolean z, long j, long j2, long j3, long j4, long j5, boolean z2, boolean z3, boolean z4, boolean z5, boolean z6) {
-        return z && j == j2 && j3 == j2 && j4 == j5 && z2 && z3 && z4 && !z5 && !z6;
+    static boolean canSend(boolean activeInstance, long expectedCanBusEpoch, long actualCanBusEpoch, long ambientTemperatureEpoch, long expectedDecisionGeneration, long actualDecisionGeneration, boolean autoEnabled, boolean temperatureKnown, boolean temperatureCold, boolean controlBusy, boolean controlBlocked) {
+        return activeInstance && expectedCanBusEpoch == actualCanBusEpoch && ambientTemperatureEpoch == actualCanBusEpoch && expectedDecisionGeneration == actualDecisionGeneration && autoEnabled && temperatureKnown && temperatureCold && !controlBusy && !controlBlocked;
     }
 
     static int effectiveFailure(int i, int i2, int i3, int i4) {
@@ -33,8 +33,8 @@ final class BatteryHeatAutoPolicy {
         return j == j2;
     }
 
-    static boolean settingRefreshNeededForTemperature(boolean z) {
-        return !z;
+    static boolean settingRefreshNeededForTemperature(boolean settingKnown) {
+        return !settingKnown;
     }
 
     static boolean snapshotComplete(int i, int i2, int i3) {

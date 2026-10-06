@@ -60,38 +60,38 @@ final class ApolloRestorePolicy {
     private ApolloRestorePolicy() {
     }
 
-    static void appendTo(Map<String, Integer> map, Map<String, Integer> map2, boolean z, boolean z2, boolean z3, boolean z4) {
-        if (map == null || map2 == null) {
+    static void appendTo(Map<String, Integer> entitlements, Map<String, Integer> switches, boolean tlc, boolean trafficLights, boolean greenSound, boolean trafficSigns) {
+        if (entitlements == null || switches == null) {
             throw new IllegalArgumentException("Apollo target maps are null");
         }
-        if (z || z2 || z4) {
-            putAllEntitlements(map, 2);
+        if (tlc || trafficLights || trafficSigns) {
+            putAllEntitlements(entitlements, ENABLED);
         }
-        map2.put(PLC_SWITCH, Integer.valueOf(state(z)));
-        map2.put(GLA_SWITCH, Integer.valueOf(state(z2)));
-        map2.put(GLA_LIGHT_CHANGE_SWITCH, Integer.valueOf(state(z2 && z3)));
-        map2.put(TSR_SWITCH, Integer.valueOf(z4 ? 1 : 2));
+        switches.put(PLC_SWITCH, state(tlc));
+        switches.put(GLA_SWITCH, state(trafficLights));
+        switches.put(GLA_LIGHT_CHANGE_SWITCH, state(trafficLights && greenSound));
+        switches.put(TSR_SWITCH, trafficSigns ? 1 : 2);
     }
 
-    private static void putAllEntitlements(Map<String, Integer> map, int i) {
-        map.put(RPA_FUNC_ENABLE, Integer.valueOf(i));
-        map.put(HPP_FUNC_ENABLE, Integer.valueOf(i));
-        map.put(GLC_FUNC_ENABLE, Integer.valueOf(i));
-        map.put(ISLC_FUNC_ENABLE, Integer.valueOf(i));
-        map.put(TLC_FUNC_ENABLE, Integer.valueOf(i));
-        map.put(NOA_FUNC_ENABLE, Integer.valueOf(i));
-        map.put(ELK_FUNC_ENABLE, Integer.valueOf(i));
-        map.put(ESA_FUNC_ENABLE, Integer.valueOf(i));
-        map.put(APA_FUNC_ENABLE_SA, Integer.valueOf(i));
-        map.put(RPA_FUNC_ENABLE_SA, Integer.valueOf(i));
-        map.put(HAVP_FUNC_ENABLE_SA, Integer.valueOf(i));
-        map.put(ACC_FUNC_ENABLE_SA, Integer.valueOf(i));
-        map.put(ICA_FUNC_ENABLE_SA, Integer.valueOf(i));
-        map.put(PLC_FUNC_ENABLE_SA, Integer.valueOf(i));
-        map.put(HANP_FUNC_ENABLE_SA, Integer.valueOf(i));
-        map.put(ISA_FUNC_ENABLE_SA, Integer.valueOf(i));
-        map.put(ISLC_FUNC_ENABLE_SA, Integer.valueOf(i));
-        map.put(TLA_FUNC_ENABLE_SA, Integer.valueOf(i));
+    private static void putAllEntitlements(Map<String, Integer> target, Integer value) {
+        target.put(RPA_FUNC_ENABLE, value);
+        target.put(HPP_FUNC_ENABLE, value);
+        target.put(GLC_FUNC_ENABLE, value);
+        target.put(ISLC_FUNC_ENABLE, value);
+        target.put(TLC_FUNC_ENABLE, value);
+        target.put(NOA_FUNC_ENABLE, value);
+        target.put(ELK_FUNC_ENABLE, value);
+        target.put(ESA_FUNC_ENABLE, value);
+        target.put(APA_FUNC_ENABLE_SA, value);
+        target.put(RPA_FUNC_ENABLE_SA, value);
+        target.put(HAVP_FUNC_ENABLE_SA, value);
+        target.put(ACC_FUNC_ENABLE_SA, value);
+        target.put(ICA_FUNC_ENABLE_SA, value);
+        target.put(PLC_FUNC_ENABLE_SA, value);
+        target.put(HANP_FUNC_ENABLE_SA, value);
+        target.put(ISA_FUNC_ENABLE_SA, value);
+        target.put(ISLC_FUNC_ENABLE_SA, value);
+        target.put(TLA_FUNC_ENABLE_SA, value);
     }
 
     static Map<String, Integer> stableIds() {

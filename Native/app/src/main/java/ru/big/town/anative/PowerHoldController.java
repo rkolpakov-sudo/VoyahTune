@@ -54,11 +54,11 @@ final class PowerHoldController {
     static /* synthetic */ PowerHoldPolicy.Outcome lambda$create$1(Context context, final SessionAction sessionAction) {
         PowerHoldPolicy.Outcome outcome = (PowerHoldPolicy.Outcome) OemVehicleStateTransport.withSession(context, Arrays.asList(BMS_SOC_KEY, EXTENDER_KEY, SWITCH_KEY, TIME_KEY), new OemVehicleStateTransport.SessionOperation() { // from class: ru.big.town.anative.PowerHoldController$$ExternalSyntheticLambda0
             @Override // ru.big.town.anative.OemVehicleStateTransport.SessionOperation
-            public final Object run(OemVehicleStateTransport.Session session) {
+            public final Object run(OemVehicleStateTransport.Session oemSession) {
                 return sessionAction.run(new PowerHoldController.Session() { // from class: ru.big.town.anative.PowerHoldController.1
                     @Override // ru.big.town.anative.PowerHoldController.Session
                     public Gear readGear() {
-                        OemVehicleStateTransport.GearStatus gearStatus = session.readGearStatus();
+                        OemVehicleStateTransport.GearStatus gearStatus = oemSession.readGearStatus();
                         if (gearStatus == null) {
                             return null;
                         }
@@ -67,16 +67,16 @@ final class PowerHoldController {
 
                     @Override // ru.big.town.anative.PowerHoldController.Session
                     public Integer readSoc() {
-                        return session.readVehicleState(PowerHoldController.BMS_SOC_KEY);
+                        return oemSession.readVehicleState(PowerHoldController.BMS_SOC_KEY);
                     }
 
                     @Override // ru.big.town.anative.PowerHoldController.Session
-                    public boolean sendActivation(Map<String, Integer> map, String str) {
-                        LinkedHashMap linkedHashMap = new LinkedHashMap();
-                        linkedHashMap.put(PowerHoldController.TIME_KEY, map.get("POWER_HOLD_MODE_TIME"));
-                        linkedHashMap.put(PowerHoldController.EXTENDER_KEY, map.get("SCENE_MODE_EXTENDER_SET"));
-                        linkedHashMap.put(PowerHoldController.SWITCH_KEY, map.get("POWER_HOLD_MODE_SWITCH"));
-                        return session.sendBundle(linkedHashMap, str).accepted();
+                    public boolean sendActivation(Map<String, Integer> values, String label) {
+                        LinkedHashMap keyed = new LinkedHashMap();
+                        keyed.put(PowerHoldController.TIME_KEY, values.get("POWER_HOLD_MODE_TIME"));
+                        keyed.put(PowerHoldController.EXTENDER_KEY, values.get("SCENE_MODE_EXTENDER_SET"));
+                        keyed.put(PowerHoldController.SWITCH_KEY, values.get("POWER_HOLD_MODE_SWITCH"));
+                        return oemSession.sendBundle(keyed, label).accepted();
                     }
                 });
             }
