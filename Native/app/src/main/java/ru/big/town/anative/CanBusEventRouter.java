@@ -2,6 +2,7 @@ package ru.big.town.anative;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -16,12 +17,14 @@ final class CanBusEventRouter {
     private static final int DEFAULT_MAILBOX_CAPACITY = 32;
     private static final int DRAIN_SLICE = 1;
     // IMP-09: priority lanes
-    static final int LANE_0 = 0; // safety (LIGHT_STATUS, DOOR)
+    static final int LANE_0 = 0; // safety (CONNECTION bar, LIGHT_STATUS, DOOR)
     static final int LANE_1 = 1; // modes (GEAR, DRIVING_MODE signals)
     static final int LANE_2 = 2; // comfort (AMBIENT_TEMPERATURE, other VEHICLE_STATE)
     private static final int LANE_COUNT = 3;
     private static final int STARVE_LIMIT = 10;
     private static final int[] CAPACITY_PER_LANE = {8, 16, 32};
+    // IMP-09 (L51): rate-limit per lane, events/sec; 0 = unlimited (default)
+    static volatile int[] RATE_PER_LANE = {0, 0, 0};
     static final int INTEREST_AMBIENT_TEMPERATURE = 32;
     static final int INTEREST_CONNECTION = 1;
     static final int INTEREST_DOOR = 2;
@@ -84,6 +87,17 @@ final class CanBusEventRouter {
         return this.mailboxes.size();
     }
 
+    // IMP-09 (L51): backpressure-метрики в локальную диагностику
+    String diagnostics() {
+        StringBuilder sb = new StringBuilder("subscribers=").append(this.mailboxes.size());
+        Iterator<Mailbox> it = this.mailboxes.iterator();
+        int i = 0;
+        while (it.hasNext()) {
+            sb.append("\nm").append(i++).append(": ").append(it.next().diagnostics());
+        }
+        return sb.toString();
+    }
+
     void invalidateThrough(long j) {
         Iterator<Mailbox> it = this.mailboxes.iterator();
         while (it.hasNext()) {
@@ -130,9 +144,9 @@ final class CanBusEventRouter {
     }
 
     static int tier(CanBusEvent canBusEvent) {
-        // IMP-09: L0 safety, L1 modes, L2 comfort
+        // IMP-09: L0 safety (barriers + свет/двери), L1 modes, L2 comfort
         switch (canBusEvent.kind) {
-            case LIGHT_STATUS: case DOOR:
+            case CONNECTION: case CONNECTION_LOST: case LIGHT_STATUS: case DOOR:
                 return LANE_0;
             case GEAR:
                 return LANE_1;
@@ -144,10 +158,13 @@ final class CanBusEventRouter {
     /* JADX INFO: Access modifiers changed from: private */
     static final class Mailbox {
         private final int[] capacityPerLane = {CAPACITY_PER_LANE[0], CAPACITY_PER_LANE[1], CAPACITY_PER_LANE[2]};
+        private final int globalCapacity;
         private volatile boolean closed;
         private boolean drainScheduled;
         private long[] droppedPerLane = {0, 0, 0};
         private long[] acceptedPerLane = {0, 0, 0};
+        private long[] peakQueueDepth = {0, 0, 0};
+        private long[] lastDrainNs = {0, 0, 0};
         private int starveCount;
         private final Executor executor;
         private final int interestMask;
@@ -171,6 +188,7 @@ final class CanBusEventRouter {
                 throw new IllegalArgumentException("capacity must be >= 2");
             }
             this.interestMask = i;
+            this.globalCapacity = i2;
             if (iArr != null) {
                 for (int i3 : iArr) {
                     this.vehicleStateIds.add(Integer.valueOf(i3));
@@ -234,14 +252,18 @@ final class CanBusEventRouter {
                         }
                         int capacity = this.capacityPerLane[lane];
                         if (queue.size() == capacity) {
-                            CanBusEvent dropped = dropForCapacity(lane);
-                            if (dropped != null && this.lastAccepted.get(Integer.valueOf(dropped.signalKey())) == dropped) {
-                                this.lastAccepted.remove(Integer.valueOf(dropped.signalKey()));
-                            }
-                            this.droppedPerLane[lane]++;
+                            // IMP-09: per-lane capacity
+                            recordDrop(dropForCapacity(lane));
+                        }
+                        if (totalSize() >= this.globalCapacity) {
+                            // Паритет с вендором: общая ёмкость mailbox = capacity подписки
+                            recordDrop(dropGlobalCapacity());
                         }
                         queue.addLast(canBusEvent);
                         this.acceptedPerLane[lane]++;
+                        if (queue.size() > this.peakQueueDepth[lane]) {
+                            this.peakQueueDepth[lane] = queue.size();
+                        }
                         if (this.drainScheduled) {
                             z = false;
                         } else {
@@ -312,6 +334,62 @@ final class CanBusEventRouter {
             return queue.removeFirst();
         }
 
+        private int totalSize() {
+            return this.queues[LANE_0].size() + this.queues[LANE_1].size() + this.queues[LANE_2].size();
+        }
+
+        // Паритет вендора: общая ёмкость mailbox. Дроп: сначала level (L0→L2),
+        // затем ordered (L0→L2); барьеры CONNECTION/CONNECTION_LOST не дропаются
+        // до крайнего fallback (как vendor dropForCapacity).
+        private CanBusEvent dropGlobalCapacity() {
+            for (int lane = 0; lane < LANE_COUNT; lane++) {
+                Iterator<CanBusEvent> it = this.queues[lane].iterator();
+                while (it.hasNext()) {
+                    CanBusEvent next = it.next();
+                    if (next.kind != CanBusEvent.Kind.CONNECTION && next.kind != CanBusEvent.Kind.CONNECTION_LOST && !next.isOrderedTransition()) {
+                        it.remove();
+                        return next;
+                    }
+                }
+            }
+            for (int lane = 0; lane < LANE_COUNT; lane++) {
+                Iterator<CanBusEvent> it = this.queues[lane].iterator();
+                while (it.hasNext()) {
+                    CanBusEvent next = it.next();
+                    if (next.kind != CanBusEvent.Kind.CONNECTION && next.kind != CanBusEvent.Kind.CONNECTION_LOST) {
+                        it.remove();
+                        return next;
+                    }
+                }
+            }
+            for (int lane = 0; lane < LANE_COUNT; lane++) {
+                if (!this.queues[lane].isEmpty()) {
+                    return this.queues[lane].removeFirst();
+                }
+            }
+            return null;
+        }
+
+        private void recordDrop(CanBusEvent dropped) {
+            if (dropped == null) {
+                return;
+            }
+            int lane = CanBusEventRouter.tier(dropped);
+            Integer key = Integer.valueOf(dropped.signalKey());
+            if (this.lastAccepted.get(key) == dropped) {
+                this.lastAccepted.remove(key);
+            }
+            this.droppedPerLane[lane]++;
+        }
+
+        // IMP-09 (L51): backpressure-метрики mailbox
+        String diagnostics() {
+            return "queues=[" + this.queues[LANE_0].size() + "," + this.queues[LANE_1].size() + "," + this.queues[LANE_2].size()
+                + "] accepted=" + Arrays.toString(this.acceptedPerLane)
+                + " dropped=" + Arrays.toString(this.droppedPerLane)
+                + " peak=" + Arrays.toString(this.peakQueueDepth);
+        }
+
         private void scheduleDrain() {
             try {
                 this.executor.execute(this.drainRunnable);
@@ -328,34 +406,38 @@ final class CanBusEventRouter {
                 if (this.closed) {
                     return;
                 }
-                // IMP-09: drain priority L0 > L1 > L2 with starvation guard
+                // IMP-09: drain priority L0 > L1 > L2 с rate-limit per lane (L51)
+                long now = System.nanoTime();
                 CanBusEvent event = null;
-                for (int lane = LANE_0; lane <= LANE_2 && event == null; lane++) {
-                    if (!this.queues[lane].isEmpty()) {
-                        event = this.queues[lane].pollFirst();
-                        break;
+                for (int lane = LANE_0; lane <= LANE_2; lane++) {
+                    if (this.queues[lane].isEmpty()) {
+                        continue;
                     }
-                }
-                // Starvation guard: if L2 hasn't been drained in STARVE_LIMIT cycles
-                if (event == null) {
-                    this.starveCount = 0;
-                } else {
-                    int tier = CanBusEventRouter.tier(event);
-                    if (tier < LANE_2) {
-                        this.starveCount++;
-                        if (this.starveCount >= STARVE_LIMIT && !this.queues[LANE_2].isEmpty()) {
-                            // Force-drain L2 to prevent starvation
-                            this.queues[LANE_2].addFirst(event);
-                            event = this.queues[LANE_2].pollFirst();
-                            this.starveCount = 0;
-                        }
-                    } else {
-                        this.starveCount = 0;
+                    int rate = RATE_PER_LANE[lane];
+                    if (rate > 0 && this.lastDrainNs[lane] != 0 && now - this.lastDrainNs[lane] < 1000000000L / rate) {
+                        continue; // lane в rate-окне → пропуск drain'а этой lane на один цикл
                     }
+                    event = this.queues[lane].pollFirst();
+                    this.lastDrainNs[lane] = now;
+                    break;
                 }
                 if (event == null) {
+                    // пусто ИЛИ все непустые lane в rate-окне (ждём следующий offer)
                     this.drainScheduled = false;
                     return;
+                }
+                // Starvation guard: после STARVE_LIMIT приоритетных drain'ов отдать L2
+                int tier = CanBusEventRouter.tier(event);
+                if (tier < LANE_2 && !this.queues[LANE_2].isEmpty()) {
+                    this.starveCount++;
+                    if (this.starveCount >= STARVE_LIMIT) {
+                        this.queues[tier].addFirst(event);
+                        event = this.queues[LANE_2].pollFirst();
+                        this.lastDrainNs[LANE_2] = now;
+                        this.starveCount = 0;
+                    }
+                } else if (tier == LANE_2 || this.queues[LANE_2].isEmpty()) {
+                    this.starveCount = 0;
                 }
                 try {
                     this.listener.onCanBusEvent(event);

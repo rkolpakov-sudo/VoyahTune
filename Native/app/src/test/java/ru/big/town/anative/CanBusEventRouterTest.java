@@ -278,6 +278,163 @@ public class CanBusEventRouterTest {
         assertEquals(Arrays.asList(3), delivered);
     }
 
+    // --- IMP-09 (L51): приоритетные полосы, rate-limit, starvation, backpressure ---
+
+    @Test
+    public void safetyEventOvertakesComfortQueue() {
+        CanBusEventRouter router = new CanBusEventRouter();
+        ManualExecutor executor = new ManualExecutor();
+        List<CanBusEvent.Kind> delivered = new ArrayList<>();
+        router.subscribe(CanBusEventRouter.INTEREST_DOOR | CanBusEventRouter.INTEREST_VEHICLE_STATE,
+                new int[]{545}, executor, event -> delivered.add(event.kind));
+
+        router.dispatch(vehicle(1, 545, 5)); // L2 comfort
+        router.dispatch(door(2, 1));         // L0 safety
+
+        executor.runAll();
+        assertEquals(Arrays.asList(CanBusEvent.Kind.DOOR, CanBusEvent.Kind.VEHICLE_STATE), delivered);
+    }
+
+    @Test
+    public void connectionBarrierOvertakesQueuedStateEvents() {
+        CanBusEventRouter router = new CanBusEventRouter();
+        ManualExecutor executor = new ManualExecutor();
+        List<CanBusEvent.Kind> delivered = new ArrayList<>();
+        router.subscribe(CanBusEventRouter.INTEREST_CONNECTION
+                        | CanBusEventRouter.INTEREST_GEAR
+                        | CanBusEventRouter.INTEREST_VEHICLE_STATE,
+                new int[]{545}, executor, event -> delivered.add(event.kind));
+
+        router.dispatch(vehicle(1, 545, 5));              // L2
+        router.dispatch(gear(2, 3));                      // L1
+        router.dispatch(CanBusEvent.connection(1, 7, 7)); // L0 (тот же epoch — без очистки)
+
+        executor.runAll();
+        assertEquals(Arrays.asList(CanBusEvent.Kind.CONNECTION,
+                CanBusEvent.Kind.GEAR, CanBusEvent.Kind.VEHICLE_STATE), delivered);
+    }
+
+    @Test
+    public void modesOvertakeComfortWithinSameEpoch() {
+        CanBusEventRouter router = new CanBusEventRouter();
+        ManualExecutor executor = new ManualExecutor();
+        List<CanBusEvent.Kind> delivered = new ArrayList<>();
+        router.subscribe(CanBusEventRouter.INTEREST_GEAR | CanBusEventRouter.INTEREST_VEHICLE_STATE,
+                new int[]{545}, executor, event -> delivered.add(event.kind));
+
+        router.dispatch(vehicle(1, 545, 5)); // L2
+        router.dispatch(gear(2, 3));         // L1
+
+        executor.runAll();
+        assertEquals(Arrays.asList(CanBusEvent.Kind.GEAR, CanBusEvent.Kind.VEHICLE_STATE), delivered);
+    }
+
+    @Test
+    public void perLaneCapacityDropsOldestInFullLane() {
+        CanBusEventRouter router = new CanBusEventRouter();
+        ManualExecutor executor = new ManualExecutor();
+        List<Integer> gears = new ArrayList<>();
+        router.subscribe(CanBusEventRouter.INTEREST_GEAR, null, executor,
+                event -> gears.add(event.first), 32);
+
+        // L1 capacity = 32/2 = 16; 17-е событие вытесняет самое старое
+        for (int i = 1; i <= 17; i++) {
+            router.dispatch(gear(i, i));
+        }
+        executor.runAll();
+
+        assertEquals(16, gears.size());
+        assertEquals(Integer.valueOf(2), gears.get(0));
+        assertEquals(Integer.valueOf(17), gears.get(15));
+    }
+
+    @Test
+    public void starvationGuardDeliversComfortEvent() {
+        CanBusEventRouter router = new CanBusEventRouter();
+        ManualExecutor executor = new ManualExecutor();
+        List<CanBusEvent.Kind> delivered = new ArrayList<>();
+        router.subscribe(CanBusEventRouter.INTEREST_DOOR | CanBusEventRouter.INTEREST_VEHICLE_STATE,
+                new int[]{545}, executor, event -> delivered.add(event.kind), 64);
+
+        router.dispatch(vehicle(1, 545, 5)); // L2, ждёт в очереди
+        for (int i = 2; i <= 13; i++) {
+            router.dispatch(door(i, i % 2)); // L0, 12 событий подряд (L0 cap = 64/4 = 16)
+        }
+        executor.runAll();
+
+        // STARVE_LIMIT=10: девять дверей, затем форс-drain L2, затем остальные двери
+        assertEquals(13, delivered.size());
+        assertEquals(CanBusEvent.Kind.VEHICLE_STATE, delivered.get(9));
+        assertEquals(CanBusEvent.Kind.DOOR, delivered.get(0));
+        assertEquals(CanBusEvent.Kind.DOOR, delivered.get(12));
+    }
+
+    @Test
+    public void rateLimitBlocksDrainWithinWindow() throws Exception {
+        int[] original = CanBusEventRouter.RATE_PER_LANE;
+        CanBusEventRouter.RATE_PER_LANE = new int[]{50, 0, 0}; // L0: окно 20ms
+        try {
+            CanBusEventRouter router = new CanBusEventRouter();
+            ManualExecutor executor = new ManualExecutor();
+            List<Integer> doors = new ArrayList<>();
+            router.subscribe(CanBusEventRouter.INTEREST_DOOR, null, executor,
+                    event -> doors.add(event.first));
+
+            router.dispatch(door(1, 0));
+            executor.runAll();
+            assertEquals(Arrays.asList(0), doors); // первый drain вне окна
+
+            router.dispatch(door(2, 1));
+            executor.runAll();
+            assertEquals(Arrays.asList(0), doors); // в окне → drain пропущен
+
+            Thread.sleep(60); // окно 20ms истекло
+            router.dispatch(door(3, 0));
+            executor.runAll();
+            assertEquals(Arrays.asList(0, 1), doors); // после окна доставлена
+        } finally {
+            CanBusEventRouter.RATE_PER_LANE = original;
+        }
+    }
+
+    @Test
+    public void rateLimitZeroMeansUnlimited() {
+        assertEquals(0, CanBusEventRouter.RATE_PER_LANE[0]);
+        CanBusEventRouter router = new CanBusEventRouter();
+        ManualExecutor executor = new ManualExecutor();
+        List<Integer> doors = new ArrayList<>();
+        router.subscribe(CanBusEventRouter.INTEREST_DOOR, null, executor,
+                event -> doors.add(event.first));
+
+        router.dispatch(door(1, 1));
+        router.dispatch(door(2, 0));
+        router.dispatch(door(3, 1));
+        executor.runAll();
+
+        assertEquals(Arrays.asList(1, 0, 1), doors);
+    }
+
+    @Test
+    public void diagnosticsExposeBackpressureCounters() {
+        CanBusEventRouter router = new CanBusEventRouter();
+        ManualExecutor executor = new ManualExecutor();
+        router.subscribe(CanBusEventRouter.INTEREST_CONNECTION | CanBusEventRouter.INTEREST_VEHICLE_STATE,
+                new int[]{545, 957, 546, 547}, executor, event -> { }, 4);
+
+        router.dispatch(CanBusEvent.connection(1, 1, 1)); // L0
+        router.dispatch(vehicle(1, 545, 5));               // L2
+        router.dispatch(vehicle(1, 957, 6));               // L2
+        router.dispatch(vehicle(1, 546, 7));               // L2
+        router.dispatch(vehicle(1, 547, 8));               // total=4 → вытесняет 545 (level)
+        executor.runAll();
+
+        String diag = router.diagnostics();
+        assertTrue(diag.contains("subscribers=1"));
+        assertTrue(diag.contains("dropped=[0, 0, 1]"));
+        assertTrue(diag.contains("accepted=[1, 0, 4]"));
+        assertTrue(diag.contains("peak=[1, 0, 3]"));
+    }
+
     @Test
     public void transitionBurstYieldsToAnotherConsumer() {
         CanBusEventRouter router = new CanBusEventRouter();
