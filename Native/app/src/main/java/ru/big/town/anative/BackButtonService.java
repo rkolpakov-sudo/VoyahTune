@@ -12,6 +12,7 @@ import android.os.Looper;
 import android.provider.Settings;
 import android.util.Log;
 import android.util.TypedValue;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.WindowManager;
@@ -421,21 +422,60 @@ public class BackButtonService extends AccessibilityService {
             this.slop = ViewConfiguration.get(BackButtonService.this).getScaledTouchSlop();
         }
 
-        /* JADX WARN: Code restructure failed: missing block: B:40:0x0131, code lost:
-        
-            r8 = true;
-         */
         @Override // android.view.View.OnTouchListener
-        /*
-            Code decompiled incorrectly, please refer to instructions dump.
-            To view partially-correct add '--show-bad-code' argument
-        */
-        public boolean onTouch(android.view.View r8, android.view.MotionEvent r9) {
-            /*
-                Method dump skipped, instruction units count: 358
-                To view this dump add '--comments-level debug' option
-            */
-            throw new UnsupportedOperationException("Method not decompiled: ru.big.town.anative.BackButtonService.DragTouchListener.onTouch(android.view.View, android.view.MotionEvent):boolean");
+        public boolean onTouch(View view, MotionEvent motionEvent) {
+            int actionMasked = motionEvent.getActionMasked();
+            if (actionMasked == 0) {
+                boolean homeHalf = prefs().getInt("floatingBackSide", 0) == 1
+                    ? motionEvent.getX() >= view.getWidth() / 2.0f
+                    : motionEvent.getY() >= view.getHeight() / 2.0f;
+                this.globalAction = homeHalf ? 2 : 1;
+                this.actionName = homeHalf ? "GLOBAL_ACTION_HOME" : "GLOBAL_ACTION_BACK";
+                this.startX = BackButtonService.this.lp.x;
+                this.startY = BackButtonService.this.lp.y;
+                this.rawX0 = motionEvent.getRawX();
+                this.rawY0 = motionEvent.getRawY();
+                this.dragging = false;
+                return true;
+            }
+            if (actionMasked == 2) {
+                int dx = (int) (motionEvent.getRawX() - this.rawX0);
+                int dy = (int) (motionEvent.getRawY() - this.rawY0);
+                if (!this.dragging && Math.hypot(dx, dy) > this.slop) {
+                    this.dragging = true;
+                }
+                if (this.dragging) {
+                    Point point = new Point();
+                    BackButtonService.this.wm.getDefaultDisplay().getSize(point);
+                    if (prefs().getInt("floatingBackSide", 0) == 1) {
+                        BackButtonService.this.lp.x = clamp(this.startX + dx, 0, Math.max(0, point.x - BackButtonService.this.lp.width));
+                    } else {
+                        BackButtonService.this.lp.y = clamp(this.startY + dy, 0, Math.max(0, point.y - BackButtonService.this.lp.height));
+                    }
+                    try {
+                        BackButtonService.this.wm.updateViewLayout(BackButtonService.this.buttonView, BackButtonService.this.lp);
+                    } catch (Exception unused) {
+                    }
+                }
+                return true;
+            }
+            if (actionMasked == 1) {
+                if (this.dragging) {
+                    int offset = prefs().getInt("floatingBackSide", 0) == 1
+                        ? BackButtonService.this.lp.x
+                        : BackButtonService.this.lp.y;
+                    prefs().edit().putInt("floatingBackOffset", offset).commit();
+                    Log.i(TAG, "позиция сохранена offset=" + offset);
+                } else {
+                    BackButtonService.this.performGlobalActionNow(this.globalAction, this.actionName, "floating button");
+                }
+                return true;
+            }
+            if (actionMasked == 3) {
+                BackButtonService.this.applyLayout();
+                return true;
+            }
+            return false;
         }
     }
 

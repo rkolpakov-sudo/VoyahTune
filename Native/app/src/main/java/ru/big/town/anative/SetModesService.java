@@ -185,10 +185,10 @@ public class SetModesService extends Service {
             SetModesService.this.m2066lambda$new$11$rubigtownanativeSetModesService();
         }
     };
-private final Runnable carPowerReconnectRunnable = new Runnable() { // from class: ru.big.town.anative.SetModesService$$ExternalSyntheticLambda23
+    private final Runnable carPowerReconnectRunnable = new Runnable() { // from class: ru.big.town.anative.SetModesService$$ExternalSyntheticLambda23
         @Override // java.lang.Runnable
         public final void run() {
-            SetModesService.this.m7683lambda$new$4$rubigtownanativeSetModesService();
+            SetModesService.this.reconnectCarPowerOnWorker();
         }
     };
     private final Runnable voicePrewarmRunnable = new Runnable() {

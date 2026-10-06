@@ -25,6 +25,7 @@ import android.os.Message;
 import android.os.Messenger;
 import android.os.RemoteException;
 import android.os.SystemClock;
+import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.GestureDetector;
 import android.view.LayoutInflater;
@@ -246,6 +247,12 @@ public class MainActivity extends AppCompatActivity {
             MainActivity.this.updateToggleVisuals();
         }
     };
+    private final BroadcastReceiver commandResultReceiver = new BroadcastReceiver() { // from class: ru.big.town.restoremode.MainActivity.11
+        @Override // android.content.BroadcastReceiver
+        public void onReceive(Context context, Intent intent) {
+            MainActivity.this.renderCommandResult(intent);
+        }
+    };
     private final Runnable tripTick = new Runnable() { // from class: ru.big.town.restoremode.MainActivity.6
         @Override // java.lang.Runnable
         public void run() {
@@ -393,6 +400,54 @@ public class MainActivity extends AppCompatActivity {
             this.powerHoldBadge.setBackgroundResource(R.drawable.pill_inactive);
         }
         showPowerHoldRequestOutcome(intExtra3);
+    }
+
+    /* JADX INFO: Access modifiers changed from: private */
+    public void renderCommandResult(Intent intent) {
+        if (intent == null) {
+            return;
+        }
+        String feature = intent.getStringExtra("feature");
+        String state = intent.getStringExtra("state");
+        if (feature == null || state == null) {
+            return;
+        }
+        TextView badge;
+        int featureLabel;
+        if ("light".equals(feature)) {
+            badge = this.autoLightBadge;
+            featureLabel = R.string.cmd_feature_light;
+        } else if ("avas".equals(feature)) {
+            badge = this.pedestrianBadge;
+            featureLabel = R.string.cmd_feature_avas;
+        } else if ("suspension".equals(feature)) {
+            badge = this.suspensionMaintenanceBadge;
+            featureLabel = R.string.cmd_feature_suspension;
+        } else {
+            return;
+        }
+        if (badge == null) {
+            return;
+        }
+        int label;
+        int pill;
+        if ("CONFIRMED".equals(state)) {
+            label = R.string.cmd_status_confirmed;
+            pill = R.drawable.pill_active;
+        } else if ("FAILED".equals(state)) {
+            label = R.string.cmd_status_failed;
+            pill = R.drawable.pill_error;
+        } else if ("TIMEOUT".equals(state)) {
+            label = R.string.cmd_status_timeout;
+            pill = R.drawable.pill_error;
+        } else if ("SENT".equals(state) || "PENDING_ACK".equals(state)) {
+            label = R.string.cmd_status_sending;
+            pill = R.drawable.pill_pending;
+        } else {
+            return;
+        }
+        badge.setText(getString(label, getString(featureLabel)));
+        badge.setBackgroundResource(pill);
     }
 
     private void showPowerHoldRequestOutcome(int i) {
@@ -1164,6 +1219,7 @@ public class MainActivity extends AppCompatActivity {
         registerReceiver(this.settingSyncReceiver, new IntentFilter("ru.big.town.anative.SETTING_SYNCED"), BIND_SET_MODES_PERMISSION, null, 2);
         registerReceiver(this.powerHoldStatusReceiver, new IntentFilter(ACTION_POWER_HOLD_STATUS_UPDATE), BIND_SET_MODES_PERMISSION, null, 2);
         registerReceiver(this.embeddedLeftReceiver, new IntentFilter(ACTION_EMBEDDED_TASK_LEFT), BIND_SET_MODES_PERMISSION, null, 2);
+        registerReceiver(this.commandResultReceiver, new IntentFilter("ru.big.town.anative.ACTION_COMMAND_RESULT"), BIND_SET_MODES_PERMISSION, null, 2);
         Intent intent2 = new Intent(ACTION_REQUEST_POWER_HOLD_STATUS);
         intent2.setPackage("ru.big.town.anative");
         sendBroadcast(intent2, BIND_SET_MODES_PERMISSION);
@@ -1295,11 +1351,316 @@ public class MainActivity extends AppCompatActivity {
         	at jadx.core.dex.visitors.regions.IfRegionVisitor.visit(IfRegionVisitor.java:30)
         */
     public void renderSplitTiles() {
-        /*
-            Method dump skipped, instruction units count: 2018
-            To view this dump add '--comments-level debug' option
-        */
-        throw new UnsupportedOperationException("Method not decompiled: ru.big.town.restoremode.MainActivity.renderSplitTiles():void");
+        try {
+            renderSplitTilesInternal();
+        } catch (Exception e) {
+            Log.e(TAG, "renderSplitTiles failed: " + e.getMessage());
+        }
+    }
+
+    private void renderSplitTilesInternal() {
+        GridLayout grid = this.splitTilesGrid;
+        if (grid == null) {
+            return;
+        }
+        grid.setPadding(grid.getPaddingLeft(), this.fullscreenGrid ? 0 : this.gridPaddingTop, this.splitTilesGrid.getPaddingRight(), this.gridPaddingBottom);
+        if (this.tileDragController != null) {
+            this.tileDragController.cancel();
+        }
+        this.splitTilesGrid.removeAllViews();
+        this.suspensionWidgetView = null;
+        watchSuspension();
+        this.appWidgetTileViews.clear();
+        LayoutInflater inflater = LayoutInflater.from(this);
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        int reserve = Math.round(dm.density * 145.0f);
+        int availW = (dm.widthPixels - reserve) - Math.round(dm.density * 4.0f);
+        int availH = (720 - this.contentInsetTop) - this.splitTilesGrid.getPaddingTop();
+        int spacing = Math.round(Math.max(0, Math.min(24, this.sharedPreferences.getInt("tileSpacingDp", 4))) * dm.density);
+        int gap = spacing * 2;
+        final int cellW = (availW / 12) - gap;
+        int rowH = availH / 5;
+        final int cellH = rowH - gap;
+        final int restH = availH - (rowH * 5);
+        final int topPad = this.fullscreenGrid ? this.contentInsetTop : 0;
+        final int columns = fullscreenGridColumns();
+        final int sp = spacing;
+        this.tileDragController = new TileDragController(this.splitTilesGrid, new TileDragController.LayoutFactory() { // from class: ru.big.town.restoremode.MainActivity$$ExternalSyntheticLambda0
+            @Override // ru.big.town.restoremode.TileDragController.LayoutFactory
+            public GridLayout.LayoutParams create(int iCol, int iRow, int iWCells, int iHCells) {
+                return MainActivity.lambda$renderSplitTiles$10(cellW, sp, cellH, restH, topPad, columns, iCol, iRow, iWCells, iHCells);
+            }
+        }, new TileDragController.Commit() { // from class: ru.big.town.restoremode.MainActivity$$ExternalSyntheticLambda22
+            @Override // ru.big.town.restoremode.TileDragController.Commit
+            public void move(int i, int i2) {
+                MainActivity.this.m1901lambda$renderSplitTiles$11$rubigtownrestoremodeMainActivity(i, i2);
+            }
+        });
+        List<TileOrderStore.Tile> tiles = TileOrderStore.load(this.sharedPreferences);
+        HashMap<String, SplitStore.Preset> presetById = new HashMap<>();
+        for (SplitStore.Preset preset : SplitStore.load(this.sharedPreferences)) {
+            if (preset.ready()) {
+                presetById.put(preset.id, preset);
+            }
+        }
+        ArrayList<boolean[]> placed = new ArrayList<>();
+        for (int idx = 0; idx < tiles.size(); idx++) {
+            final TileOrderStore.Tile tile = tiles.get(idx);
+            if (TileOrderStore.Tile.TYPE_DIAL.equals(tile.type)) {
+                DialWidgetStore.Entry found = null;
+                for (DialWidgetStore.Entry de : DialWidgetStore.load(this.sharedPreferences)) {
+                    if (de.id.equals(tile.id)) {
+                        found = de;
+                        break;
+                    }
+                }
+                final DialWidgetStore.Entry dialEntry = found;
+                if (dialEntry != null) {
+                    View dialTile = inflater.inflate(R.layout.tile_dial, (ViewGroup) this.splitTilesGrid, false);
+                    ((TextView) dialTile.findViewById(R.id.dialTileName)).setText(dialEntry.name.isEmpty() ? "Набрать номер" : dialEntry.name);
+                    ((TextView) dialTile.findViewById(R.id.dialTileNumber)).setText(dialEntry.number.isEmpty() ? "Номер не задан" : dialEntry.number);
+                    dialTile.setOnClickListener(new View.OnClickListener() { // from class: ru.big.town.restoremode.MainActivity$$ExternalSyntheticLambda26
+                        @Override // android.view.View.OnClickListener
+                        public void onClick(View view) {
+                            MainActivity.this.m1902lambda$renderSplitTiles$12$rubigtownrestoremodeMainActivity(dialEntry, view);
+                        }
+                    });
+                    dialTile.setOnLongClickListener(new View.OnLongClickListener() { // from class: ru.big.town.restoremode.MainActivity$$ExternalSyntheticLambda27
+                        @Override // android.view.View.OnLongClickListener
+                        public boolean onLongClick(View view) {
+                            return MainActivity.this.m1903lambda$renderSplitTiles$13$rubigtownrestoremodeMainActivity(dialEntry, view);
+                        }
+                    });
+                    int[] place = TileGridPacking.place(placed, 5, 2, 1);
+                    GridLayout.LayoutParams lp = new GridLayout.LayoutParams();
+                    lp.width = (cellW * 2) + gap;
+                    lp.columnSpec = GridLayout.spec(place[0], 2);
+                    lp.rowSpec = GridLayout.spec(place[1]);
+                    applyTileVerticalMetrics(lp, spacing, cellH, place, 1, restH, topPad, columns);
+                    dialTile.setLayoutParams(lp);
+                    this.splitTilesGrid.addView(dialTile);
+                    this.tileDragController.add(dialTile, idx, 2, 1);
+                }
+            } else if (TileOrderStore.Tile.TYPE_WIDGET.equals(tile.type)) {
+                View tileView = null;
+                String id = tile.id;
+                if ("cardAndroidSettings".equals(id)) {
+                    tileView = inflater.inflate(R.layout.tile_android_settings, (ViewGroup) this.splitTilesGrid, false);
+                } else if ("cardPowerHold".equals(id) || "cardLeaveCar".equals(id)) {
+                    tileView = inflater.inflate(R.layout.tile_power_hold, (ViewGroup) this.splitTilesGrid, false);
+                } else if ("cardAutoLight".equals(id)) {
+                    tileView = inflater.inflate(R.layout.tile_auto_light, (ViewGroup) this.splitTilesGrid, false);
+                } else if ("launchAppsWidget".equals(id)) {
+                    tileView = inflater.inflate(R.layout.tile_launch_apps, (ViewGroup) this.splitTilesGrid, false);
+                } else if ("suspensionWidget".equals(id)) {
+                    this.suspensionWidgetView = new SuspensionWidgetView(this, new SuspensionWidgetView.Selection() { // from class: ru.big.town.restoremode.MainActivity$$ExternalSyntheticLambda28
+                        @Override // ru.big.town.restoremode.SuspensionWidgetView.Selection
+                        public void select(int i) {
+                            MainActivity.this.m1904lambda$renderSplitTiles$14$rubigtownrestoremodeMainActivity(i);
+                        }
+                    });
+                    this.suspensionWidgetView.update(this.suspensionState);
+                    tileView = this.suspensionWidgetView;
+                } else if ("cardForcedEv".equals(id)) {
+                    tileView = inflater.inflate(R.layout.tile_forced_ev, (ViewGroup) this.splitTilesGrid, false);
+                } else if ("cardWashMode".equals(id)) {
+                    tileView = inflater.inflate(R.layout.tile_wash_mode, (ViewGroup) this.splitTilesGrid, false);
+                } else if ("cardVoiceCommand".equals(id)) {
+                    tileView = inflater.inflate(R.layout.tile_voice_command, (ViewGroup) this.splitTilesGrid, false);
+                } else if ("tripCard".equals(id)) {
+                    tileView = inflater.inflate(R.layout.tile_trip, (ViewGroup) this.splitTilesGrid, false);
+                } else if ("cardPedestrian".equals(id)) {
+                    tileView = inflater.inflate(R.layout.tile_pedestrian, (ViewGroup) this.splitTilesGrid, false);
+                } else if ("cardBatteryHeat".equals(id)) {
+                    tileView = inflater.inflate(R.layout.tile_battery_heat, (ViewGroup) this.splitTilesGrid, false);
+                } else if ("cardSettings".equals(id)) {
+                    tileView = inflater.inflate(R.layout.tile_settings, (ViewGroup) this.splitTilesGrid, false);
+                } else if ("cardSuspensionMaintenance".equals(id)) {
+                    tileView = inflater.inflate(R.layout.tile_suspension_maintenance, (ViewGroup) this.splitTilesGrid, false);
+                }
+                if (tileView == null) {
+                    continue;
+                }
+                tileView.setVisibility(isWidgetVisible(tile.id) ? 0 : 8);
+                if (tileView.getVisibility() != 0 || "cardDialNumber".equals(tile.id)) {
+                    continue;
+                }
+                if (tile.id.equals("tripCard")) {
+                    this.tripDate = (TextView) tileView.findViewById(R.id.tripDate);
+                    this.tripTimer = (TextView) tileView.findViewById(R.id.tripTimer);
+                    this.tripStatus = (TextView) tileView.findViewById(R.id.tripStatus);
+                    this.tripCard = tileView;
+                    updateTripTimer();
+                } else if (tile.id.equals("cardPowerHold") || tile.id.equals("cardLeaveCar")) {
+                    this.cardPowerHold = tileView;
+                    this.powerHoldBadge = (TextView) tileView.findViewById(R.id.powerHoldBadge);
+                    refreshToggles();
+                } else if (tile.id.equals("cardWashMode")) {
+                    this.cardWashMode = tileView;
+                } else if (tile.id.equals("cardAutoLight")) {
+                    this.cardAutoLight = tileView;
+                    this.autoLightBadge = (TextView) tileView.findViewById(R.id.autoLightBadge);
+                    refreshToggles();
+                } else if (tile.id.equals("cardPedestrian")) {
+                    this.cardPedestrian = tileView;
+                    this.pedestrianBadge = (TextView) tileView.findViewById(R.id.pedestrianBadge);
+                    refreshToggles();
+                } else if (tile.id.equals("cardSuspensionMaintenance")) {
+                    this.cardSuspensionMaintenance = tileView;
+                    this.suspensionMaintenanceBadge = (TextView) tileView.findViewById(R.id.suspensionMaintenanceBadge);
+                    refreshToggles();
+                } else if (tile.id.equals("cardForcedEv")) {
+                    this.cardForcedEv = tileView;
+                    this.forcedEvBadge = (TextView) tileView.findViewById(R.id.forcedEvBadge);
+                    refreshToggles();
+                } else if (tile.id.equals("cardBatteryHeat")) {
+                    this.cardBatteryHeat = tileView.findViewById(R.id.cardBatteryHeat);
+                    this.batteryHeatIcon = (ImageView) tileView.findViewById(R.id.batteryHeatIcon);
+                    this.batteryHeatState = (TextView) tileView.findViewById(R.id.batteryHeatState);
+                    this.batteryHeatTemp = (TextView) tileView.findViewById(R.id.batteryHeatTemp);
+                    this.batteryHeatStatus = (TextView) tileView.findViewById(R.id.batteryHeatStatus);
+                    this.batteryHeatFail = (TextView) tileView.findViewById(R.id.batteryHeatFail);
+                    this.buttonBatteryHeat = (Button) tileView.findViewById(R.id.buttonBatteryHeat);
+                } else if (tile.id.equals("launchAppsWidget")) {
+                    this.launchAppsWidget = tileView.findViewById(R.id.launchAppsWidget);
+                    populateLaunchAppsWidget();
+                }
+                tileView.setOnLongClickListener(new View.OnLongClickListener() { // from class: ru.big.town.restoremode.MainActivity$$ExternalSyntheticLambda29
+                    @Override // android.view.View.OnLongClickListener
+                    public boolean onLongClick(View view) {
+                        return MainActivity.this.m1905lambda$renderSplitTiles$15$rubigtownrestoremodeMainActivity(tile, view);
+                    }
+                });
+                int[] dims = getWidgetDimensions(tile.id);
+                int wCells = dims[0];
+                int hCells = dims[1];
+                int[] place2 = TileGridPacking.place(placed, 5, wCells, hCells);
+                GridLayout.LayoutParams lp2 = new GridLayout.LayoutParams();
+                lp2.width = (cellW * wCells) + ((wCells - 1) * gap);
+                lp2.columnSpec = GridLayout.spec(place2[0], wCells);
+                lp2.rowSpec = GridLayout.spec(place2[1], hCells);
+                applyTileVerticalMetrics(lp2, spacing, cellH, place2, hCells, restH, topPad, columns);
+                tileView.setLayoutParams(lp2);
+                this.splitTilesGrid.addView(tileView);
+                this.tileDragController.add(tileView, idx, wCells, hCells);
+            } else if (TileOrderStore.Tile.TYPE_APP_WIDGET.equals(tile.type)) {
+                final AppWidgetStore.Entry entry = AppWidgetStore.find(this.sharedPreferences, tile.id);
+                if (entry != null) {
+                    final View widgetTile = inflater.inflate(R.layout.tile_embedded_app, (ViewGroup) this.splitTilesGrid, false);
+                    this.appWidgetTileViews.put(entry.id, widgetTile);
+                    populateAppWidgetLauncher(widgetTile, entry);
+                    int wCells2 = AppWidgetStore.clampWidth(entry.width);
+                    int hCells2 = AppWidgetStore.clampHeight(entry.height);
+                    int[] place3 = TileGridPacking.place(placed, 5, wCells2, hCells2);
+                    GridLayout.LayoutParams lp3 = new GridLayout.LayoutParams();
+                    lp3.width = (cellW * wCells2) + ((wCells2 - 1) * gap);
+                    lp3.columnSpec = GridLayout.spec(place3[0], wCells2);
+                    lp3.rowSpec = GridLayout.spec(place3[1], hCells2);
+                    applyTileVerticalMetrics(lp3, spacing, cellH, place3, hCells2, restH, topPad, columns);
+                    widgetTile.setLayoutParams(lp3);
+                    this.splitTilesGrid.addView(widgetTile);
+                    this.tileDragController.add(widgetTile, idx, wCells2, hCells2);
+                    if (entry.autoStart) {
+                        widgetTile.postDelayed(new Runnable() { // from class: ru.big.town.restoremode.MainActivity$$ExternalSyntheticLambda30
+                            @Override // java.lang.Runnable
+                            public void run() {
+                                MainActivity.this.m1906lambda$renderSplitTiles$16$rubigtownrestoremodeMainActivity(entry, widgetTile);
+                            }
+                        }, entry.autoStartDelay * 1000);
+                    }
+                }
+            } else if (TileOrderStore.Tile.TYPE_SPLIT.equals(tile.type)) {
+                final SplitStore.Preset preset2 = presetById.get(tile.id);
+                if (preset2 != null && preset2.ready()) {
+                    View splitTile = inflater.inflate(R.layout.tile_split, (ViewGroup) this.splitTilesGrid, false);
+                    ImageView icLeft = (ImageView) splitTile.findViewById(R.id.tileIcoLeft);
+                    ImageView icRight = (ImageView) splitTile.findViewById(R.id.tileIcoRight);
+                    TextView title = (TextView) splitTile.findViewById(R.id.tileTitle);
+                    TextView ratio = (TextView) splitTile.findViewById(R.id.tileRatio);
+                    TextView state = (TextView) splitTile.findViewById(R.id.tileState);
+                    try {
+                        icLeft.setImageDrawable(getPackageManager().getApplicationIcon(preset2.l));
+                    } catch (Exception unused) {
+                    }
+                    try {
+                        icRight.setImageDrawable(getPackageManager().getApplicationIcon(preset2.r));
+                    } catch (Exception unused2) {
+                    }
+                    title.setText(preset2.ll + "  |  " + preset2.rl);
+                    ratio.setText(SplitStore.RATIO_LABELS[Math.max(0, Math.min(4, preset2.ratio))]);
+                    state.setText("");
+                    splitTile.setOnClickListener(new View.OnClickListener() { // from class: ru.big.town.restoremode.MainActivity$$ExternalSyntheticLambda31
+                        @Override // android.view.View.OnClickListener
+                        public void onClick(View view) {
+                            MainActivity.this.m1907lambda$renderSplitTiles$17$rubigtownrestoremodeMainActivity(preset2, view);
+                        }
+                    });
+                    splitTile.setOnLongClickListener(new View.OnLongClickListener() { // from class: ru.big.town.restoremode.MainActivity$$ExternalSyntheticLambda32
+                        @Override // android.view.View.OnLongClickListener
+                        public boolean onLongClick(View view) {
+                            return MainActivity.this.m1908lambda$renderSplitTiles$18$rubigtownrestoremodeMainActivity(preset2, view);
+                        }
+                    });
+                    int[] place4 = TileGridPacking.place(placed, 5, 2, 1);
+                    GridLayout.LayoutParams lp4 = new GridLayout.LayoutParams();
+                    lp4.width = (cellW * 2) + gap;
+                    lp4.columnSpec = GridLayout.spec(place4[0], 2);
+                    lp4.rowSpec = GridLayout.spec(place4[1], 1);
+                    applyTileVerticalMetrics(lp4, spacing, cellH, place4, 1, restH, topPad, columns);
+                    splitTile.setLayoutParams(lp4);
+                    this.splitTilesGrid.addView(splitTile);
+                    this.tileDragController.add(splitTile, idx, 2, 1);
+                }
+            } else if (TileOrderStore.Tile.TYPE_APP.equals(tile.type)) {
+                final String pkg = tile.id;
+                PackageManager pm = getPackageManager();
+                try {
+                    pm.getApplicationInfo(pkg, 0);
+                } catch (Exception unused3) {
+                    tiles.remove(idx);
+                    TileOrderStore.save(this.sharedPreferences, tiles);
+                    idx--;
+                    continue;
+                }
+                View appTile = inflater.inflate(R.layout.tile_app_shortcut, (ViewGroup) this.splitTilesGrid, false);
+                ImageView ic = (ImageView) appTile.findViewById(R.id.tileIco);
+                TextView labelView = (TextView) appTile.findViewById(R.id.tileTitle);
+                ApplicationInfo ai = null;
+                String label;
+                try {
+                    ai = pm.getApplicationInfo(pkg, 0);
+                    label = pm.getApplicationLabel(ai).toString();
+                } catch (Exception unused4) {
+                    label = pkg;
+                }
+                try {
+                    ic.setImageDrawable(pm.getApplicationIcon(ai));
+                } catch (Exception unused5) {
+                }
+                labelView.setText(label);
+                appTile.setOnClickListener(new View.OnClickListener() { // from class: ru.big.town.restoremode.MainActivity$$ExternalSyntheticLambda1
+                    @Override // android.view.View.OnClickListener
+                    public void onClick(View view) {
+                        MainActivity.this.m1909lambda$renderSplitTiles$19$rubigtownrestoremodeMainActivity(pkg, view);
+                    }
+                });
+                appTile.setOnLongClickListener(new View.OnLongClickListener() { // from class: ru.big.town.restoremode.MainActivity$$ExternalSyntheticLambda11
+                    @Override // android.view.View.OnLongClickListener
+                    public boolean onLongClick(View view) {
+                        return MainActivity.this.m1910lambda$renderSplitTiles$20$rubigtownrestoremodeMainActivity(pkg, view);
+                    }
+                });
+                int[] place5 = TileGridPacking.place(placed, 5, 1, 1);
+                GridLayout.LayoutParams lp5 = new GridLayout.LayoutParams();
+                lp5.width = cellW;
+                lp5.columnSpec = GridLayout.spec(place5[0], 1);
+                lp5.rowSpec = GridLayout.spec(place5[1]);
+                applyTileVerticalMetrics(lp5, spacing, cellH, place5, 1, restH, topPad, columns);
+                appTile.setLayoutParams(lp5);
+                this.splitTilesGrid.addView(appTile);
+                this.tileDragController.add(appTile, idx, 1, 1);
+            }
+        }
     }
 
     static /* synthetic */ GridLayout.LayoutParams lambda$renderSplitTiles$10(int i, int i2, int i3, int i4, int i5, int i6, int i7, int i8, int i9, int i10) {
@@ -1545,36 +1906,6 @@ public class MainActivity extends AppCompatActivity {
             textView.setText(strDesignation);
             textView.setVisibility(0);
         }
-    }
-
-    /** IMP-17: Show result badge on card (CONFIRMED/PENDING/FAILED/TIMEOUT). */
-    private void setCardResultBadge(View cardView, String status) {
-        if (cardView == null || status == null) return;
-        TextView badge = (TextView) cardView.findViewById(R.id.cardResultBadge);
-        if (badge == null) return;
-        int pill;
-        String label;
-        switch (status) {
-            case "CONFIRMED":
-                label = "Выполнено";
-                pill = R.drawable.pill_active;
-                break;
-            case "FAILED":
-                label = "Ошибка";
-                pill = R.drawable.pill_error;
-                break;
-            case "TIMEOUT":
-                label = "Таймаут";
-                pill = R.drawable.pill_error;
-                break;
-            default:
-                label = "Отправлено";
-                pill = R.drawable.pill_pending;
-                break;
-        }
-        badge.setText(label);
-        badge.setBackgroundResource(pill);
-        badge.setVisibility(0);
     }
 
     private void showEmbeddedAppWidget(View view, AppWidgetStore.Entry entry) {
@@ -2216,6 +2547,10 @@ public class MainActivity extends AppCompatActivity {
         try {
             unregisterReceiver(this.embeddedLeftReceiver);
         } catch (Exception unused5) {
+        }
+        try {
+            unregisterReceiver(this.commandResultReceiver);
+        } catch (Exception unused6) {
         }
         this.uiHandler.removeCallbacks(this.tripTick);
     }
