@@ -58,49 +58,45 @@ final class DriveModeCanTransport {
         return DispatchResult.TRANSIENT_FAILURE;
     }
 
-    private static DispatchResult dispatchSplitIndividual(Context context, Map<OemVehicleStateTransport.StateKey, Integer> states, String label) {
-        // Трасса A: две TX77 в порядке OEM — режим, затем руль/педаль
-        Log.i(TAG, "Individual split: sending mode frame first");
-        final boolean[] firstAccepted = {false};
-        // First TX77: mode (DRIVING_MODE_SET)
-        if (!CommandStatusHub.get().submit(ReadBackTable.FEATURE_DRIVE_MODE, new CommandDispatcher.SendAction() {
-            @Override
-            public boolean send() {
-                // Filter to mode-only keys
-                java.util.Map<OemVehicleStateTransport.StateKey, Integer> modeOnly = new java.util.LinkedHashMap();
-                for (java.util.Map.Entry<OemVehicleStateTransport.StateKey, Integer> e : states.entrySet()) {
-                    if (e.getKey().name.contains("DRIVING_MODE") || e.getKey().name.contains("EPS_MODE")) {
-                        modeOnly.put(e.getKey(), e.getValue());
-                    }
-                }
-                firstAccepted[0] = OemVehicleStateTransport.sendBundle(context, modeOnly, "individual mode: " + label).accepted();
-                return firstAccepted[0];
+    private static DispatchResult dispatchSplitIndividual(Context context, final Map<OemVehicleStateTransport.StateKey, Integer> states, String label) {
+        // Трасса A (SPEC L45): одна заявка в CommandStatusHub, внутри две TX77
+        // в порядке OEM: кадр режима (DRIVING_MODE_SET), затем кадр руль/педаль
+        // (EPS_MODE_SET + PROP_MODE_SET). Fallback (Трасса B): если кадр режима
+        // не ушёл — одна TX77 целиком + лог.
+        final Map<OemVehicleStateTransport.StateKey, Integer> modeOnly = new LinkedHashMap();
+        final Map<OemVehicleStateTransport.StateKey, Integer> steerPedal = new LinkedHashMap();
+        for (Map.Entry<OemVehicleStateTransport.StateKey, Integer> e : states.entrySet()) {
+            String name = e.getKey().name;
+            if (name.contains("DRIVING_MODE")) {
+                modeOnly.put(e.getKey(), e.getValue());
+            } else if (name.contains("EPS_MODE") || name.contains("PROP_MODE")) {
+                steerPedal.put(e.getKey(), e.getValue());
             }
-        })) {
-            Log.w(TAG, "Individual mode frame failed; fallback to single bundle");
-            return dispatchBundle(context, states, label + " (fallback)");
         }
-        // Second TX77: steering/pedal (PROP_MODE_SET)
-        final boolean[] secondAccepted = {false};
-        if (!CommandStatusHub.get().submit(ReadBackTable.FEATURE_DRIVE_MODE, new CommandDispatcher.SendAction() {
-            @Override
+        if (modeOnly.isEmpty() || steerPedal.isEmpty()) {
+            Log.w(TAG, "Individual split incomplete (mode=" + modeOnly.size() + " steerPedal=" + steerPedal.size() + "); single TX77");
+            return dispatchBundle(context, states, label);
+        }
+        final Context appContext = context;
+        if (CommandStatusHub.get().submit(ReadBackTable.FEATURE_DRIVE_MODE, new CommandDispatcher.SendAction() {
+            @Override // ru.big.town.anative.CommandDispatcher.SendAction
             public boolean send() {
-                java.util.Map<OemVehicleStateTransport.StateKey, Integer> pedalOnly = new java.util.LinkedHashMap();
-                for (java.util.Map.Entry<OemVehicleStateTransport.StateKey, Integer> e : states.entrySet()) {
-                    if (e.getKey().name.contains("PROP_MODE")) {
-                        pedalOnly.put(e.getKey(), e.getValue());
-                    }
+                if (!OemVehicleStateTransport.sendBundle(appContext, modeOnly, "individual mode frame").accepted()) {
+                    Log.w(TAG, "Individual mode frame rejected; fallback single TX77 (trace B)");
+                    return OemVehicleStateTransport.sendBundle(appContext, states, "drive mode: individual (trace B)").accepted();
                 }
-                secondAccepted[0] = OemVehicleStateTransport.sendBundle(context, pedalOnly, "individual pedal: " + label).accepted();
-                return secondAccepted[0];
+                if (!OemVehicleStateTransport.sendBundle(appContext, steerPedal, "individual steer/pedal frame").accepted()) {
+                    // ASC 785/959: второй кадр потерян — режим уже применён
+                    Log.w(TAG, "Individual steer/pedal frame lost (ASC 785/959); mode frame kept");
+                } else {
+                    Log.i(TAG, "Individual split OK: mode + steer/pedal frames accepted");
+                }
+                return true;
             }
         })) {
-            Log.w(TAG, "Individual pedal frame failed; second TX77 lost (ASC 785/959)");
-            // Трасса B fallback: first уже принят, логируем ошибку
             return DispatchResult.ACCEPTED_UNCONFIRMED;
         }
-        Log.i(TAG, "Individual split OK: mode + pedal both accepted");
-        return DispatchResult.ACCEPTED_UNCONFIRMED;
+        return DispatchResult.TRANSIENT_FAILURE;
     }
 
     static Map<OemVehicleStateTransport.StateKey, Integer> statesFor(Context context, String str) {

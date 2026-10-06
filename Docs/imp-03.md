@@ -1,6 +1,6 @@
 # IMP-03 — Individual: выбор A/B по трассам WP2 (SPEC L45, R4, P1|S-M)
 
-Статус: в разработке. WP3: корректность — Individual выбор по трассам WP2.
+Статус: **реализован** (2026-10-06). WP3: корректность — Individual выбор по трассам WP2.
 
 ## Требования SPEC
 
@@ -23,26 +23,38 @@
 режим использует тот же механизм — одна bundle-транзакция. SPEC требует **две** TX77
 в порядке: кадр режима → кадр руль/педаль.
 
-**Исправление** (Трасса A):
-`DriveModeCanTransport.sendIndividual()` разбивает `IndividualProfile` на две отправки:
-1. TX77: режимные состояния (без steering/accelerator)
-2. TX77: руль/педаль (steering + accelerator)
-Между отправками — проверка `CanSender.beginFrameAttempt()`.
+## Реализация (Трасса A + B)
 
-**Трасса B**: если sendIndividual() не support'ится авто (ASC 785/959), fallback на
-один TX77 + лог ошибки CAN_MSG_IVI_pwrSet_0A5/chassisSet_1BE в диагностику.
+`DriveModeCanTransport.dispatchSplitIndividual()` — вызывается из `dispatch()` для
+`"INDIVIDUAL"`:
+
+1. План делится на два подмножества по именам ключей:
+   - кадр 1: `DRIVING_MODE_SET` (режим);
+   - кадр 2: `EPS_MODE_SET` + `PROP_MODE_SET` (руль/педаль).
+2. **ОДНА** заявка `CommandStatusHub.submit(FEATURE_DRIVE_MODE, action)` — внутри
+   `action.send()` последовательно `sendBundle(frame1)` → `sendBundle(frame2)`
+   (две submit по одному feature недопустимы: вторая немедленно фейлит первую в
+   `CommandDispatcher.submit`, UI получил бы FAILED).
+3. Отказ кадра 1 → **Трасса B**: `sendBundle(states)` целиком (одна TX77) + лог.
+4. Отказ кадра 2 → лог ASC 785/959 («Individual steer/pedal frame lost»), режим уже
+   применён; итог решает read-back окно (retry CommandDispatcher повторяет обе TX77).
+5. Неполный план (нет одного из подмножеств) → сразу одна TX77.
+
+Логи: `Individual split OK: mode + steer/pedal frames accepted` /
+`Individual mode frame rejected; fallback single TX77 (trace B)`.
 
 ## Файлы
 
 | Файл | Изменение |
 |------|-----------|
-| `DriveModeCanTransport.java` | sendIndividual() — две TX77 отправки |
-| `DriveModeCanPolicy.java` | IndividualPlan — разделение на два набора ключей |
+| `DriveModeCanTransport.java` | dispatchSplitIndividual() — две TX77 в одной submit |
+| `DriveModeCanPolicy.java` | (аудит) IndividualPlan — без изменений, разбор по именам ключей |
 | `Docs/behavior-matrix.md` | Строка R4 |
 
 ## Риски / ограничения
 
 - Разделение на две TX77 может увеличить CAN-нагрузку. L51 (IMP-09) уже адресует
   приоритеты: Individual — L1 (режимы), безопасность L0 не страдает.
-- HIL-сценарий «второй кадр потерян» проверяет rollback: если вторая TX77 не прошла,
-  первая должна быть отменена/скомпенсирована.
+- HIL-сценарий «второй кадр потерян» (rollback кадра 1) — отложен до on-car кампании;
+  сейчас кадр 2 теряется без отката кадра 1 (read-back может завести command в
+  TIMEOUT/FAILED — штатная обработка IMP-01).
